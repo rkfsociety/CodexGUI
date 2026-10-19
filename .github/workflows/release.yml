@@ -63,3 +63,54 @@ jobs:
           "artifacts/CodexGUI-win-x64.zip.sha256"
           --title "${{ github.ref_name }}"
           --generate-notes
+
+      - name: Delete older releases and tags
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          function Get-VersionParts([string]$tag) {
+            if ($tag -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)$') { return $null }
+            return @($Matches[1], $Matches[2], $Matches[3])
+          }
+
+          function Compare-VersionTags([string]$left, [string]$right) {
+            $leftParts = Get-VersionParts $left
+            $rightParts = Get-VersionParts $right
+            for ($index = 0; $index -lt 3; $index++) {
+              $leftNumber = $leftParts[$index] -replace '^0+', ''
+              $rightNumber = $rightParts[$index] -replace '^0+', ''
+              if ($leftNumber.Length -eq 0) { $leftNumber = '0' }
+              if ($rightNumber.Length -eq 0) { $rightNumber = '0' }
+              if ($leftNumber.Length -ne $rightNumber.Length) {
+                return [Math]::Sign($leftNumber.Length - $rightNumber.Length)
+              }
+              $comparison = [string]::CompareOrdinal($leftNumber, $rightNumber)
+              if ($comparison -ne 0) { return $comparison }
+            }
+            return 0
+          }
+
+          $currentTag = $env:GITHUB_REF_NAME
+          if ($null -eq (Get-VersionParts $currentTag)) { throw "Invalid release tag: $currentTag" }
+          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
+          $releaseTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+          $remoteTags = git ls-remote --refs origin 'refs/tags/v*'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list remote version tags.' }
+
+          foreach ($line in $remoteTags) {
+            $remoteRef = ($line -split "`t")[1]
+            $oldTag = $remoteRef.Substring('refs/tags/'.Length)
+            if ($null -eq (Get-VersionParts $oldTag)) { continue }
+            if ($oldTag -eq $currentTag -or (Compare-VersionTags $oldTag $currentTag) -ge 0) { continue }
+
+            if ($releaseTags -contains $oldTag) {
+              gh release delete $oldTag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+              if ($LASTEXITCODE -ne 0) { throw "Could not delete older release $oldTag." }
+            } else {
+              git push origin --delete $oldTag
+              if ($LASTEXITCODE -ne 0) { throw "Could not delete older tag $oldTag." }
+            }
+
+          }
