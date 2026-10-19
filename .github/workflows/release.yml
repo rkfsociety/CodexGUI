@@ -96,6 +96,14 @@ jobs:
           $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
           if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
           $releaseTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+
+          foreach ($oldTag in $releaseTags) {
+            if ($null -eq (Get-VersionParts $oldTag)) { continue }
+            if ($oldTag -eq $currentTag -or (Compare-VersionTags $oldTag $currentTag) -ge 0) { continue }
+            gh release delete $oldTag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete older release $oldTag." }
+          }
+
           $remoteTags = git ls-remote --refs origin 'refs/tags/v*'
           if ($LASTEXITCODE -ne 0) { throw 'Could not list remote version tags.' }
 
@@ -104,13 +112,6 @@ jobs:
             $oldTag = $remoteRef.Substring('refs/tags/'.Length)
             if ($null -eq (Get-VersionParts $oldTag)) { continue }
             if ($oldTag -eq $currentTag -or (Compare-VersionTags $oldTag $currentTag) -ge 0) { continue }
-
-            if ($releaseTags -contains $oldTag) {
-              gh release delete $oldTag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-              if ($LASTEXITCODE -ne 0) { throw "Could not delete older release $oldTag." }
-            } else {
-              git push origin --delete $oldTag
-              if ($LASTEXITCODE -ne 0) { throw "Could not delete older tag $oldTag." }
-            }
-
+            git push origin --delete $oldTag
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete older tag $oldTag." }
           }
