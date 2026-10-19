@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\codex-assistant.ico</ApplicationIcon>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Views\WorkspaceView.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Assets\codex-assistant.ico" />
+    <Content Include="Assets\codex-assistant.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
