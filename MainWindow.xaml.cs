@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _stateSaveDebounce;
     private readonly DispatcherTimer _usageRefreshTimer;
     private bool _isRefreshingUsage;
+    private bool _isCheckingUpdates;
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
     private FileSystemWatcher? _viewWatcher;
@@ -88,6 +89,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             _ = RefreshUsageLimitsAsync();
+            _ = CheckForUpdatesAsync(interactive: false);
             if (_currentThread is not null) _ = RestoreThreadHistoryAsync(_currentThread);
         };
         Closed += (_, _) =>
@@ -106,6 +108,39 @@ public partial class MainWindow : Window
         {
             if (WindowState == WindowState.Minimized) Hide();
         };
+    }
+
+    private async Task CheckForUpdatesAsync(bool interactive)
+    {
+        if (_isCheckingUpdates) return;
+        _isCheckingUpdates = true;
+        try
+        {
+            var update = await AppUpdater.FindUpdateAsync();
+            if (update is null)
+            {
+                if (interactive)
+                    MessageBox.Show(this, $"Установлена последняя версия CodexGUI ({AppUpdater.CurrentVersion}).", "Обновления", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var result = MessageBox.Show(this,
+                $"Доступна версия {update.Version}. Установить обновление сейчас? Приложение перезапустится.",
+                "Доступно обновление CodexGUI", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (result != MessageBoxResult.Yes) return;
+
+            await AppUpdater.DownloadAndInstallAsync(update);
+            Close();
+        }
+        catch (Exception error)
+        {
+            if (interactive)
+                MessageBox.Show(this, $"Не удалось проверить или установить обновление.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _isCheckingUpdates = false;
+        }
     }
 
     private void InitializeTrayIcon()
@@ -128,11 +163,18 @@ public partial class MainWindow : Window
             ShowFromTray();
             NewChat();
         });
+        var updateItem = new Forms.ToolStripMenuItem($"Проверить обновления (v{AppUpdater.CurrentVersion})");
+        updateItem.Click += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            ShowFromTray();
+            _ = CheckForUpdatesAsync(interactive: true);
+        });
         var exitItem = new Forms.ToolStripMenuItem("Выход");
         exitItem.Click += (_, _) => Dispatcher.BeginInvoke(Close);
         menu.Items.Add(showItem);
         menu.Items.Add(newChatItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(updateItem);
         menu.Items.Add(exitItem);
 
         _trayIcon = new Forms.NotifyIcon
