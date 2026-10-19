@@ -120,11 +120,11 @@ internal static class AppUpdater
         return asset.ValueKind == JsonValueKind.Undefined ? null : asset.GetProperty("browser_download_url").GetString();
     }
 
-    private static bool IsVersionFormat(string version) =>
+    internal static bool IsVersionFormat(string version) =>
         version.Split('.') is { Length: 3 } parts
         && parts.All(part => part.Length > 0 && part.All(char.IsAsciiDigit));
 
-    private static int CompareVersions(string left, string right)
+    internal static int CompareVersions(string left, string right)
     {
         var leftParts = left.Split('.');
         var rightParts = right.Split('.');
