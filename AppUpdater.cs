@@ -70,9 +70,10 @@ internal static class AppUpdater
             if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Контрольная сумма архива не совпала.");
 
-            var bundledUpdater = Path.Combine(AppContext.BaseDirectory, "Update-CodexGUI.ps1");
-            if (!File.Exists(bundledUpdater)) throw new FileNotFoundException("Не найден сценарий установки обновления.", bundledUpdater);
-            File.Copy(bundledUpdater, updaterPath);
+            using var updaterResource = typeof(AppUpdater).Assembly.GetManifestResourceStream("CodexGUI.Update-CodexGUI.ps1")
+                ?? throw new FileNotFoundException("Не найден встроенный сценарий установки обновления.");
+            await using (var updaterFile = File.Create(updaterPath))
+                await updaterResource.CopyToAsync(updaterFile);
 
             var executablePath = Environment.ProcessPath ?? throw new InvalidOperationException("Не удалось определить путь приложения.");
             var startInfo = new ProcessStartInfo("powershell.exe")

@@ -221,7 +221,9 @@ public partial class MainWindow : Window
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "CodexGUI.csproj"))) return directory.FullName;
+            if (File.Exists(Path.Combine(directory.FullName, "CodexGUI.csproj"))
+                || File.Exists(Path.Combine(directory.FullName, "Views", "WorkspaceView.xaml")))
+                return directory.FullName;
             directory = directory.Parent;
         }
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -261,7 +263,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var xaml = File.ReadAllText(ViewPath);
+            var xaml = File.Exists(ViewPath) ? File.ReadAllText(ViewPath) : ReadEmbeddedWorkspaceView();
             using var reader = XmlReader.Create(new StringReader(xaml));
             if (XamlReader.Load(reader) is not Grid root)
                 throw new InvalidDataException("WorkspaceView.xaml must have a Grid root element.");
@@ -277,6 +279,14 @@ public partial class MainWindow : Window
         {
             SetStatus("Ошибка интерфейса", error.Message, isError: true);
         }
+    }
+
+    private static string ReadEmbeddedWorkspaceView()
+    {
+        using var stream = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.Views.WorkspaceView.xaml")
+            ?? throw new FileNotFoundException("Не найдена встроенная разметка WorkspaceView.xaml.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private void IndexNamedElements(DependencyObject parent, HashSet<DependencyObject>? visited = null)
