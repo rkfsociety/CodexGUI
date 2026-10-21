@@ -31,7 +31,7 @@ internal static class AppUpdater
 
     public static async Task<AppUpdate?> FindUpdateAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await Client.GetAsync(LatestReleaseApi, cancellationToken);
+        using var response = await GetResponseAsync(Client, new Uri(LatestReleaseApi), HttpCompletionOption.ResponseContentRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
@@ -178,10 +178,57 @@ internal static class AppUpdater
 
     private static async Task DownloadFileAsync(Uri uri, string path, CancellationToken cancellationToken)
     {
-        using var response = await Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await GetResponseAsync(Client, uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var destination = File.Create(path);
-        await source.CopyToAsync(destination, cancellationToken);
+        await CopyDownloadAsync(source, destination, TimeSpan.FromSeconds(30), cancellationToken);
+    }
+
+    internal static async Task<HttpResponseMessage> GetResponseAsync(HttpClient client, Uri uri,
+        HttpCompletionOption completionOption, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await client.GetAsync(uri, completionOption, cancellationToken);
+            }
+            catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+            {
+                // GET is safe to repeat once after a transient timeout.
+                if (attempt == 0) continue;
+                throw new TimeoutException($"Сервер {uri.Host} не ответил вовремя после двух попыток. "
+                    + "Проверьте подключение к GitHub и повторите проверку обновлений позже.", error);
+            }
+        }
+    }
+
+    internal static async Task CopyDownloadAsync(Stream source, Stream destination, TimeSpan idleTimeout,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        using var idleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        while (true)
+        {
+            idleCancellation.CancelAfter(idleTimeout);
+            int count;
+            try
+            {
+                count = await source.ReadAsync(buffer.AsMemory(), idleCancellation.Token);
+            }
+            catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Скачивание обновления остановилось: сервер перестал передавать данные. "
+                    + "Проверьте подключение к GitHub и повторите проверку обновлений позже.", error);
+            }
+            finally
+            {
+                idleCancellation.CancelAfter(Timeout.InfiniteTimeSpan);
+            }
+
+            if (count == 0) return;
+            await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+        }
     }
 }
