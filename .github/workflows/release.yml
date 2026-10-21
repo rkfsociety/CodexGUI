@@ -2,11 +2,16 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: codexgui-release-main
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -20,22 +25,65 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Validate release tag
+      - name: Compare project version with latest release
         id: version
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
-            throw "Release tags must use three numeric parts such as v0.0.001."
+          function Compare-Versions([string]$left, [string]$right) {
+            $leftParts = $left.Split('.')
+            $rightParts = $right.Split('.')
+            for ($index = 0; $index -lt 3; $index++) {
+              $leftNumber = $leftParts[$index] -replace '^0+', ''
+              $rightNumber = $rightParts[$index] -replace '^0+', ''
+              if ($leftNumber.Length -eq 0) { $leftNumber = '0' }
+              if ($rightNumber.Length -eq 0) { $rightNumber = '0' }
+              if ($leftNumber.Length -ne $rightNumber.Length) {
+                return [Math]::Sign($leftNumber.Length - $rightNumber.Length)
+              }
+              $comparison = [string]::CompareOrdinal($leftNumber, $rightNumber)
+              if ($comparison -ne 0) { return $comparison }
+            }
+            return 0
           }
-          "version=$($env:GITHUB_REF_NAME.Substring(1))" >> $env:GITHUB_OUTPUT
+
+          [xml]$project = Get-Content -LiteralPath 'CodexGUI.csproj' -Raw
+          $version = $project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Project version must use three numeric parts: $version"
+          }
+
+          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
+          $releaseTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+          $latestVersion = '0.0.000'
+          foreach ($tag in $releaseTags) {
+            if ($tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)$') { continue }
+            $candidate = $Matches[1]
+            if ((Compare-Versions $candidate $latestVersion) -gt 0) { $latestVersion = $candidate }
+          }
+
+          $comparison = Compare-Versions $version $latestVersion
+          if ($comparison -lt 0) { throw "Project version $version is older than latest release $latestVersion." }
+          $shouldRelease = $comparison -gt 0
+          if ($shouldRelease) {
+            Write-Host "Release v$version is newer than v$latestVersion."
+          } else {
+            Write-Host "Release v$version already exists; nothing to publish."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "should_release=$($shouldRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Publish self-contained Windows app
+        if: steps.version.outputs.should_release == 'true'
         run: >-
           dotnet publish CodexGUI.csproj --configuration Release --runtime win-x64
           --self-contained true --output artifacts/publish
           -p:Version=${{ steps.version.outputs.version }}
 
       - name: Publish single-file executable
+        if: steps.version.outputs.should_release == 'true'
         run: >-
           dotnet publish CodexGUI.csproj --configuration Release --runtime win-x64
           --self-contained true --output artifacts/single-file
@@ -43,9 +91,11 @@ jobs:
           -p:Version=${{ steps.version.outputs.version }}
 
       - name: Package release and checksum
+        if: steps.version.outputs.should_release == 'true'
         shell: pwsh
         env:
           CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           Compress-Archive -Path artifacts/publish/* -DestinationPath artifacts/CodexGUI-win-x64.zip
@@ -59,8 +109,7 @@ jobs:
           $signer = [System.Security.Cryptography.ECDsa]::Create()
           try {
             $signer.ImportFromPem($env:CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY)
-            $version = $env:GITHUB_REF_NAME.Substring(1)
-            $manifest = "$version`n$hash  CodexGUI-win-x64.zip"
+            $manifest = "$env:RELEASE_VERSION`n$hash  CodexGUI-win-x64.zip"
             $payload = [System.Text.Encoding]::UTF8.GetBytes($manifest)
             $signature = $signer.SignData($payload, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
             [System.IO.File]::WriteAllText('artifacts/CodexGUI-win-x64.zip.sig', [Convert]::ToBase64String($signature))
@@ -68,22 +117,26 @@ jobs:
           finally { $signer.Dispose() }
 
       - name: Publish GitHub Release
+        if: steps.version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "${{ github.ref_name }}"
+          gh release create "v${{ steps.version.outputs.version }}"
           "artifacts/single-file/CodexGUI.exe"
           "artifacts/CodexGUI.exe.sha256"
           "artifacts/CodexGUI-win-x64.zip"
           "artifacts/CodexGUI-win-x64.zip.sha256"
           "artifacts/CodexGUI-win-x64.zip.sig"
-          --title "${{ github.ref_name }}"
+          --target "${{ github.sha }}"
+          --title "v${{ steps.version.outputs.version }}"
           --generate-notes
 
       - name: Delete older releases and tags
+        if: steps.version.outputs.should_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           function Get-VersionParts([string]$tag) {
             if ($tag -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)$') { return $null }
@@ -107,7 +160,7 @@ jobs:
             return 0
           }
 
-          $currentTag = $env:GITHUB_REF_NAME
+          $currentTag = "v$env:RELEASE_VERSION"
           if ($null -eq (Get-VersionParts $currentTag)) { throw "Invalid release tag: $currentTag" }
           $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
           if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
