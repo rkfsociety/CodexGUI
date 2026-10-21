@@ -1660,96 +1660,14 @@ public partial class MainWindow : Window
 
     private void ShowFileDiff(string repositoryRoot, string relativePath, string diff)
     {
-        var dialog = new Window
-        {
-            Owner = this,
-            Title = $"Изменения · {Path.GetFileName(relativePath)}",
-            Width = 920,
-            Height = 720,
-            MinWidth = 620,
-            MinHeight = 440,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brush("#11151B"),
-            Foreground = Brush("#EEF3F8")
-        };
-        var layout = new Grid { Margin = new Thickness(18) };
-        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        layout.Children.Add(new TextBlock
-        {
-            Text = Path.Combine(repositoryRoot, relativePath),
-            Foreground = Brush("#A4B1C2"),
-            FontSize = 11,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 0, 12)
-        });
-        var diffBox = new TextBox
-        {
-            Text = diff,
-            IsReadOnly = true,
-            IsReadOnlyCaretVisible = true,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
-            Padding = new Thickness(12),
-            Background = Brush("#18212C"),
-            Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2B3746"),
-            BorderThickness = new Thickness(1)
-        };
-        Grid.SetRow(diffBox, 1);
-        layout.Children.Add(diffBox);
-        var commentInput = new TextBox
-        {
-            MinHeight = 52,
-            MaxHeight = 100,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Padding = new Thickness(10, 8, 10, 8),
-            Margin = new Thickness(0, 10, 0, 0),
-            Background = Brush("#18212C"),
-            Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2B3746"),
-            BorderThickness = new Thickness(1),
-            ToolTip = "Необязательное замечание к выбранным строкам"
-        };
-        Grid.SetRow(commentInput, 2);
-        layout.Children.Add(commentInput);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-        var addComment = new Button
-        {
-            Content = "Добавить комментарий",
-            Padding = new Thickness(12, 7, 12, 7),
-            Background = Brush("#223B38"),
-            Foreground = Brush("#A8E6CF"),
-            IsEnabled = false,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        diffBox.SelectionChanged += (_, _) => addComment.IsEnabled = !string.IsNullOrWhiteSpace(diffBox.SelectedText);
-        addComment.Click += (_, _) =>
-        {
-            var selectedDiff = diffBox.SelectedText;
-            var lineAnchor = GetDiffLineAnchor(diffBox.Text, diffBox.SelectionStart, diffBox.SelectionLength);
-            if (AppendDiffComment(relativePath, selectedDiff, lineAnchor, commentInput.Text)) dialog.DialogResult = true;
-        };
-        buttons.Children.Add(addComment);
-        var close = new Button { Content = "Закрыть", Padding = new Thickness(14, 7, 14, 7), Background = Brush("#263344") };
-        close.Click += (_, _) => dialog.Close();
-        buttons.Children.Add(close);
-        Grid.SetRow(buttons, 3);
-        layout.Children.Add(buttons);
-        dialog.Content = layout;
+        var dialog = new DiffReviewerWindow(this, repositoryRoot, relativePath, diff,
+            threads => AppendDiffCommentThreads(relativePath, threads));
         if (dialog.ShowDialog() == true) Control<TextBox>("PromptInput")?.Focus();
     }
 
-    private bool AppendDiffComment(string relativePath, string selectedDiff, string? lineAnchor, string? comment)
+    private bool AppendDiffCommentThreads(string relativePath, IReadOnlyList<DiffCommentThread> threads)
     {
-        if (string.IsNullOrWhiteSpace(selectedDiff)) return false;
+        if (threads.Count == 0) return false;
         var input = Control<TextBox>("PromptInput");
         if (input is null) return false;
         if (_currentThread is null && _selectedProject is not null)
@@ -1760,97 +1678,23 @@ public partial class MainWindow : Window
             UpdateChatInfoPanel();
         }
         if (input.Text == PromptPlaceholder) input.Clear();
-        var anchor = string.IsNullOrWhiteSpace(lineAnchor) ? "" : $" ({lineAnchor})";
-        var note = $"Комментарий к изменениям в файле `{relativePath}`{anchor}:\n";
-        if (!string.IsNullOrWhiteSpace(comment)) note += comment.Trim() + "\n\n";
-        note += $"```diff\n{selectedDiff.TrimEnd()}\n```";
+        var note = new StringBuilder($"Ветки замечаний к изменениям в файле `{relativePath}`:\n\n");
+        for (var index = 0; index < threads.Count; index++)
+        {
+            var thread = threads[index];
+            note.Append($"### Замечание {index + 1}");
+            if (!string.IsNullOrWhiteSpace(thread.LineAnchor)) note.Append($" ({thread.LineAnchor})");
+            note.AppendLine();
+            note.AppendLine(thread.Comment);
+            foreach (var reply in thread.Replies) note.Append("Ответ: ").AppendLine(reply);
+            note.AppendLine("```diff");
+            note.AppendLine(thread.SelectedDiff.TrimEnd());
+            note.AppendLine("```");
+            note.AppendLine();
+        }
         input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n\n") + note;
         input.CaretIndex = input.Text.Length;
         return true;
-    }
-
-    private static string? GetDiffLineAnchor(string diff, int selectionStart, int selectionLength)
-    {
-        if (selectionLength <= 0) return null;
-        var selectionEnd = selectionStart + selectionLength;
-        var oldLine = 0;
-        var newLine = 0;
-        var oldLines = new SortedSet<int>();
-        var newLines = new SortedSet<int>();
-        var lineStart = 0;
-
-        while (lineStart <= diff.Length)
-        {
-            var lineEnd = diff.IndexOf('\n', lineStart);
-            if (lineEnd < 0) lineEnd = diff.Length;
-            var line = diff[lineStart..lineEnd].TrimEnd('\r');
-            var selected = lineStart < selectionEnd && lineEnd > selectionStart;
-
-            if (line.StartsWith("@@", StringComparison.Ordinal))
-            {
-                var oldMarker = line.IndexOf('-', StringComparison.Ordinal);
-                var newMarker = line.IndexOf('+', StringComparison.Ordinal);
-                var oldEnd = oldMarker >= 0 ? line.IndexOfAny([',', ' '], oldMarker + 1) : -1;
-                var newEnd = newMarker >= 0 ? line.IndexOfAny([',', ' '], newMarker + 1) : -1;
-                if (oldMarker >= 0 && oldEnd > oldMarker && int.TryParse(line[(oldMarker + 1)..oldEnd], out var oldStart))
-                    oldLine = oldStart;
-                if (newMarker >= 0 && newEnd > newMarker && int.TryParse(line[(newMarker + 1)..newEnd], out var newStart))
-                    newLine = newStart;
-            }
-            else if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
-            {
-                // File headers are not source lines in a diff hunk.
-            }
-            else if (line.StartsWith('+'))
-            {
-                if (selected && newLine > 0) newLines.Add(newLine);
-                if (newLine > 0) newLine++;
-            }
-            else if (line.StartsWith('-'))
-            {
-                if (selected && oldLine > 0) oldLines.Add(oldLine);
-                if (oldLine > 0) oldLine++;
-            }
-            else if (line.StartsWith(' ') && oldLine > 0 && newLine > 0)
-            {
-                if (selected)
-                {
-                    oldLines.Add(oldLine);
-                    newLines.Add(newLine);
-                }
-                oldLine++;
-                newLine++;
-            }
-
-            if (lineEnd == diff.Length) break;
-            lineStart = lineEnd + 1;
-        }
-
-        var locations = new List<string>();
-        if (oldLines.Count > 0) locations.Add("old " + FormatLineNumbers(oldLines));
-        if (newLines.Count > 0) locations.Add("new " + FormatLineNumbers(newLines));
-        return locations.Count == 0 ? null : string.Join("; ", locations);
-    }
-
-    private static string FormatLineNumbers(IEnumerable<int> lines)
-    {
-        var ordered = lines.Order().ToArray();
-        if (ordered.Length == 0) return "";
-        var ranges = new List<string>();
-        var start = ordered[0];
-        var end = start;
-        for (var index = 1; index < ordered.Length; index++)
-        {
-            if (ordered[index] == end + 1)
-            {
-                end = ordered[index];
-                continue;
-            }
-            ranges.Add(start == end ? $"L{start}" : $"L{start}-L{end}");
-            start = end = ordered[index];
-        }
-        ranges.Add(start == end ? $"L{start}" : $"L{start}-L{end}");
-        return string.Join(", ", ranges);
     }
 
     private void OpenRepositoryRemote()

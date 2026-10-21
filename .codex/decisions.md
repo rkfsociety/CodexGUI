@@ -22,3 +22,10 @@
 - Decision: route `item/tool/requestUserInput`, `mcpServer/elicitation/request`, and `item/permissions/requestApproval` through dedicated user dialogs and the existing worker response-control channel. Grant only selected permission categories; default to turn scope and require an explicit click before opening an MCP URL.
 - Constraint: worker initialization opts into `experimentalApi` for tool input and `mcpServerOpenaiFormElicitation` for MCP forms. Unattended workers cancel MCP elicitations and grant no additional permissions.
 - Source: the pinned App Server `0.163.0` protocol schema and the App Server documentation; implementation lives in `CodexAppServerRequestDialog.cs`, `CodexAppServerTurnWorker.cs`, and `MainWindow.xaml.cs`.
+
+## Keep diff comment threads local until attached to a chat prompt
+
+- Status: active.
+- Decision: render syntax-colored diff lines and let users draft separate line-anchored comment threads and replies in the reviewer. Add the collected context to the chat composer only when requested; keep these drafts in memory until attached.
+- Reason: the pinned App Server exposes `review/start` but no production comment-thread RPC; the existing workflow sends selected diff context through the normal chat turn.
+- Source: `DiffReviewerWindow.cs`, `MainWindow.xaml.cs`, and `README.md`.
