@@ -196,7 +196,7 @@ public partial class MainWindow : Window
         };
     }
 
-    private void ShowFromTray()
+    internal void ShowFromTray()
     {
         if (!IsVisible) Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;

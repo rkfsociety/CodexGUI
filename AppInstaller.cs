@@ -27,7 +27,11 @@ internal static class AppInstaller
 
         try
         {
-            if (IsInstalledCopyRunning(installedExecutable)) return true;
+            if (IsInstalledCopyRunning(installedExecutable))
+            {
+                SingleInstanceCoordinator.SignalPrimaryInstance();
+                return true;
+            }
 
             if (File.Exists(installedExecutable) && IsInstalledVersionCurrentOrNewer(installedExecutable))
             {
