@@ -135,7 +135,11 @@
               </WrapPanel></StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
                 <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата"><Ellipse Stroke="#34465A" StrokeThickness="2.6"/><Path x:Name="ContextUsageArc" Stroke="#A8E6CF" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><TextBlock x:Name="ContextPercent" Text="—" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
-                <Border Background="#222E3D" CornerRadius="6" Padding="8,5" Margin="0,0,9,0" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock Text="CLI" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border>
+                <Border Background="#222E3D" CornerRadius="6" Padding="8,5" Margin="0,0,9,0" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock Text="Codex" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                  <Button x:Name="FollowUpModeButton" Height="30" Padding="8,0" Margin="0,0,0,4" Background="#222E3D" Foreground="#C8D4E2" FontSize="10" Visibility="Collapsed" ToolTip="Выбрать, отправлять ли сообщение в текущий ход или поставить в очередь"/>
+                  <Button x:Name="StopButton" Content="Остановить" Height="30" Padding="8,0" Background="#4A2A31" Foreground="#F2C5C8" FontSize="10" Visibility="Collapsed" ToolTip="Прервать текущий ход Codex"/>
+                </StackPanel>
                 <Button x:Name="SendButton" Width="36" Height="36" Padding="0" Background="#A8E6CF" Foreground="#151B23" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>

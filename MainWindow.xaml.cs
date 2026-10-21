@@ -104,6 +104,7 @@ public partial class MainWindow : Window
         _repositoryRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _repositoryRefreshTimer.Tick += async (_, _) => await RefreshRepositoryInfoAsync();
         LoadState();
+        CleanupObsoleteWorkerRuntimeCaches();
         ReloadView();
         InitializeTrayIcon();
         StartViewWatcher();
@@ -435,6 +436,8 @@ public partial class MainWindow : Window
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
         Click("ArchivedChatsButton", (_, _) => ToggleArchivedChats());
         Click("SendButton", async (_, _) => await SendPromptAsync());
+        Click("FollowUpModeButton", (_, _) => ToggleFollowUpMode());
+        Click("StopButton", async (_, _) => await InterruptCurrentTurnAsync());
         Click("ClearPromptQueueButton", (_, _) => ClearPromptQueue());
         Click("ModeButton", (_, _) => ShowAccessMenu());
         Click("ModelButton", async (_, _) => await ShowModelMenuAsync());
@@ -500,7 +503,7 @@ public partial class MainWindow : Window
             RefreshFileTree();
             _ = RefreshRepositoryInfoAsync();
         }
-        SetStatus(HasActiveRuns ? "Codex работает…" : "Codex CLI готов",
+        SetStatus(HasActiveRuns ? "Codex работает…" : "Codex готов",
             _startupIssue ?? (HasActiveRuns ? "Есть выполняющиеся запросы." : "Запросы выполняются в выбранной папке."),
             isError: _startupIssue is not null);
     }
@@ -822,7 +825,7 @@ public partial class MainWindow : Window
             {
                 RenderConversation();
                 if (thread.HistoryError is null)
-                    SetStatus("Codex CLI готов", "История чата восстановлена из Codex.");
+                    SetStatus("Codex готов", "История чата восстановлена из Codex.");
             }
         }
     }
@@ -1178,6 +1181,7 @@ public partial class MainWindow : Window
             "command_execution" or "commandExecution" => "Команда",
             "file_change" or "fileChange" => "Изменение файлов",
             "mcp_tool_call" or "mcpToolCall" => "Вызов инструмента",
+            "collabToolCall" => "Субагент",
             "web_search" or "webSearch" => "Поиск в интернете",
             "todo_list" or "plan" => "План работы",
             "error" => "Ошибка",
@@ -1623,10 +1627,67 @@ public partial class MainWindow : Window
             send.IsEnabled = !_isInstallingUpdate && !_isClosing;
             send.ToolTip = queueing ? "Добавить в очередь (Enter)" : "Отправить (Enter)";
         }
+        var activeRun = _currentThread?.ActiveRun;
+        var canControlTurn = activeRun is { AppServerMode: true };
         if (Control<TextBlock>("SendButtonIcon") is { } icon)
-            icon.Text = queueing ? "＋" : "↑";
+            icon.Text = canControlTurn && activeRun?.SteerFollowUps == true ? "↑" : queueing ? "＋" : "↑";
+        if (Control<Button>("SendButton") is { } sendButton && canControlTurn)
+            sendButton.ToolTip = activeRun?.SteerFollowUps == true ? "Направить в текущий ход (Enter)" : "Добавить в очередь (Enter)";
+        if (Control<Button>("FollowUpModeButton") is { } followUpMode)
+        {
+            followUpMode.Visibility = canControlTurn ? Visibility.Visible : Visibility.Collapsed;
+            followUpMode.Content = activeRun?.SteerFollowUps == true ? "Направить" : "В очередь";
+            followUpMode.ToolTip = activeRun?.SteerFollowUps == true
+                ? "Отправить следующее сообщение прямо в текущий ход Codex"
+                : "Поставить сообщение в очередь после текущего хода Codex";
+            followUpMode.IsEnabled = canControlTurn && activeRun?.StopRequested != true;
+        }
+        if (Control<Button>("StopButton") is { } stop)
+        {
+            stop.Visibility = canControlTurn ? Visibility.Visible : Visibility.Collapsed;
+            stop.IsEnabled = canControlTurn && activeRun?.StopRequested != true;
+            stop.Content = activeRun?.StopRequested == true ? "Останавливаю…" : "Остановить";
+        }
         UpdateWorktreeButton();
         UpdateReviewChangesButton();
+    }
+
+    private void ToggleFollowUpMode()
+    {
+        if (_currentThread?.ActiveRun is not { AppServerMode: true } run) return;
+        run.SteerFollowUps = !run.SteerFollowUps;
+        SaveState();
+        UpdateSendButtonState();
+    }
+
+    private async Task InterruptCurrentTurnAsync()
+    {
+        if (_currentThread?.ActiveRun is not { AppServerMode: true, StopRequested: false } run) return;
+        run.StopRequested = true;
+        SaveState();
+        UpdateSendButtonState();
+        try
+        {
+            await WriteAppServerControlAsync(run, new CodexAppServerWorkerControl { Action = "interrupt" });
+            SetStatus("Останавливаю Codex…", "Запрос на прерывание отправлен.");
+        }
+        catch (Exception error)
+        {
+            run.StopRequested = false;
+            SaveState();
+            UpdateSendButtonState();
+            SetStatus("Не удалось остановить Codex", error.Message, isError: true);
+        }
+    }
+
+    private static async Task WriteAppServerControlAsync(ActiveCliRun run, CodexAppServerWorkerControl control)
+    {
+        var controlDirectory = Path.Combine(Path.GetDirectoryName(run.CompletionPath)!, "controls");
+        Directory.CreateDirectory(controlDirectory);
+        var controlPath = Path.Combine(controlDirectory, $"{DateTime.UtcNow.Ticks:D20}_{Guid.NewGuid():N}.json");
+        var temporaryPath = controlPath + ".tmp";
+        await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(control), new UTF8Encoding(false));
+        File.Move(temporaryPath, controlPath);
     }
 
     private void UpdateWorktreeButton()
@@ -1740,6 +1801,20 @@ public partial class MainWindow : Window
 
         _currentThread ??= NewThread();
         var thread = _currentThread;
+        if (thread.ActiveRun is { AppServerMode: true, SteerFollowUps: true, StopRequested: false } activeRun)
+        {
+            try
+            {
+                await WriteAppServerControlAsync(activeRun, new CodexAppServerWorkerControl { Action = "steer", Prompt = prompt });
+            }
+            catch (Exception error)
+            {
+                SetStatus("Не удалось направить сообщение в текущий ход", error.Message, isError: true);
+                return;
+            }
+            input.Clear();
+            return;
+        }
         if (thread.Messages.Count == 0 && thread.ActiveRun is null && !_promptQueue.Any(item => item.ThreadId == thread.Id))
         {
             thread.Title = TrimTitle(prompt);
@@ -1790,7 +1865,7 @@ public partial class MainWindow : Window
         // The worker log is replayed from the start, including messages already in history.
         // Rebuild only this active turn to avoid duplicating its messages and activities.
         thread.Messages.RemoveRange(userIndex + 1, thread.Messages.Count - userIndex - 1);
-        var assistant = new ChatMessage(false, "CLI продолжает выполнять запрос…");
+        var assistant = new ChatMessage(false, "Codex продолжает выполнять запрос…");
         thread.Messages.Add(assistant);
         return assistant;
     }
@@ -1823,7 +1898,7 @@ public partial class MainWindow : Window
                     await SetThreadArchivedAsync(thread, archived: false);
                     if (thread.IsArchived) continue;
                 }
-                var activeRun = CreateActiveCliRun(queued);
+                var activeRun = CreateActiveCliRun(thread, queued);
                 thread.ActiveRun = activeRun;
                 _promptQueue.Remove(queued);
                 SaveState();
@@ -1870,11 +1945,13 @@ public partial class MainWindow : Window
         {
             var response = await RunCodexAsync(thread, activeRun, assistantMessage);
             assistantMessage.Text = string.IsNullOrWhiteSpace(response)
-                ? "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале."
+                ? activeRun.CompletionStatus == "interrupted"
+                    ? "Ход остановлен."
+                    : "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале."
                 : response;
-            if (assistantMessage.HasCompletedMessages && string.IsNullOrWhiteSpace(response))
+            if (assistantMessage.HasCompletedMessages && string.IsNullOrWhiteSpace(response) && activeRun.CompletionStatus != "interrupted")
                 thread.Messages.Remove(assistantMessage);
-            if (_currentThread == thread) SetStatus("Codex CLI готов", "Ответ получен.");
+            if (_currentThread == thread) SetStatus("Codex готов", "Ответ получен.");
         }
         catch (Exception error)
         {
@@ -1889,6 +1966,7 @@ public partial class MainWindow : Window
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
                 await RestoreThreadHistoryAsync(thread, force: true);
             CleanupCliRun(activeRun);
+            CleanupObsoleteWorkerRuntimeCaches();
             RenderThreads();
             if (_currentThread == thread) RenderConversation();
             UpdateChatInfoPanel();
@@ -1900,7 +1978,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private ActiveCliRun CreateActiveCliRun(QueuedPrompt queued)
+    private ActiveCliRun CreateActiveCliRun(ChatThread thread, QueuedPrompt queued)
     {
         var runId = Guid.NewGuid().ToString("N");
         var runDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", runId);
@@ -1917,7 +1995,8 @@ public partial class MainWindow : Window
             StartedPath = Path.Combine(runDirectory, "started.json"),
             OutputPath = Path.Combine(runDirectory, "stdout.jsonl"),
             ErrorPath = Path.Combine(runDirectory, "stderr.txt"),
-            CompletionPath = Path.Combine(runDirectory, "completed.json")
+            CompletionPath = Path.Combine(runDirectory, "completed.json"),
+            AppServerMode = thread.ForkFromSessionId is null && (!thread.UseWorktree || thread.CodexSessionId is not null)
         };
     }
 
@@ -1984,6 +2063,76 @@ public partial class MainWindow : Window
                     }, DispatcherPriority.Background);
                 }
 
+                if (eventType == "approval.request" && GetString(root, "request_id") is { } approvalId &&
+                    root.TryGetProperty("method", out var approvalMethod) && root.TryGetProperty("params", out var approvalParameters) &&
+                    !activeRun.ResolvedApprovalRequestIds.Contains(approvalId, StringComparer.Ordinal))
+                {
+                    var method = approvalMethod.GetString() ?? "";
+                    var parameterSnapshot = approvalParameters.Clone();
+                    _ = Dispatcher.BeginInvoke(new Action(async () =>
+                        await ResolveAppServerApprovalAsync(thread, activeRun, approvalId, method, parameterSnapshot)));
+                    return;
+                }
+
+                if (eventType == "turn.steer.accepted" && GetString(root, "prompt") is { Length: > 0 } steeredPrompt)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        var index = thread.Messages.FindLastIndex(message => !message.IsUser && message.ActivityTitle is null);
+                        thread.Messages.Insert(index >= 0 ? index : thread.Messages.Count, new ChatMessage(true, steeredPrompt));
+                        SaveState();
+                        if (_currentThread == thread) RenderConversation();
+                    }, DispatcherPriority.Background);
+                }
+
+                if (eventType is "server.request.unsupported" or "control.error")
+                {
+                    var controlAction = GetString(root, "action");
+                    var failedPrompt = GetString(root, "prompt");
+                    var detail = eventType == "server.request.unsupported"
+                        ? $"Codex запросил действие, которое пока не поддерживается: {GetString(root, "method") ?? "неизвестный метод"}"
+                        : GetString(root, "message") ?? "Не удалось отправить действие в Codex.";
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        if (eventType == "control.error" && controlAction == "interrupt")
+                        {
+                            activeRun.StopRequested = false;
+                            UpdateSendButtonState();
+                        }
+                        if (eventType == "control.error" && controlAction == "steer" && !string.IsNullOrWhiteSpace(failedPrompt))
+                        {
+                            if (_currentThread == thread && Control<TextBox>("PromptInput") is { } promptInput &&
+                                (string.IsNullOrWhiteSpace(promptInput.Text) || promptInput.Text == PromptPlaceholder))
+                            {
+                                promptInput.Text = failedPrompt;
+                                promptInput.CaretIndex = promptInput.Text.Length;
+                            }
+                            else if (!_promptQueue.Any(queued => queued.ThreadId == thread.Id && queued.Text == failedPrompt))
+                            {
+                                _promptQueue.Add(new QueuedPrompt
+                                {
+                                    ThreadId = thread.Id,
+                                    Text = failedPrompt,
+                                    Model = activeRun.Model,
+                                    Effort = activeRun.Effort,
+                                    FullAccess = activeRun.FullAccess
+                                });
+                                RenderPromptQueue();
+                            }
+                            SaveState();
+                        }
+                        var index = thread.Messages.IndexOf(assistantMessage);
+                        if (index >= 0)
+                            thread.Messages.Insert(index, new ChatMessage(false, detail)
+                            {
+                                ActivityTitle = "✕  Действие Codex не выполнено",
+                                IsError = true
+                            });
+                        if (_currentThread == thread) RenderConversation();
+                        SaveState();
+                    }, DispatcherPriority.Background);
+                }
+
                 if (eventType == "token_count" && root.TryGetProperty("info", out var tokenInfo) &&
                     tokenInfo.TryGetProperty("last_token_usage", out var lastUsage) &&
                     lastUsage.TryGetProperty("total_tokens", out var totalTokens) && totalTokens.TryGetInt64(out var tokenCount) && tokenCount >= 0 &&
@@ -2002,7 +2151,7 @@ public partial class MainWindow : Window
                 if (eventType is "item.started" or "item.updated" or "item.completed" && root.TryGetProperty("item", out var item))
                 {
                     var completed = eventType == "item.completed";
-                    var isAgent = GetString(item, "type") == "agent_message";
+                    var isAgent = GetString(item, "type") is "agent_message" or "agentMessage";
                     var message = isAgent
                         ? new ChatMessage(false, GetString(item, "text") ?? "")
                         : CreateActivityMessage(item, completed);
@@ -2075,6 +2224,7 @@ public partial class MainWindow : Window
         }
 
         var completion = JsonSerializer.Deserialize<CodexCliWorkerCompletion>(await File.ReadAllTextAsync(activeRun.CompletionPath));
+        activeRun.CompletionStatus = completion?.Status;
         if (completion?.SessionId is { Length: > 0 } sessionId && thread.CodexSessionId != sessionId)
         {
             thread.CodexSessionId = sessionId;
@@ -2090,6 +2240,245 @@ public partial class MainWindow : Window
         }
 
         lock (responseLock) return response.ToString().Trim();
+    }
+
+    private async Task ResolveAppServerApprovalAsync(ChatThread thread, ActiveCliRun run, string requestId,
+        string method, JsonElement parameters)
+    {
+        if (_isClosing || thread.ActiveRun?.RunId != run.RunId || run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
+            return;
+
+        ShowFromTray();
+        var decision = ShowAppServerApprovalDialog(method, parameters);
+        if (thread.ActiveRun?.RunId != run.RunId || _isClosing) return;
+        try
+        {
+            await WriteAppServerControlAsync(run, new CodexAppServerWorkerControl
+            {
+                Action = "approval",
+                RequestId = requestId,
+                Decision = decision
+            });
+            if (!run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
+                run.ResolvedApprovalRequestIds.Add(requestId);
+            SaveState();
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось отправить решение Codex", error.Message, isError: true);
+            var index = thread.Messages.FindLastIndex(message => !message.IsUser && message.ActivityTitle is null);
+            if (index >= 0)
+                thread.Messages.Insert(index, new ChatMessage(false, error.Message)
+                {
+                    ActivityTitle = "✕  Ошибка подтверждения",
+                    IsError = true
+                });
+            if (_currentThread == thread) RenderConversation();
+            SaveState();
+        }
+    }
+
+    private string ShowAppServerApprovalDialog(string method, JsonElement parameters)
+    {
+        var isFileChange = method == "item/fileChange/requestApproval";
+        var networkContext = parameters.TryGetProperty("networkApprovalContext", out var networkApproval);
+        var title = isFileChange
+            ? "Разрешить изменение файлов?"
+            : networkContext ? "Разрешить сетевой доступ?" : "Разрешить выполнение команды?";
+        var window = new Window
+        {
+            Owner = this,
+            Title = "Подтверждение Codex",
+            Width = 560,
+            MaxHeight = 620,
+            MinHeight = 210,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Background = Brush("#18212C"),
+            Foreground = Brush("#F0F0F1")
+        };
+        var layout = new StackPanel { Margin = new Thickness(20) };
+        layout.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 17,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+
+        var reason = GetString(parameters, "reason");
+        if (!string.IsNullOrWhiteSpace(reason))
+            layout.Children.Add(new TextBlock
+            {
+                Text = reason,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Brush("#C8D4E2"),
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+        var detail = networkContext
+            ? string.Join(" · ", new[] { GetString(networkApproval, "host"), GetString(networkApproval, "protocol") }
+                .Where(value => !string.IsNullOrWhiteSpace(value)))
+            : isFileChange
+                ? GetString(parameters, "grantRoot")
+                : GetString(parameters, "command");
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            var detailText = new TextBlock
+            {
+                Text = detail,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 12,
+                Foreground = Brush("#E2E8F0")
+            };
+            layout.Children.Add(new Border
+            {
+                Background = Brush("#222E3D"),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10),
+                Margin = new Thickness(0, 0, 0, 10),
+                Child = new ScrollViewer
+                {
+                    Content = detailText,
+                    MaxHeight = 180,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                }
+            });
+        }
+
+        var location = networkContext ? null : GetString(parameters, "cwd");
+        if (!string.IsNullOrWhiteSpace(location))
+            layout.Children.Add(new TextBlock
+            {
+                Text = location,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 10,
+                Foreground = Brush("#9AA8B8"),
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var hasAvailableDecisions = parameters.TryGetProperty("availableDecisions", out var available) && available.ValueKind == JsonValueKind.Array;
+        var canAllow = !hasAvailableDecisions || available.EnumerateArray()
+            .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == "accept");
+        var canAllowForSession = hasAvailableDecisions && available.EnumerateArray()
+            .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == "acceptForSession");
+        void AddButton(string label, string value, string background)
+        {
+            var button = new Button
+            {
+                Content = label,
+                MinWidth = 104,
+                Height = 34,
+                Padding = new Thickness(10, 0, 10, 0),
+                Margin = new Thickness(7, 0, 0, 0),
+                Background = Brush(background),
+                Foreground = Brush("#F0F0F1")
+            };
+            button.Click += (_, _) => { window.Tag = value; window.Close(); };
+            buttons.Children.Add(button);
+        }
+        AddButton("Отклонить", "decline", "#4A2A31");
+        if (canAllowForSession) AddButton("Для чата", "acceptForSession", "#344332");
+        if (canAllow) AddButton("Разрешить", "accept", "#2B5A4A");
+        layout.Children.Add(buttons);
+        window.Content = layout;
+        window.Closed += (_, _) => window.Tag ??= "cancel";
+        window.ShowDialog();
+        return window.Tag as string ?? "cancel";
+    }
+
+    private ProcessStartInfo CreateAppServerWorkerStartInfo(ActiveCliRun run)
+    {
+        var appPath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Не удалось определить исполняемый файл CodexGUI.");
+        var assemblyPath = typeof(App).Assembly.Location;
+        var isFrameworkDependent = !string.IsNullOrWhiteSpace(assemblyPath)
+            && !File.Exists(Path.Combine(AppContext.BaseDirectory, "hostfxr.dll"));
+        var startInfo = isFrameworkDependent
+            ? new ProcessStartInfo(string.Equals(Path.GetFileNameWithoutExtension(appPath), "dotnet", StringComparison.OrdinalIgnoreCase)
+                ? appPath
+                : "dotnet.exe")
+            : new ProcessStartInfo(PrepareWorkerRuntime(run, appPath));
+        startInfo.UseShellExecute = false;
+        startInfo.CreateNoWindow = true;
+        startInfo.WorkingDirectory = Path.GetDirectoryName(run.RequestPath)!;
+        if (isFrameworkDependent) startInfo.ArgumentList.Add(assemblyPath);
+        startInfo.ArgumentList.Add("--app-server-worker");
+        startInfo.ArgumentList.Add(run.RequestPath);
+        return startInfo;
+    }
+
+    private string PrepareWorkerRuntime(ActiveCliRun run, string appPath)
+    {
+        var runtimeRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "worker-runtimes");
+        var runtimeDirectory = Path.Combine(runtimeRoot, AppUpdater.CurrentVersion);
+        var workerExecutable = Path.Combine(runtimeDirectory, Path.GetFileName(appPath));
+        if (Directory.Exists(runtimeDirectory) && !File.Exists(workerExecutable))
+        {
+            var runtimeIsInUse = _threads.Any(thread => string.Equals(
+                thread.ActiveRun?.WorkerRuntimeDirectory, runtimeDirectory, StringComparison.OrdinalIgnoreCase));
+            if (runtimeIsInUse)
+                throw new InvalidDataException("Фоновый CodexGUI runtime неполон, но используется активным чатом.");
+            Directory.Delete(runtimeDirectory, recursive: true);
+        }
+        if (!File.Exists(workerExecutable))
+        {
+            Directory.CreateDirectory(runtimeRoot);
+            var stagingDirectory = runtimeDirectory + ".stage-" + Guid.NewGuid().ToString("N");
+            Directory.CreateDirectory(stagingDirectory);
+            try
+            {
+                foreach (var sourcePath in Directory.EnumerateFiles(AppContext.BaseDirectory, "*", SearchOption.AllDirectories))
+                {
+                    var relativePath = Path.GetRelativePath(AppContext.BaseDirectory, sourcePath);
+                    var destinationPath = Path.Combine(stagingDirectory, relativePath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                    File.Copy(sourcePath, destinationPath);
+                }
+                if (!File.Exists(Path.Combine(stagingDirectory, Path.GetFileName(appPath))))
+                    throw new FileNotFoundException("Не удалось подготовить отдельный CodexGUI runtime для фоновой задачи.");
+                try { Directory.Move(stagingDirectory, runtimeDirectory); }
+                catch (IOException) when (Directory.Exists(runtimeDirectory)) { Directory.Delete(stagingDirectory, recursive: true); }
+            }
+            catch
+            {
+                if (Directory.Exists(stagingDirectory)) Directory.Delete(stagingDirectory, recursive: true);
+                throw;
+            }
+        }
+
+        run.WorkerRuntimeDirectory = runtimeDirectory;
+        return workerExecutable;
+    }
+
+    private void CleanupObsoleteWorkerRuntimeCaches()
+    {
+        var runtimeRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "worker-runtimes");
+        if (!Directory.Exists(runtimeRoot)) return;
+
+        var root = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var retainedDirectories = _threads
+            .Select(thread => thread.ActiveRun?.WorkerRuntimeDirectory)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.GetFullPath(path!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var currentDirectory = Path.GetFullPath(Path.Combine(runtimeRoot, AppUpdater.CurrentVersion));
+        foreach (var directory in Directory.EnumerateDirectories(runtimeRoot))
+        {
+            var fullPath = Path.GetFullPath(directory);
+            if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fullPath, currentDirectory, StringComparison.OrdinalIgnoreCase)
+                || retainedDirectories.Contains(fullPath)) continue;
+            try { Directory.Delete(fullPath, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     private async Task<Process?> StartOrAttachCliWorkerAsync(ChatThread thread, ActiveCliRun run)
@@ -2108,6 +2497,34 @@ public partial class MainWindow : Window
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(run.RequestPath)!);
+        if (run.AppServerMode)
+        {
+            var serverRequest = new CodexAppServerWorkerRequest
+            {
+                RunId = run.RunId,
+                ExecutablePath = CodexCliService.ResolveExecutable(),
+                WorkingDirectory = thread.ProjectPath,
+                Prompt = run.Prompt,
+                Model = run.Model,
+                Effort = run.Effort,
+                FullAccess = run.FullAccess,
+                ThreadId = thread.CodexSessionId,
+                StartedPath = run.StartedPath,
+                OutputPath = run.OutputPath,
+                ErrorPath = run.ErrorPath,
+                CompletionPath = run.CompletionPath
+            };
+            await File.WriteAllTextAsync(run.RequestPath, JsonSerializer.Serialize(serverRequest));
+            var serverStartInfo = CreateAppServerWorkerStartInfo(run);
+            SaveState();
+            var serverProcess = Process.Start(serverStartInfo)
+                ?? throw new InvalidOperationException("Не удалось запустить фоновый app-server процесс.");
+            run.WorkerProcessId = serverProcess.Id;
+            run.WorkerStartTimeUtcTicks = serverProcess.StartTime.ToUniversalTime().Ticks;
+            SaveState();
+            return serverProcess;
+        }
+
         using var workerResource = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.CodexCliWorker.ps1")
             ?? throw new FileNotFoundException("Не найден сценарий фонового запуска Codex CLI.");
         await using (var workerFile = File.Create(run.ScriptPath))
@@ -3257,6 +3674,12 @@ public partial class MainWindow : Window
         public string OutputPath { get; set; } = "";
         public string ErrorPath { get; set; } = "";
         public string CompletionPath { get; set; } = "";
+        public bool AppServerMode { get; set; }
+        public bool SteerFollowUps { get; set; }
+        public bool StopRequested { get; set; }
+        public List<string> ResolvedApprovalRequestIds { get; set; } = [];
+        public string? CompletionStatus { get; set; }
+        public string? WorkerRuntimeDirectory { get; set; }
         public int WorkerProcessId { get; set; }
         public long WorkerStartTimeUtcTicks { get; set; }
     }
@@ -3278,6 +3701,7 @@ public partial class MainWindow : Window
         public int ExitCode { get; set; }
         public string? Error { get; set; }
         public string? SessionId { get; set; }
+        public string? Status { get; set; }
     }
 
     private sealed class CliOutputTail

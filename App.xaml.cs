@@ -11,6 +11,13 @@ public partial class App : Application
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         base.OnStartup(e);
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--app-server-worker", StringComparison.Ordinal))
+        {
+            await CodexAppServerTurnWorker.RunAsync(e.Args[1]);
+            Shutdown();
+            return;
+        }
+
         if (AppInstaller.TryInstallAndLaunch())
         {
             Shutdown();
