@@ -947,17 +947,27 @@ public partial class MainWindow : Window
         stack.Children.Clear();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
-            var welcome = new StackPanel { Margin = new Thickness(0, 56, 0, 0) };
-            welcome.Children.Add(new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#E5E5E7"), Margin = new Thickness(0, 0, 0, 15) });
-            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? $"Работаем над проектом «{_selectedProject?.Name ?? "CodexGUI"}»", FontSize = 26, FontWeight = FontWeights.SemiBold, Foreground = Brush("#E7E7E9"), TextWrapping = TextWrapping.Wrap });
+            var welcome = new StackPanel { Margin = new Thickness(0, 104, 0, 0), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center };
+            welcome.Children.Add(new Border
+            {
+                Width = 44,
+                Height = 44,
+                CornerRadius = new CornerRadius(14),
+                Background = Brush("#24262B"),
+                BorderBrush = Brush("#34363C"),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 0, 20),
+                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#E5E5E7"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            });
+            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? $"Работаем над проектом «{_selectedProject?.Name ?? "CodexGUI"}»", FontSize = 29, FontWeight = FontWeights.SemiBold, Foreground = Brush("#F0F0F1"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
             var detail = _currentThread?.HistoryLoading == true
                 ? "Загружаю историю из Codex…"
                 : _currentThread?.HistoryError is { } historyError
                     ? $"Не удалось восстановить историю: {historyError}"
                     : _currentThread?.CodexSessionId is not null
                 ? "Этот чат сохранён в Codex. Отправьте сообщение, чтобы продолжить разговор."
-                : "Опишите задачу — Codex поможет разобраться в проекте, написать код или внести изменения.";
-            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 14, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#9A9BA1"), Margin = new Thickness(0, 9, 0, 20), MaxWidth = 600 });
+                    : "Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.";
+            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 14, LineHeight = 22, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A1A2A8"), Margin = new Thickness(0, 11, 0, 24), MaxWidth = 600 });
             if (_currentThread is null)
             {
                 welcome.Children.Add(CreateSuggestion("Разберись в структуре проекта"));
@@ -978,13 +988,22 @@ public partial class MainWindow : Window
     {
         var button = new Button
         {
-            Content = text + "     ↗",
+            Content = new Grid
+            {
+                Children =
+                {
+                    new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = "↗", Foreground = Brush("#777981"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }
+                }
+            },
             HorizontalContentAlignment = HorizontalAlignment.Left,
             Background = Brush("#1A1B1F"),
-            Foreground = Brush("#BFC0C4"),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(0, 3, 0, 3),
-            Width = 310
+            Foreground = Brush("#D1D2D5"),
+            Padding = new Thickness(14, 11, 14, 11),
+            Margin = new Thickness(0, 4, 9, 4),
+            Width = 330,
+            BorderBrush = Brush("#303238"),
+            BorderThickness = new Thickness(1)
         };
         button.Click += async (_, _) =>
         {
@@ -1009,7 +1028,7 @@ public partial class MainWindow : Window
         {
             Text = message.Text,
             FontSize = 14,
-            LineHeight = 22,
+            LineHeight = 23,
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brush(message.IsUser ? "#E6E6E8" : "#D2D3D6")
         };
