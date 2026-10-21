@@ -64,6 +64,26 @@ internal static class GitRepositoryInspector
         }
     }
 
+    public static async Task<string> ReadFileDiffAsync(string repositoryRoot, RepositoryFileStatus file, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
+        var rootPrefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Путь файла выходит за пределы репозитория.");
+
+        var result = file.IsUntracked
+            ? await RunGitAsync(root, cancellationToken, "diff", "--no-index", "--no-ext-diff", "--no-color", "--", "/dev/null", fullPath)
+            : await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", file.Path);
+        if (result.ExitCode > 1)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim());
+
+        const int maximumDiffCharacters = 500_000;
+        return result.Output.Length <= maximumDiffCharacters
+            ? result.Output
+            : result.Output[..maximumDiffCharacters] + "\n\n… Diff сокращён: вывод превышает 500 000 символов.";
+    }
+
     private static GitRepositorySnapshot EmptySnapshot(string path, string error) =>
         new(false, path, "", null, 0, 0, null, [], error);
 

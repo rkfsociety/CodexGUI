@@ -1433,9 +1433,9 @@ public partial class MainWindow : Window
                 Padding = new Thickness(2, 2, 0, 2),
                 Background = Brushes.Transparent,
                 Foreground = Brush("#AEB0B5"),
-                ToolTip = $"Открыть {file.Path} в проводнике"
+                ToolTip = $"Показать diff файла {file.Path}"
             };
-            button.Click += (_, _) => OpenRepositoryFile(repositoryRoot, file.Path);
+            button.Click += async (_, _) => await ShowRepositoryFileDiffAsync(repositoryRoot, file);
             panel.Children.Add(button);
         }
 
@@ -1443,15 +1443,113 @@ public partial class MainWindow : Window
             panel.Children.Add(new TextBlock { Text = $"и ещё {files.Count - 8}…", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(2, 2, 0, 0) });
     }
 
-    private void OpenRepositoryFile(string repositoryRoot, string relativePath)
+    private async Task ShowRepositoryFileDiffAsync(string repositoryRoot, RepositoryFileStatus file)
     {
-        var fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, relativePath));
-        var rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryRoot)) + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return;
+        try
+        {
+            var diff = await GitRepositoryInspector.ReadFileDiffAsync(repositoryRoot, file, _repositoryRefreshCancellation.Token);
+            if (_isClosing) return;
+            if (string.IsNullOrWhiteSpace(diff))
+            {
+                SetStatus("Изменений в файле нет", file.Path);
+                return;
+            }
+            ShowFileDiff(repositoryRoot, file.Path, diff);
+        }
+        catch (OperationCanceledException) when (_isClosing) { }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Не удалось открыть diff", error.Message, isError: true);
+        }
+    }
 
-        var startInfo = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
-        startInfo.ArgumentList.Add(File.Exists(fullPath) ? $"/select,{fullPath}" : repositoryRoot);
-        _ = Process.Start(startInfo);
+    private void ShowFileDiff(string repositoryRoot, string relativePath, string diff)
+    {
+        var dialog = new Window
+        {
+            Owner = this,
+            Title = $"Изменения · {Path.GetFileName(relativePath)}",
+            Width = 920,
+            Height = 720,
+            MinWidth = 620,
+            MinHeight = 440,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Brush("#11151B"),
+            Foreground = Brush("#EEF3F8")
+        };
+        var layout = new Grid { Margin = new Thickness(18) };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.Children.Add(new TextBlock
+        {
+            Text = Path.Combine(repositoryRoot, relativePath),
+            Foreground = Brush("#A4B1C2"),
+            FontSize = 11,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+        var diffBox = new TextBox
+        {
+            Text = diff,
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12,
+            Padding = new Thickness(12),
+            Background = Brush("#18212C"),
+            Foreground = Brush("#D2D9E3"),
+            BorderBrush = Brush("#2B3746"),
+            BorderThickness = new Thickness(1)
+        };
+        Grid.SetRow(diffBox, 1);
+        layout.Children.Add(diffBox);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var addComment = new Button
+        {
+            Content = "Добавить выбранные строки в запрос",
+            Padding = new Thickness(12, 7, 12, 7),
+            Background = Brush("#223B38"),
+            Foreground = Brush("#A8E6CF"),
+            IsEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        diffBox.SelectionChanged += (_, _) => addComment.IsEnabled = !string.IsNullOrWhiteSpace(diffBox.SelectedText);
+        addComment.Click += (_, _) =>
+        {
+            if (AppendDiffComment(relativePath, diffBox.SelectedText)) dialog.DialogResult = true;
+        };
+        buttons.Children.Add(addComment);
+        var close = new Button { Content = "Закрыть", Padding = new Thickness(14, 7, 14, 7), Background = Brush("#263344") };
+        close.Click += (_, _) => dialog.Close();
+        buttons.Children.Add(close);
+        Grid.SetRow(buttons, 2);
+        layout.Children.Add(buttons);
+        dialog.Content = layout;
+        if (dialog.ShowDialog() == true) Control<TextBox>("PromptInput")?.Focus();
+    }
+
+    private bool AppendDiffComment(string relativePath, string selectedDiff)
+    {
+        if (string.IsNullOrWhiteSpace(selectedDiff)) return false;
+        var input = Control<TextBox>("PromptInput");
+        if (input is null) return false;
+        if (_currentThread is null && _selectedProject is not null)
+        {
+            _currentThread = NewThread();
+            RenderThreads();
+            RenderConversation();
+            UpdateChatInfoPanel();
+        }
+        if (input.Text == PromptPlaceholder) input.Clear();
+        var note = $"Комментарий к изменениям в файле {relativePath}:\n```diff\n{selectedDiff.TrimEnd()}\n```";
+        input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n\n") + note;
+        input.CaretIndex = input.Text.Length;
+        return true;
     }
 
     private void OpenRepositoryRemote()
