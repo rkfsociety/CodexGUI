@@ -69,6 +69,44 @@ internal static class CodexCliService
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
     }
 
+    public static async Task<string> ReviewUncommittedChangesAsync(string repositoryPath, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo(ResolveExecutable())
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = repositoryPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+        startInfo.ArgumentList.Add("review");
+        startInfo.ArgumentList.Add("--uncommitted");
+
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить проверку изменений Codex.");
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            await Task.WhenAll(outputTask, errorTask);
+            throw;
+        }
+
+        var output = await outputTask;
+        var errors = await errorTask;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
+        return output.Trim();
+    }
+
     public static async Task<string> RunPluginCommandAsync(params string[] arguments)
     {
         var startInfo = new ProcessStartInfo(ResolveExecutable())

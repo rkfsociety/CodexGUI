@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     private GitRepositorySnapshot? _repositorySnapshot;
     private bool _isRefreshingRepository;
     private bool _repositoryRefreshPending;
+    private bool _isReviewingChanges;
     private string _updateProgressText = "Проверка обновлений…";
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
@@ -428,6 +429,7 @@ public partial class MainWindow : Window
             _ = RefreshRepositoryInfoAsync();
         });
         Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
+        Click("ReviewChangesButton", async (_, _) => await ReviewUncommittedChangesAsync());
         Click("OpenFolderButton", (_, _) => OpenProjectFolder());
         Click("ProjectButton", (_, _) => ChooseProjectFolder());
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
@@ -1282,11 +1284,13 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("RepositoryBranch") is not { } branch ||
             Control<TextBlock>("RepositorySummary") is not { } summary ||
             Control<StackPanel>("RepositoryChangesPanel") is not { } changesPanel ||
-            Control<Button>("RepositoryRemoteButton") is not { } remoteButton) return;
+            Control<Button>("RepositoryRemoteButton") is not { } remoteButton ||
+            Control<Button>("ReviewChangesButton") is not { } reviewButton) return;
 
         changesPanel.Children.Clear();
         remoteButton.Visibility = snapshot.RemoteUrl is null ? Visibility.Collapsed : Visibility.Visible;
         remoteButton.ToolTip = snapshot.RemoteUrl;
+        reviewButton.Visibility = Visibility.Collapsed;
         if (!snapshot.IsRepository)
         {
             branch.Text = snapshot.Error ?? "Git-репозиторий не найден";
@@ -1310,8 +1314,101 @@ public partial class MainWindow : Window
         AddRepositoryFileGroup(changesPanel, "В ИНДЕКСЕ", staged, snapshot.Root);
         AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root);
         AddRepositoryFileGroup(changesPanel, "НЕ ОТСЛЕЖИВАЮТСЯ", untracked, snapshot.Root);
+        reviewButton.Visibility = snapshot.Changes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateReviewChangesButton();
         if (snapshot.Changes.Count == 0)
             changesPanel.Children.Add(new TextBlock { Text = "Рабочее дерево чистое", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(0, 5, 0, 2) });
+    }
+
+    private void UpdateReviewChangesButton()
+    {
+        if (Control<Button>("ReviewChangesButton") is not { } button) return;
+        button.IsEnabled = !_isReviewingChanges && !HasActiveRuns && _repositorySnapshot is { IsRepository: true, Changes.Count: > 0 };
+        button.Content = _isReviewingChanges ? "Codex проверяет…" : "Проверить изменения";
+    }
+
+    private async Task ReviewUncommittedChangesAsync()
+    {
+        if (_isReviewingChanges || HasActiveRuns || _repositorySnapshot is not { IsRepository: true, Changes.Count: > 0 } snapshot) return;
+        _isReviewingChanges = true;
+        UpdateReviewChangesButton();
+        SetStatus("Проверяю изменения…", $"Codex анализирует незакоммиченные изменения в {snapshot.Root}.");
+        try
+        {
+            var findings = await CodexCliService.ReviewUncommittedChangesAsync(snapshot.Root, _repositoryRefreshCancellation.Token);
+            if (_isClosing) return;
+            ShowCodeReviewResults(snapshot.Root, findings);
+            SetStatus("Проверка завершена", string.IsNullOrWhiteSpace(findings) ? "Codex не сообщил замечаний." : $"Проверены изменения в {Path.GetFileName(snapshot.Root)}.");
+        }
+        catch (OperationCanceledException) when (_isClosing) { }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Проверка изменений не удалась", error.Message, isError: true);
+        }
+        finally
+        {
+            _isReviewingChanges = false;
+            UpdateReviewChangesButton();
+        }
+    }
+
+    private void ShowCodeReviewResults(string repositoryPath, string findings)
+    {
+        var dialog = new Window
+        {
+            Owner = this,
+            Title = $"Проверка изменений · {Path.GetFileName(repositoryPath)}",
+            Width = 820,
+            Height = 660,
+            MinWidth = 560,
+            MinHeight = 400,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Brush("#11151B"),
+            Foreground = Brush("#EEF3F8")
+        };
+        var layout = new Grid { Margin = new Thickness(18) };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.Children.Add(new TextBlock
+        {
+            Text = repositoryPath,
+            Foreground = Brush("#A4B1C2"),
+            FontSize = 11,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+        var output = new TextBox
+        {
+            Text = string.IsNullOrWhiteSpace(findings) ? "Codex не сообщил замечаний." : findings,
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12,
+            Padding = new Thickness(12),
+            Background = Brush("#18212C"),
+            Foreground = Brush("#D2D9E3"),
+            BorderBrush = Brush("#2B3746"),
+            BorderThickness = new Thickness(1)
+        };
+        Grid.SetRow(output, 1);
+        layout.Children.Add(output);
+        var close = new Button
+        {
+            Content = "Закрыть",
+            Padding = new Thickness(14, 7, 14, 7),
+            Background = Brush("#263344"),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        close.Click += (_, _) => dialog.Close();
+        Grid.SetRow(close, 2);
+        layout.Children.Add(close);
+        dialog.Content = layout;
+        dialog.ShowDialog();
     }
 
     private void AddRepositoryFileGroup(StackPanel panel, string heading, IReadOnlyList<RepositoryFileStatus> files, string repositoryRoot)
@@ -1431,6 +1528,7 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("SendButtonIcon") is { } icon)
             icon.Text = queueing ? "＋" : "↑";
         UpdateWorktreeButton();
+        UpdateReviewChangesButton();
     }
 
     private void UpdateWorktreeButton()
