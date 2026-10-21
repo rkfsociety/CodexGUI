@@ -64,8 +64,7 @@ public partial class MainWindow : Window
     private FileSystemWatcher? _viewWatcher;
     private Forms.NotifyIcon? _trayIcon;
     private DrawingIcon? _trayImage;
-    private Process? _activeProcess;
-    private bool _isRunning;
+    private readonly Dictionary<string, Process?> _activeProcesses = new(StringComparer.Ordinal);
     private bool _isPumpingPromptQueue;
     private bool _sidebarCollapsed;
     private bool _contextOpen;
@@ -76,6 +75,8 @@ public partial class MainWindow : Window
     private string _selectedModel = DefaultModel;
     private string _selectedEffort = DefaultEffort;
     private ChatThread? _currentThread;
+    private bool HasActiveRuns => _threads.Any(thread => thread.ActiveRun is not null);
+    private bool IsCurrentThreadRunning => _currentThread?.ActiveRun is not null;
     private Grid? _activeView;
     private TextBlock? _streamingAssistantTextBlock;
 
@@ -496,8 +497,8 @@ public partial class MainWindow : Window
             RefreshFileTree();
             _ = RefreshRepositoryInfoAsync();
         }
-        SetStatus(_isRunning ? "Codex работает…" : "Codex CLI готов",
-            _startupIssue ?? (_isRunning ? "Запрос выполняется в выбранной папке." : "Запросы выполняются в выбранной папке."),
+        SetStatus(HasActiveRuns ? "Codex работает…" : "Codex CLI готов",
+            _startupIssue ?? (HasActiveRuns ? "Есть выполняющиеся запросы." : "Запросы выполняются в выбранной папке."),
             isError: _startupIssue is not null);
     }
 
@@ -510,14 +511,14 @@ public partial class MainWindow : Window
         {
             var button = new Button
             {
-                Content = thread.Title,
+                Content = thread.ActiveRun is null ? thread.Title : "●  " + thread.Title,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(10, 8, 7, 8),
                 Margin = new Thickness(0, 1, 0, 1),
                 Background = thread == _currentThread ? Brush("#27292E") : Brushes.Transparent,
                 Foreground = Brush(thread == _currentThread ? "#F0F0F1" : "#A4A5AA"),
                 FontSize = 12,
-                ToolTip = thread.Title
+                ToolTip = thread.ActiveRun is null ? thread.Title : "Выполняется… " + thread.Title
             };
             button.Click += (_, _) => SelectThread(thread);
             button.PreviewMouseRightButtonUp += (_, e) =>
@@ -545,14 +546,14 @@ public partial class MainWindow : Window
             thread.IsArchived ? "Вернуть из архива" : "Архивировать",
             "M3,5 H17 M5,5 V17 H15 V5 M7,5 V3 H13 V5 M7,8 V14 M11,8 V14",
             "#D5D6D9");
-        archive.IsEnabled = !_isRunning;
+        archive.IsEnabled = thread.ActiveRun is null;
         archive.Click += async (_, _) =>
         {
             popup.IsOpen = false;
             await SetThreadArchivedAsync(thread, !thread.IsArchived);
         };
         var delete = CreateThreadActionButton("Удалить чат", "M4,6 H16 M6,6 V17 H14 V6 M7,6 V4 H13 V6 M8,9 V14 M12,9 V14", "#F08C8C");
-        delete.IsEnabled = !_isRunning;
+        delete.IsEnabled = thread.ActiveRun is null;
         delete.Click += async (_, _) =>
         {
             popup.IsOpen = false;
@@ -631,7 +632,7 @@ public partial class MainWindow : Window
 
     private async Task SetThreadArchivedAsync(ChatThread thread, bool archived)
     {
-        if (_isRunning) return;
+        if (thread.ActiveRun is not null) return;
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
@@ -657,7 +658,7 @@ public partial class MainWindow : Window
 
     private async Task DeleteThreadAsync(ChatThread thread)
     {
-        if (_isRunning) return;
+        if (thread.ActiveRun is not null) return;
         var result = MessageBox.Show(this,
             $"Удалить чат «{thread.Title}»? Его история будет удалена из Codex CLI и приложения. Это действие нельзя отменить.",
             "Удалить чат", MessageBoxButton.YesNo, MessageBoxImage.Warning);
@@ -1050,7 +1051,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brush(message.IsUser ? "#E6E6E8" : "#D2D3D6")
         };
-        if (!message.IsUser && _isRunning && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message))
+        if (!message.IsUser && IsCurrentThreadRunning && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message))
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
@@ -1286,7 +1287,7 @@ public partial class MainWindow : Window
 
     private void UpdateSendButtonState()
     {
-        var queueing = _isRunning || _isPumpingPromptQueue;
+        var queueing = IsCurrentThreadRunning || _promptQueue.Any(prompt => prompt.ThreadId == _currentThread?.Id) || _isPumpingPromptQueue;
         if (Control<Button>("SendButton") is { } send)
         {
             send.IsEnabled = !_isInstallingUpdate && !_isClosing;
@@ -1350,43 +1351,24 @@ public partial class MainWindow : Window
         SaveState();
         input.Clear();
         RenderPromptQueue();
-        if (!_isRunning) await ProcessQueuedPromptsAsync();
+        await ProcessQueuedPromptsAsync();
     }
 
     private async Task ResumePendingWorkAsync()
     {
-        var thread = _threads.FirstOrDefault(item => item.ActiveRun is not null);
-        if (thread is not null && thread.ActiveRun is { } activeRun)
+        foreach (var thread in _threads.Where(item => item.ActiveRun is not null).ToList())
         {
-            _isPumpingPromptQueue = true;
-            try
-            {
-                _isRunning = true;
-                UpdateSendButtonState();
-                _selectedProject = _projects.FirstOrDefault(project => project.Id == thread.ProjectId);
-                _projectPath = thread.ProjectPath;
-                _currentThread = thread;
-                _showArchivedChats = false;
-                RefreshView();
-                var assistantMessage = EnsureActiveRunMessages(thread, activeRun);
-                RenderThreads();
-                RenderConversation();
-                UpdateChatInfoPanel();
-                SetStatus("Codex продолжает работу", "Фоновая CLI-сессия продолжится здесь после завершения текущего шага.");
-                await ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: true);
-            }
-            finally
-            {
-                _isPumpingPromptQueue = false;
-                UpdateSendButtonState();
-            }
+            if (thread.ActiveRun is not { } activeRun) continue;
+            var assistantMessage = EnsureActiveRunMessages(thread, activeRun);
+            _ = ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: true);
         }
-        else if (_currentThread is not null)
+        if (_currentThread is not null)
         {
             _ = RestoreThreadContextUsageAsync(_currentThread);
             await RestoreThreadHistoryAsync(_currentThread);
         }
-
+        RenderThreads();
+        RenderConversation();
         await ProcessQueuedPromptsAsync();
     }
 
@@ -1410,54 +1392,50 @@ public partial class MainWindow : Window
 
     private async Task ProcessQueuedPromptsAsync()
     {
-        if (_isRunning || _isPumpingPromptQueue || _isClosing) return;
+        if (_isPumpingPromptQueue || _isClosing) return;
         _isPumpingPromptQueue = true;
         try
         {
-            while (_promptQueue.Count > 0 && !_isClosing)
+            while (!_isClosing)
             {
-                var queued = _promptQueue[0];
-                var thread = _threads.FirstOrDefault(item => item.Id == queued.ThreadId);
-                if (thread is null)
+                var missing = _promptQueue.RemoveAll(prompt => _threads.All(thread => thread.Id != prompt.ThreadId));
+                if (missing > 0) SaveState();
+                var queued = _promptQueue.FirstOrDefault(prompt =>
+                    _threads.FirstOrDefault(thread => thread.Id == prompt.ThreadId) is { ActiveRun: null } thread &&
+                    Directory.Exists(thread.ProjectPath));
+                if (queued is null)
                 {
-                    _promptQueue.RemoveAt(0);
-                    SaveState();
-                    RenderPromptQueue();
-                    continue;
+                    var unavailable = _promptQueue.FirstOrDefault(prompt =>
+                        _threads.FirstOrDefault(thread => thread.Id == prompt.ThreadId) is { ActiveRun: null } thread &&
+                        !Directory.Exists(thread.ProjectPath));
+                    if (unavailable is not null && _currentThread?.Id == unavailable.ThreadId)
+                        SetStatus("Папка проекта недоступна", _currentThread.ProjectPath, isError: true);
+                    break;
                 }
-                if (!Directory.Exists(thread.ProjectPath))
-                {
-                    SetStatus("Папка проекта недоступна", thread.ProjectPath, isError: true);
-                    return;
-                }
+                var thread = _threads.First(item => item.Id == queued.ThreadId);
                 if (thread.IsArchived)
                 {
                     await SetThreadArchivedAsync(thread, archived: false);
-                    if (thread.IsArchived) return;
+                    if (thread.IsArchived) continue;
                 }
                 var activeRun = CreateActiveCliRun(queued);
                 thread.ActiveRun = activeRun;
-                _promptQueue.RemoveAt(0);
-                _selectedProject = _projects.FirstOrDefault(item => item.Id == thread.ProjectId);
-                _projectPath = thread.ProjectPath;
-                _currentThread = thread;
-                _showArchivedChats = false;
-                _isRunning = true;
+                _promptQueue.Remove(queued);
                 SaveState();
-                UpdateChatSectionHeading();
-                RefreshView();
-                SetStatus("Codex работает…", "Запрос выполняется в выбранной папке.");
+                RenderThreads();
+                UpdateSendButtonState();
                 if (thread.CodexSessionId is not null && thread.Messages.Count == 0)
                 {
                     await RestoreThreadHistoryAsync(thread);
                     if (!thread.HistoryLoaded)
                     {
                         thread.ActiveRun = null;
-                        _promptQueue.Insert(0, queued);
-                        _isRunning = false;
+                        _promptQueue.Add(queued);
                         SaveState();
+                        RenderThreads();
                         RenderPromptQueue();
-                        SetStatus("Не удалось восстановить чат", thread.HistoryError ?? thread.Title, isError: true);
+                        if (_currentThread == thread)
+                            SetStatus("Не удалось восстановить чат", thread.HistoryError ?? thread.Title, isError: true);
                         return;
                     }
                 }
@@ -1466,9 +1444,12 @@ public partial class MainWindow : Window
                 thread.Messages.Add(userMessage);
                 thread.Messages.Add(assistantMessage);
                 SaveState();
-                RenderConversation();
-                UpdateChatInfoPanel();
-                await ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: false);
+                if (_currentThread == thread)
+                {
+                    RenderConversation();
+                    UpdateChatInfoPanel();
+                }
+                _ = ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: false);
             }
         }
         finally
@@ -1486,18 +1467,16 @@ public partial class MainWindow : Window
             assistantMessage.Text = string.IsNullOrWhiteSpace(response)
                 ? "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале."
                 : response;
-            SetStatus("Codex CLI готов", "Ответ получен.");
+            if (_currentThread == thread) SetStatus("Codex CLI готов", "Ответ получен.");
         }
         catch (Exception error)
         {
             assistantMessage.Text = "Не удалось выполнить запрос:\n" + error.Message;
-            SetStatus("Ошибка запроса", error.Message, isError: true);
+            if (_currentThread == thread) SetStatus("Ошибка запроса", error.Message, isError: true);
         }
         finally
         {
-            _isRunning = false;
-            _activeProcess?.Dispose();
-            _activeProcess = null;
+            if (_activeProcesses.Remove(activeRun.RunId, out var activeProcess)) activeProcess?.Dispose();
             if (thread.ActiveRun?.RunId == activeRun.RunId) thread.ActiveRun = null;
             SaveState();
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
@@ -1510,6 +1489,7 @@ public partial class MainWindow : Window
             UpdateSendButtonState();
             _ = RefreshUsageLimitsAsync();
             if (_contextOpen) await RefreshRepositoryInfoAsync();
+            await ProcessQueuedPromptsAsync();
         }
     }
 
@@ -1537,7 +1517,7 @@ public partial class MainWindow : Window
     private async Task<string> RunCodexAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage)
     {
         var process = await StartOrAttachCliWorkerAsync(thread, activeRun);
-        _activeProcess = process;
+        _activeProcesses[activeRun.RunId] = process;
         var response = new StringBuilder();
         var responseLock = new object();
         var updateQueued = 0;
@@ -1554,7 +1534,7 @@ public partial class MainWindow : Window
                 if (_isClosing) return;
                 string text;
                 lock (responseLock) text = response.ToString();
-                if (!_isRunning) return;
+                if (thread.ActiveRun?.RunId != activeRun.RunId) return;
                 if (thread.Messages.Count == 0 || !ReferenceEquals(thread.Messages[^1], assistantMessage)) return;
                 assistantMessage.Text = text;
                 if (_currentThread == thread && _streamingAssistantTextBlock is { } messageText)
@@ -1649,7 +1629,7 @@ public partial class MainWindow : Window
                 {
                     process?.Dispose();
                     process = replacement;
-                    _activeProcess = replacement;
+                    _activeProcesses[activeRun.RunId] = replacement;
                     continue;
                 }
                 if (File.Exists(activeRun.CompletionPath)) continue;
@@ -2662,7 +2642,7 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("ConnectionStatus") is { } connection) connection.Text = title;
         if (Control<TextBlock>("ConnectionDetail") is { } connectionDetail) connectionDetail.Text = detail;
         if (Control<TextBlock>("HeaderStatus") is { } header) header.Text = title;
-        if (Control<Ellipse>("StatusDot") is { } dot) dot.Fill = Brush(isError ? "#E78C8C" : _isRunning ? "#D7B66E" : "#77C99B");
+        if (Control<Ellipse>("StatusDot") is { } dot) dot.Fill = Brush(isError ? "#E78C8C" : HasActiveRuns ? "#D7B66E" : "#77C99B");
     }
 
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));
