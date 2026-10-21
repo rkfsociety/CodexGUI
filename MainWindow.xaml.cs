@@ -110,7 +110,6 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             _ = RefreshUsageLimitsAsync();
-            _ = CheckForUpdatesAsync(interactive: false);
             _updateCheckTimer.Start();
             RenderPromptQueue();
             _ = ResumePendingWorkAsync();

@@ -95,7 +95,7 @@ internal static class AppInstaller
         return false;
     }
 
-    private static bool IsDevelopmentCheckout(string executablePath)
+    internal static bool IsDevelopmentCheckout(string executablePath)
     {
         var directory = new DirectoryInfo(Path.GetDirectoryName(executablePath)!);
         while (directory is not null)
