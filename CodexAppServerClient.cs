@@ -36,6 +36,12 @@ internal sealed class CodexAppServerClient(string executablePath)
         includeTurns = true
     });
 
+    public Task<JsonElement> ForkThreadAsync(string sessionId) => SendRequestAsync("thread/fork", new
+    {
+        threadId = sessionId,
+        excludeTurns = true
+    });
+
     private async Task<JsonElement> SendRequestAsync(string method, object parameters)
     {
         var startInfo = new ProcessStartInfo(executablePath)

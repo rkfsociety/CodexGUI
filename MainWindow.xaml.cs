@@ -553,6 +553,14 @@ public partial class MainWindow : Window
             popup.IsOpen = false;
             await SetThreadArchivedAsync(thread, !thread.IsArchived);
         };
+        var forkButton = CreateThreadActionButton("Ответвить чат", "M4,3 V8 C4,12 12,12 12,16 M9,13 L12,16 L15,13", "#A8E6CF");
+        forkButton.IsEnabled = thread.ActiveRun is null && !thread.IsForking && !string.IsNullOrWhiteSpace(thread.CodexSessionId);
+        forkButton.ToolTip = forkButton.IsEnabled ? "Создать отдельный чат с копией истории" : "Ответвление доступно после первого запроса";
+        forkButton.Click += async (_, _) =>
+        {
+            popup.IsOpen = false;
+            await ForkThreadAsync(thread);
+        };
         var delete = CreateThreadActionButton("Удалить чат", "M4,6 H16 M6,6 V17 H14 V6 M7,6 V4 H13 V6 M8,9 V14 M12,9 V14", "#F08C8C");
         delete.IsEnabled = thread.ActiveRun is null;
         delete.Click += async (_, _) =>
@@ -560,6 +568,7 @@ public partial class MainWindow : Window
             popup.IsOpen = false;
             await DeleteThreadAsync(thread);
         };
+        actions.Children.Add(forkButton);
         actions.Children.Add(archive);
         actions.Children.Add(new Border { Height = 1, Background = Brush("#34363B"), Margin = new Thickness(7, 4, 7, 4) });
         actions.Children.Add(delete);
@@ -576,6 +585,53 @@ public partial class MainWindow : Window
             Child = actions
         };
         popup.IsOpen = true;
+    }
+
+    private async Task ForkThreadAsync(ChatThread source)
+    {
+        if (source.ActiveRun is not null || source.IsForking || string.IsNullOrWhiteSpace(source.CodexSessionId)) return;
+        source.IsForking = true;
+        SetStatus("Создаю ответвление чата…", "Копирую сохранённую историю Codex.");
+        try
+        {
+            var result = await new CodexAppServerClient(CodexCliService.ResolveExecutable())
+                .ForkThreadAsync(source.CodexSessionId);
+            if (!result.TryGetProperty("thread", out var codexThread)
+                || GetString(codexThread, "id") is not { Length: > 0 } sessionId)
+                throw new InvalidDataException("Codex не вернул идентификатор ответвлённого чата.");
+
+            var fork = new ChatThread
+            {
+                Title = TrimTitle("Копия: " + source.Title),
+                ProjectId = source.ProjectId,
+                ProjectPath = GetString(codexThread, "cwd") ?? source.ProjectPath,
+                CodexSessionId = sessionId
+            };
+            _threads.Add(fork);
+            _currentThread = fork;
+            _selectedProject = _projects.FirstOrDefault(project => project.Id == fork.ProjectId);
+            _projectPath = _selectedProject?.Path ?? source.ProjectPath;
+            _showArchivedChats = false;
+            SaveState();
+            RefreshView();
+            await RestoreThreadHistoryAsync(fork);
+            if (fork.HistoryError is { } historyError)
+            {
+                SetStatus("Чат ответвлён, история не загружена", historyError, isError: true);
+                return;
+            }
+            SetStatus("Чат ответвлён", "Исходный чат сохранён без изменений.");
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось ответвить чат", error.Message, isError: true);
+            MessageBox.Show(this, error.Message, "Не удалось ответвить чат", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            source.IsForking = false;
+            RenderThreads();
+        }
     }
 
     private Button CreateThreadActionButton(string title, string iconData, string color) => new()
@@ -2945,6 +3001,7 @@ public partial class MainWindow : Window
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
+        public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
         public long? ContextTokens { get; set; }

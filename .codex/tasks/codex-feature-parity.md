@@ -1,0 +1,9 @@
+# Codex feature parity
+
+Status: in progress. Objective: match Codex desktop workflows supported by the installed Codex CLI and app-server, without publishing releases from feature work.
+
+Completed and published on `main`: pre-window update check and install (`0.0.010`); per-chat managed worktrees.
+
+Current branch: `codex/app-parity-thread-fork`. This branch adds a context-menu action that forks a persisted Codex session through app-server `thread/fork`, restores the copied history, and preserves the source chat. The installed app-server schema includes `ThreadForkParams` and `ThreadForkResponse`; local build passed. Runtime fork behavior still needs a safe end-to-end check with a disposable session.
+
+Known gaps to investigate against current official Codex features: diff review with inline comments, interactive approval and turn steering, scheduled automations, and other multi-agent workflows. Keep feature work on non-main branches; do not trigger release automation during parity work.
