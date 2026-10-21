@@ -1356,8 +1356,10 @@ public partial class MainWindow : Window
         var window = _currentThread?.ContextWindowTokens;
         if (tokens is null || window is null || window <= 0)
         {
-            label.Text = "—";
-            label.ToolTip = "Контекст появится после первого ответа Codex";
+            label.Text = "100%";
+            label.ToolTip = _currentThread?.CodexSessionId is null
+                ? "Новый чат · контекст пока не использован"
+                : "Загружаю данные окна контекста для этой сессии…";
             arc.Data = Geometry.Empty;
             arc.Stroke = Brush("#77C99B");
             return;
@@ -1431,7 +1433,64 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = thread.Title;
         RefreshView();
         SaveState();
+        _ = RestoreThreadContextUsageAsync(thread);
         _ = RestoreThreadHistoryAsync(thread);
+    }
+
+    private async Task RestoreThreadContextUsageAsync(ChatThread thread)
+    {
+        if (thread.ContextTokens is not null || string.IsNullOrWhiteSpace(thread.CodexSessionId)) return;
+
+        try
+        {
+            var usage = await ReadThreadContextUsageAsync(thread.CodexSessionId);
+            if (usage is null) return;
+            thread.ContextTokens = usage.Value.Tokens;
+            thread.ContextWindowTokens = usage.Value.Window;
+            ScheduleStateSave();
+            if (_currentThread == thread) UpdateContextIndicator();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // The indicator remains unavailable when this session has no readable usage event.
+        }
+    }
+
+    private static Task<(long Tokens, long Window)?> ReadThreadContextUsageAsync(string sessionId)
+    {
+        var sessionsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+        if (!Directory.Exists(sessionsRoot))
+            return Task.FromResult<(long Tokens, long Window)?>(null);
+
+        var files = Directory.EnumerateFiles(sessionsRoot, $"rollout-*-{sessionId}.jsonl", SearchOption.AllDirectories);
+        foreach (var file in files)
+        {
+            using var reader = new StreamReader(file);
+            string? line;
+            var isSession = false;
+            (long Tokens, long Window)? latestUsage = null;
+            while ((line = reader.ReadLine()) is not null)
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (GetString(root, "type") == "session_meta" && root.TryGetProperty("payload", out var metadata))
+                    isSession = GetString(metadata, "session_id") == sessionId;
+
+                if (!isSession || GetString(root, "type") != "event_msg" ||
+                    !root.TryGetProperty("payload", out var payload) || GetString(payload, "type") != "token_count" ||
+                    !payload.TryGetProperty("info", out var info) ||
+                    !info.TryGetProperty("last_token_usage", out var usage) ||
+                    !usage.TryGetProperty("total_tokens", out var tokens) || !tokens.TryGetInt64(out var tokenCount) || tokenCount < 0 ||
+                    !info.TryGetProperty("model_context_window", out var window) || !window.TryGetInt64(out var windowSize) || windowSize <= 0)
+                    continue;
+
+                latestUsage = (tokenCount, windowSize);
+            }
+
+            if (isSession && latestUsage is not null) return Task.FromResult(latestUsage);
+        }
+
+        return Task.FromResult<(long Tokens, long Window)?>(null);
     }
 
     private void SelectProject(ProjectEntry project)
