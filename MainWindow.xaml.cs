@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -561,7 +562,7 @@ public partial class MainWindow : Window
 
     private static async Task RunSessionCommandAsync(string command, string sessionId)
     {
-        var startInfo = new ProcessStartInfo("codex")
+        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -582,6 +583,36 @@ public partial class MainWindow : Window
         var errors = await errorTask;
         if (process.ExitCode != 0)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
+    }
+
+    private static string ResolveCodexExecutable()
+    {
+        const string executableName = "codex.exe";
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executableName);
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        var codexBin = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI", "Codex", "bin");
+        var directCandidate = Path.Combine(codexBin, executableName);
+        if (File.Exists(directCandidate)) return directCandidate;
+
+        if (Directory.Exists(codexBin))
+        {
+            var versionedCandidate = Directory.EnumerateDirectories(codexBin)
+                .Select(directory => Path.Combine(directory, executableName))
+                .Where(File.Exists)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+            if (versionedCandidate is not null) return versionedCandidate;
+        }
+
+        throw new FileNotFoundException(
+            "Не найден Codex CLI. Установите Codex для Windows или добавьте папку с codex.exe в пользовательский PATH.",
+            executableName);
     }
 
     private async Task RefreshUsageLimitsAsync()
@@ -612,7 +643,7 @@ public partial class MainWindow : Window
 
     private static async Task<UsageSnapshot> ReadUsageLimitsAsync()
     {
-        var startInfo = new ProcessStartInfo("codex")
+        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -704,7 +735,7 @@ public partial class MainWindow : Window
 
     private static async Task<JsonElement> ReadThreadHistoryAsync(string sessionId)
     {
-        var startInfo = new ProcessStartInfo("codex")
+        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -1147,7 +1178,7 @@ public partial class MainWindow : Window
 
     private async Task<string> RunCodexAsync(ChatThread thread, string prompt, ChatMessage assistantMessage)
     {
-        var startInfo = new ProcessStartInfo("codex")
+        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -1605,7 +1636,7 @@ public partial class MainWindow : Window
 
     private static async Task<IReadOnlyList<ModelOption>> LoadModelCatalogAsync()
     {
-        var startInfo = new ProcessStartInfo("codex")
+        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
