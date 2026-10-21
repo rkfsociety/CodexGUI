@@ -8,11 +8,13 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CodexGUI;
 
 internal sealed record AppUpdate(string Version, Uri ArchiveUri, Uri ChecksumUri, Uri SignatureUri);
+internal sealed record PreparedAppUpdate(AppUpdate Update, string TempDirectory, string ArchivePath);
 
 internal static class AppUpdater
 {
@@ -27,12 +29,12 @@ internal static class AppUpdater
         Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? "0.0.001";
 
-    public static async Task<AppUpdate?> FindUpdateAsync()
+    public static async Task<AppUpdate?> FindUpdateAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await Client.GetAsync(LatestReleaseApi);
+        using var response = await Client.GetAsync(LatestReleaseApi, cancellationToken);
         response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync();
-        using var document = await JsonDocument.ParseAsync(stream);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         var root = document.RootElement;
         var tag = root.GetProperty("tag_name").GetString();
         if (tag is null || !tag.StartsWith('v')) return null;
@@ -55,31 +57,30 @@ internal static class AppUpdater
         return new AppUpdate(latestVersion, archiveUri, checksumUri, signatureUri);
     }
 
-    public static async Task DownloadAndInstallAsync(AppUpdate update)
+    public static async Task<PreparedAppUpdate> DownloadAndVerifyAsync(AppUpdate update, CancellationToken cancellationToken = default)
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), "CodexGUI-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         var archivePath = Path.Combine(tempDirectory, ArchiveName);
         var checksumPath = Path.Combine(tempDirectory, ChecksumName);
         var signaturePath = Path.Combine(tempDirectory, SignatureName);
-        var updaterPath = Path.Combine(tempDirectory, "Update-CodexGUI.ps1");
 
         try
         {
-            await DownloadFileAsync(update.ArchiveUri, archivePath);
-            await DownloadFileAsync(update.ChecksumUri, checksumPath);
-            await DownloadFileAsync(update.SignatureUri, signaturePath);
-            var expectedHash = (await File.ReadAllTextAsync(checksumPath)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            await DownloadFileAsync(update.ArchiveUri, archivePath, cancellationToken);
+            await DownloadFileAsync(update.ChecksumUri, checksumPath, cancellationToken);
+            await DownloadFileAsync(update.SignatureUri, signaturePath, cancellationToken);
+            var expectedHash = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             if (expectedHash is null || expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
                 throw new InvalidDataException("Файл контрольной суммы релиза повреждён.");
 
             await using var archive = File.OpenRead(archivePath);
-            var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(archive));
+            var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(archive, cancellationToken));
             if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Контрольная сумма архива не совпала.");
 
             byte[] signature;
-            try { signature = Convert.FromBase64String((await File.ReadAllTextAsync(signaturePath)).Trim()); }
+            try { signature = Convert.FromBase64String((await File.ReadAllTextAsync(signaturePath, cancellationToken)).Trim()); }
             catch (FormatException error) { throw new InvalidDataException("Подпись архива имеет некорректный формат.", error); }
             var signedManifest = Encoding.UTF8.GetBytes($"{update.Version}\n{actualHash.ToLowerInvariant()}  {ArchiveName}");
             using (var verifier = ECDsa.Create())
@@ -89,33 +90,7 @@ internal static class AppUpdater
                     throw new InvalidDataException("Подпись манифеста обновления неверна. Обновление отменено.");
             }
 
-            using var updaterResource = typeof(AppUpdater).Assembly.GetManifestResourceStream("CodexGUI.Update-CodexGUI.ps1")
-                ?? throw new FileNotFoundException("Не найден встроенный сценарий установки обновления.");
-            await using (var updaterFile = File.Create(updaterPath))
-                await updaterResource.CopyToAsync(updaterFile);
-
-            var executablePath = Environment.ProcessPath ?? throw new InvalidOperationException("Не удалось определить путь приложения.");
-            var startInfo = new ProcessStartInfo("powershell.exe")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetTempPath()
-            };
-            startInfo.ArgumentList.Add("-NoProfile");
-            startInfo.ArgumentList.Add("-ExecutionPolicy");
-            startInfo.ArgumentList.Add("Bypass");
-            startInfo.ArgumentList.Add("-File");
-            startInfo.ArgumentList.Add(updaterPath);
-            startInfo.ArgumentList.Add("-ArchivePath");
-            startInfo.ArgumentList.Add(archivePath);
-            startInfo.ArgumentList.Add("-TargetDirectory");
-            startInfo.ArgumentList.Add(AppContext.BaseDirectory);
-            startInfo.ArgumentList.Add("-ProcessId");
-            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
-            startInfo.ArgumentList.Add("-ExecutableName");
-            startInfo.ArgumentList.Add(Path.GetFileName(executablePath));
-
-            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Не удалось запустить установщик обновления.");
+            return new PreparedAppUpdate(update, tempDirectory, archivePath);
         }
         catch
         {
@@ -123,6 +98,46 @@ internal static class AppUpdater
             catch (IOException) { }
             throw;
         }
+    }
+
+    public static async Task InstallPreparedUpdateAsync(PreparedAppUpdate preparedUpdate)
+    {
+        var updaterPath = Path.Combine(preparedUpdate.TempDirectory, "Update-CodexGUI.ps1");
+        using var updaterResource = typeof(AppUpdater).Assembly.GetManifestResourceStream("CodexGUI.Update-CodexGUI.ps1")
+            ?? throw new FileNotFoundException("Не найден встроенный сценарий установки обновления.");
+        await using (var updaterFile = File.Create(updaterPath))
+            await updaterResource.CopyToAsync(updaterFile);
+
+        var executablePath = Environment.ProcessPath ?? throw new InvalidOperationException("Не удалось определить путь приложения.");
+        var startInfo = new ProcessStartInfo("powershell.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetTempPath()
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-ExecutionPolicy");
+        startInfo.ArgumentList.Add("Bypass");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(updaterPath);
+        startInfo.ArgumentList.Add("-ArchivePath");
+        startInfo.ArgumentList.Add(preparedUpdate.ArchivePath);
+        startInfo.ArgumentList.Add("-TargetDirectory");
+        startInfo.ArgumentList.Add(AppContext.BaseDirectory);
+        startInfo.ArgumentList.Add("-ProcessId");
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+        startInfo.ArgumentList.Add("-ExecutableName");
+        startInfo.ArgumentList.Add(Path.GetFileName(executablePath));
+
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Не удалось запустить установщик обновления.");
+    }
+
+    public static void DiscardPreparedUpdate(PreparedAppUpdate preparedUpdate)
+    {
+        try { Directory.Delete(preparedUpdate.TempDirectory, recursive: true); }
+        catch (DirectoryNotFoundException) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private static HttpClient CreateClient()
@@ -161,12 +176,12 @@ internal static class AppUpdater
         return 0;
     }
 
-    private static async Task DownloadFileAsync(Uri uri, string path)
+    private static async Task DownloadFileAsync(Uri uri, string path, CancellationToken cancellationToken)
     {
-        using var response = await Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await Client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync();
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var destination = File.Create(path);
-        await source.CopyToAsync(destination);
+        await source.CopyToAsync(destination, cancellationToken);
     }
 }

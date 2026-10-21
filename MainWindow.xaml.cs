@@ -44,13 +44,19 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _reloadDebounce;
     private readonly DispatcherTimer _stateSaveDebounce;
     private readonly DispatcherTimer _usageRefreshTimer;
+    private readonly DispatcherTimer _updateCheckTimer;
+    private readonly CancellationTokenSource _updateCheckCancellation = new();
     private bool _isRefreshingUsage;
     private bool _isCheckingUpdates;
+    private bool _isInstallingUpdate;
+    private bool _isClosing;
+    private PreparedAppUpdate? _preparedUpdate;
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
     private FileSystemWatcher? _viewWatcher;
     private Forms.NotifyIcon? _trayIcon;
     private DrawingIcon? _trayImage;
+    private Forms.ToolStripMenuItem? _updateMenuItem;
     private Process? _activeProcess;
     private bool _isRunning;
     private bool _sidebarCollapsed;
@@ -82,6 +88,8 @@ public partial class MainWindow : Window
         };
         _usageRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
         _usageRefreshTimer.Tick += async (_, _) => await RefreshUsageLimitsAsync();
+        _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+        _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(interactive: false);
         LoadState();
         ReloadView();
         InitializeTrayIcon();
@@ -91,6 +99,7 @@ public partial class MainWindow : Window
         {
             _ = RefreshUsageLimitsAsync();
             _ = CheckForUpdatesAsync(interactive: false);
+            _updateCheckTimer.Start();
             if (_currentThread is not null)
             {
                 _ = RestoreThreadContextUsageAsync(_currentThread);
@@ -100,6 +109,12 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _usageRefreshTimer.Stop();
+            _updateCheckTimer.Stop();
+            _isClosing = true;
+            _updateCheckCancellation.Cancel();
+            _updateCheckCancellation.Dispose();
+            if (!_isInstallingUpdate && _preparedUpdate is not null)
+                AppUpdater.DiscardPreparedUpdate(_preparedUpdate);
             if (_stateSaveDebounce.IsEnabled)
             {
                 _stateSaveDebounce.Stop();
@@ -117,11 +132,21 @@ public partial class MainWindow : Window
 
     private async Task CheckForUpdatesAsync(bool interactive)
     {
-        if (_isCheckingUpdates) return;
+        if (_isCheckingUpdates || _isInstallingUpdate || _isClosing) return;
+        if (_preparedUpdate is not null)
+        {
+            if (interactive)
+                _trayIcon?.ShowBalloonTip(5000, "Обновление готово", $"Версия {_preparedUpdate.Update.Version} скачана. Щёлкните значок для установки.", Forms.ToolTipIcon.Info);
+            return;
+        }
+
         _isCheckingUpdates = true;
+        UpdateUpdateMenuText();
+        SetTrayTooltip("Codex — проверяю обновления");
         try
         {
-            var update = await AppUpdater.FindUpdateAsync();
+            var update = await AppUpdater.FindUpdateAsync(_updateCheckCancellation.Token);
+            if (_isClosing) return;
             if (update is null)
             {
                 if (interactive)
@@ -129,23 +154,77 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var result = MessageBox.Show(this,
-                $"Доступна версия {update.Version}. Установить обновление сейчас? Приложение перезапустится.",
-                "Доступно обновление CodexGUI", MessageBoxButton.YesNo, MessageBoxImage.Information);
-            if (result != MessageBoxResult.Yes) return;
+            SetTrayTooltip($"Codex — скачиваю обновление v{update.Version}");
+            UpdateUpdateMenuText();
+            var preparedUpdate = await AppUpdater.DownloadAndVerifyAsync(update, _updateCheckCancellation.Token);
+            if (_isClosing)
+            {
+                AppUpdater.DiscardPreparedUpdate(preparedUpdate);
+                return;
+            }
 
-            await AppUpdater.DownloadAndInstallAsync(update);
-            Close();
+            _preparedUpdate = preparedUpdate;
+            UpdateUpdateMenuText();
+            SetTrayTooltip($"Codex — обновление v{update.Version} готово к установке");
+            _trayIcon?.ShowBalloonTip(8000, "Обновление скачано", $"Версия {update.Version} готова. Щёлкните значок Codex, чтобы установить её и перезапустить приложение.", Forms.ToolTipIcon.Info);
         }
+        catch (OperationCanceledException) when (_isClosing) { }
         catch (Exception error)
         {
+            if (_isClosing) return;
+            SetTrayTooltip("Codex — не удалось загрузить обновление");
+            _trayIcon?.ShowBalloonTip(5000, "Ошибка обновления", "Не удалось скачать или проверить обновление. Проверка повторится позже.", Forms.ToolTipIcon.Error);
             if (interactive)
-                MessageBox.Show(this, $"Не удалось проверить или установить обновление.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(this, $"Не удалось проверить или скачать обновление.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
             _isCheckingUpdates = false;
+            if (!_isClosing && _preparedUpdate is null)
+            {
+                UpdateUpdateMenuText();
+                SetTrayTooltip("Codex — готов к работе");
+            }
         }
+    }
+
+    private async Task InstallPreparedUpdateAsync()
+    {
+        if (_preparedUpdate is not { } preparedUpdate || _isInstallingUpdate || _isClosing) return;
+        _isInstallingUpdate = true;
+        if (_updateMenuItem is not null) _updateMenuItem.Enabled = false;
+        SetTrayTooltip($"Codex — устанавливаю обновление v{preparedUpdate.Update.Version}");
+        try
+        {
+            await AppUpdater.InstallPreparedUpdateAsync(preparedUpdate);
+            Close();
+        }
+        catch (Exception error)
+        {
+            _isInstallingUpdate = false;
+            if (_updateMenuItem is not null) _updateMenuItem.Enabled = true;
+            SetTrayTooltip($"Codex — обновление v{preparedUpdate.Update.Version} готово к установке");
+            MessageBox.Show(this, $"Не удалось запустить установку обновления.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void UpdateUpdateMenuText()
+    {
+        if (_updateMenuItem is null) return;
+        _updateMenuItem.Text = _preparedUpdate is { } preparedUpdate
+            ? $"Установить обновление v{preparedUpdate.Update.Version}"
+            : _isCheckingUpdates ? "Проверка и загрузка обновлений…" : $"Проверить обновления (v{AppUpdater.CurrentVersion})";
+    }
+
+    private void SetTrayTooltip(string text)
+    {
+        if (_trayIcon is not null) _trayIcon.Text = text.Length <= 63 ? text : text[..63];
+    }
+
+    private void HandleTrayActivation()
+    {
+        if (_preparedUpdate is not null) _ = InstallPreparedUpdateAsync();
+        else ShowFromTray();
     }
 
     private void InitializeTrayIcon()
@@ -168,18 +247,23 @@ public partial class MainWindow : Window
             ShowFromTray();
             NewChat();
         });
-        var updateItem = new Forms.ToolStripMenuItem($"Проверить обновления (v{AppUpdater.CurrentVersion})");
-        updateItem.Click += (_, _) => Dispatcher.BeginInvoke(() =>
+        _updateMenuItem = new Forms.ToolStripMenuItem($"Проверить обновления (v{AppUpdater.CurrentVersion})");
+        _updateMenuItem.Click += (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            ShowFromTray();
-            _ = CheckForUpdatesAsync(interactive: true);
+            if (_preparedUpdate is not null)
+                _ = InstallPreparedUpdateAsync();
+            else
+            {
+                ShowFromTray();
+                _ = CheckForUpdatesAsync(interactive: true);
+            }
         });
         var exitItem = new Forms.ToolStripMenuItem("Выход");
         exitItem.Click += (_, _) => Dispatcher.BeginInvoke(Close);
         menu.Items.Add(showItem);
         menu.Items.Add(newChatItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(updateItem);
+        menu.Items.Add(_updateMenuItem);
         menu.Items.Add(exitItem);
 
         _trayIcon = new Forms.NotifyIcon
@@ -189,11 +273,12 @@ public partial class MainWindow : Window
             ContextMenuStrip = menu,
             Visible = true
         };
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(ShowFromTray);
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(HandleTrayActivation);
         _trayIcon.MouseClick += (_, e) =>
         {
-            if (e.Button == Forms.MouseButtons.Left) Dispatcher.BeginInvoke(ShowFromTray);
+            if (e.Button == Forms.MouseButtons.Left) Dispatcher.BeginInvoke(HandleTrayActivation);
         };
+        _trayIcon.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(() => _ = InstallPreparedUpdateAsync());
     }
 
     internal void ShowFromTray()
