@@ -794,6 +794,9 @@ public partial class MainWindow : Window
                         var prompt = ReadUserMessageText(item);
                         if (!string.IsNullOrWhiteSpace(prompt)) messages.Add(new ChatMessage(true, prompt));
                         break;
+                    default:
+                        if (CreateActivityMessage(item, true) is { } activity) messages.Add(activity);
+                        break;
                 }
             }
         }
@@ -1034,11 +1037,35 @@ public partial class MainWindow : Window
 
     private FrameworkElement CreateMessage(ChatMessage message)
     {
+        if (message.ActivityTitle is { } activityTitle)
+        {
+            var details = new TextBox
+            {
+                Text = message.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
+                Background = Brushes.Transparent, Foreground = Brush("#AFB5C0"),
+                BorderThickness = new Thickness(0), FontFamily = new FontFamily("Consolas"),
+                FontSize = 12, Margin = new Thickness(0, 8, 0, 0),
+                MaxHeight = 260, VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            var expander = new Expander
+            {
+                Header = activityTitle, Content = details, IsExpanded = message.IsExpanded,
+                Foreground = Brush(message.IsError ? "#F09999" : "#9FAFC7"), FontSize = 12
+            };
+            expander.Expanded += (_, _) => message.IsExpanded = true;
+            expander.Collapsed += (_, _) => message.IsExpanded = false;
+            return new Border
+            {
+                Background = Brush("#1D2026"), BorderBrush = Brush(message.IsError ? "#78434A" : "#394355"),
+                BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(12, 9, 12, 9),
+                Margin = new Thickness(4, 4, 4, 10), Child = expander
+            };
+        }
         var outer = new StackPanel
         {
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
             MaxWidth = 700,
-            Margin = new Thickness(0, 10, 0, 13)
+            Margin = new Thickness(0, 18, 0, 22)
         };
         if (!message.IsUser)
             outer.Children.Add(new TextBlock { Text = "✳  Codex", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brush("#C4C5C9"), Margin = new Thickness(1, 0, 0, 8) });
@@ -1058,8 +1085,59 @@ public partial class MainWindow : Window
             var bubble = new Border { Background = Brush("#292B30"), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 10, 14, 10), Child = text };
             outer.Children.Add(bubble);
         }
-        else outer.Children.Add(text);
+        else outer.Children.Add(new Border
+        {
+            Background = Brush("#202227"), BorderBrush = Brush("#34373F"),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(16, 13, 16, 13), Child = text
+        });
         return outer;
+    }
+
+    private static void UpsertTimelineItem(List<ChatMessage> messages, ChatMessage anchor,
+        Dictionary<string, ChatMessage> items, string? id, ChatMessage message)
+    {
+        if (id is not null && items.TryGetValue(id, out var existing))
+        {
+            existing.Text = message.Text;
+            existing.ActivityTitle = message.ActivityTitle;
+            existing.IsError = message.IsError;
+            return;
+        }
+        var index = messages.IndexOf(anchor);
+        if (index < 0) return;
+        messages.Insert(index, message);
+        if (id is not null) items[id] = message;
+    }
+
+    private static ChatMessage? CreateActivityMessage(JsonElement item, bool completed)
+    {
+        var type = GetString(item, "type");
+        var title = type switch
+        {
+            "reasoning" => "Размышления",
+            "command_execution" or "commandExecution" => "Команда",
+            "file_change" or "fileChange" => "Изменение файлов",
+            "mcp_tool_call" or "mcpToolCall" => "Вызов инструмента",
+            "web_search" or "webSearch" => "Поиск в интернете",
+            "todo_list" or "plan" => "План работы",
+            "error" => "Ошибка",
+            _ => null
+        };
+        if (title is null) return null;
+        var failed = type == "error" || GetString(item, "status") is "failed" or "declined" ||
+            (item.TryGetProperty("exit_code", out var exit) && exit.TryGetInt32(out var code) && code != 0);
+        var parts = new List<string>();
+        foreach (var key in new[] { "command", "text", "query", "server", "tool", "aggregated_output", "aggregatedOutput" })
+            if (GetString(item, key) is { Length: > 0 } value) parts.Add(value);
+        foreach (var key in new[] { "summary", "content", "changes", "items", "arguments", "result", "error" })
+            if (item.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null)
+                parts.Add(value.ToString());
+        return new ChatMessage(false, string.Join(Environment.NewLine + Environment.NewLine, parts))
+        {
+            ActivityTitle = $"{(failed ? "✕" : completed ? "✓" : "●")}  {title} · {(failed ? "ошибка" : completed ? "завершено" : "выполняется")}",
+            IsError = failed
+        };
     }
 
     private void RenderFileTree()
@@ -1096,7 +1174,7 @@ public partial class MainWindow : Window
         var thread = _currentThread;
         title.Text = thread?.Title ?? "Новый чат";
         var modelName = _availableModels.FirstOrDefault(model => model.Slug == _selectedModel)?.DisplayName ?? _selectedModel;
-        details.Text = $"{modelName} · Сообщений: {thread?.Messages.Count ?? 0}";
+        details.Text = $"{modelName} · Сообщений: {thread?.Messages.Count(message => message.ActivityTitle is null) ?? 0}";
         if (thread?.ContextTokens is { } tokens && thread.ContextWindowTokens is > 0 and { } contextWindow)
             details.Text += $" · Контекст: {tokens * 100 / contextWindow}%";
         session.Text = thread?.CodexSessionId is { Length: > 0 } sessionId
@@ -1381,12 +1459,11 @@ public partial class MainWindow : Window
             userIndex = thread.Messages.Count - 1;
         }
 
-        var assistant = thread.Messages.Skip(userIndex + 1).FirstOrDefault(message => !message.IsUser);
-        if (assistant is null)
-        {
-            assistant = new ChatMessage(false, "CLI продолжает выполнять запрос…");
-            thread.Messages.Add(assistant);
-        }
+        // The worker log is replayed from the start, including messages already in history.
+        // Rebuild only this active turn to avoid duplicating its messages and activities.
+        thread.Messages.RemoveRange(userIndex + 1, thread.Messages.Count - userIndex - 1);
+        var assistant = new ChatMessage(false, "CLI продолжает выполнять запрос…");
+        thread.Messages.Add(assistant);
         return assistant;
     }
 
@@ -1467,6 +1544,8 @@ public partial class MainWindow : Window
             assistantMessage.Text = string.IsNullOrWhiteSpace(response)
                 ? "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале."
                 : response;
+            if (assistantMessage.HasCompletedMessages && string.IsNullOrWhiteSpace(response))
+                thread.Messages.Remove(assistantMessage);
             if (_currentThread == thread) SetStatus("Codex CLI готов", "Ответ получен.");
         }
         catch (Exception error)
@@ -1520,6 +1599,7 @@ public partial class MainWindow : Window
         _activeProcesses[activeRun.RunId] = process;
         var response = new StringBuilder();
         var responseLock = new object();
+        var completedItems = new Dictionary<string, ChatMessage>();
         var updateQueued = 0;
         var outputTail = new CliOutputTail();
         var missingCompletionChecks = 0;
@@ -1536,22 +1616,21 @@ public partial class MainWindow : Window
                 lock (responseLock) text = response.ToString();
                 if (thread.ActiveRun?.RunId != activeRun.RunId) return;
                 if (thread.Messages.Count == 0 || !ReferenceEquals(thread.Messages[^1], assistantMessage)) return;
-                assistantMessage.Text = text;
+                assistantMessage.Text = string.IsNullOrEmpty(text) ? "Думаю…" : text;
                 if (_currentThread == thread && _streamingAssistantTextBlock is { } messageText)
                 {
-                    messageText.Text = text;
+                    messageText.Text = assistantMessage.Text;
                     if (Control<ScrollViewer>("ConversationScroll") is { } scroll)
                         scroll.ScrollToEnd();
                 }
             }, DispatcherPriority.Background);
         }
 
-        void AppendResponse(string text, bool skipIfAlreadyEmitted = false)
+        void AppendResponse(string text)
         {
             if (string.IsNullOrEmpty(text)) return;
             lock (responseLock)
             {
-                if (skipIfAlreadyEmitted && response.ToString().EndsWith(text, StringComparison.Ordinal)) return;
                 response.Append(text);
             }
             QueueResponseRefresh();
@@ -1590,10 +1669,16 @@ public partial class MainWindow : Window
                     }, DispatcherPriority.Background);
                 }
 
-                if (eventType == "item.completed" && root.TryGetProperty("item", out var item) && GetString(item, "type") == "agent_message")
+                if (eventType is "item.started" or "item.updated" or "item.completed" && root.TryGetProperty("item", out var item))
                 {
-                    var text = GetString(item, "text");
-                    if (!string.IsNullOrEmpty(text)) AppendResponse(text, skipIfAlreadyEmitted: true);
+                    var completed = eventType == "item.completed";
+                    var isAgent = GetString(item, "type") == "agent_message";
+                    var message = isAgent
+                        ? new ChatMessage(false, GetString(item, "text") ?? "")
+                        : CreateActivityMessage(item, completed);
+                    if (message is null || (isAgent && !completed)) return;
+                    var itemId = GetString(item, "id");
+                    ApplyItemUpdate(message, itemId, isAgent);
                 }
                 else if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
                     AppendResponse(delta);
@@ -1602,6 +1687,23 @@ public partial class MainWindow : Window
             {
                 AppendResponse(line + Environment.NewLine);
             }
+        }
+
+        void ApplyItemUpdate(ChatMessage message, string? itemId, bool isAgent)
+        {
+            // Apply in stream order on the UI thread, before consuming the next event.
+            Dispatcher.Invoke(() =>
+            {
+                if (thread.ActiveRun?.RunId != activeRun.RunId) return;
+                UpsertTimelineItem(thread.Messages, assistantMessage, completedItems, itemId, message);
+                if (isAgent)
+                {
+                    assistantMessage.HasCompletedMessages = true;
+                    lock (responseLock) response.Clear();
+                }
+                assistantMessage.Text = "Codex работает…";
+                if (_currentThread == thread) RenderConversation();
+            });
         }
 
         while (true)
@@ -2780,5 +2882,9 @@ public partial class MainWindow : Window
     {
         public bool IsUser { get; } = isUser;
         public string Text { get; set; } = text;
+        public string? ActivityTitle { get; set; }
+        public bool IsError { get; set; }
+        public bool IsExpanded { get; set; }
+        public bool HasCompletedMessages { get; set; }
     }
 }
