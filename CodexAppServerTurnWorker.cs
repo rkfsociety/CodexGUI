@@ -22,6 +22,7 @@ internal sealed class CodexAppServerWorkerRequest
     public string Model { get; set; } = "";
     public string Effort { get; set; } = "high";
     public bool FullAccess { get; set; }
+    public bool Unattended { get; set; }
     public string? ThreadId { get; set; }
     public string? ForkFromThreadId { get; set; }
     public string StartedPath { get; set; } = "";
@@ -84,7 +85,7 @@ internal static class CodexAppServerTurnWorker
                 input = new[] { new { type = "text", text = request.Prompt } },
                 model = request.Model,
                 effort = request.Effort,
-                approvalPolicy = request.FullAccess ? "never" : "on-request",
+                approvalPolicy = request.FullAccess || request.Unattended ? "never" : "on-request",
                 sandboxPolicy
             });
             var turnId = turn.TryGetProperty("turn", out var turnInfo) ? ReadString(turnInfo, "id") : null;
@@ -156,7 +157,7 @@ internal static class CodexAppServerTurnWorker
 
     private static async Task<string> StartOrResumeThreadAsync(CodexAppServerConnection connection, CodexAppServerWorkerRequest request)
     {
-        var approvalPolicy = request.FullAccess ? "never" : "on-request";
+        var approvalPolicy = request.FullAccess || request.Unattended ? "never" : "on-request";
         var sandbox = request.FullAccess ? "danger-full-access" : "workspace-write";
         JsonElement result;
         if (!string.IsNullOrWhiteSpace(request.ForkFromThreadId))
