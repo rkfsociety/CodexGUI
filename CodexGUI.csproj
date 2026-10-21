@@ -15,6 +15,7 @@
     <Content Include="Update-CodexGUI.ps1" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Views\WorkspaceView.xaml" LogicalName="CodexGUI.Views.WorkspaceView.xaml" />
     <EmbeddedResource Include="Update-CodexGUI.ps1" LogicalName="CodexGUI.Update-CodexGUI.ps1" />
+    <EmbeddedResource Include="CodexCliWorker.ps1" LogicalName="CodexGUI.CodexCliWorker.ps1" />
     <Resource Include="Assets\codex-assistant.ico" />
     <Content Include="Assets\codex-assistant.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

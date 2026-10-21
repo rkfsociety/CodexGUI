@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ChatThread> _threads = [];
     private readonly List<ProjectEntry> _projects = [];
     private readonly List<ProjectEntry> _removedProjects = [];
+    private readonly List<QueuedPrompt> _promptQueue = [];
     private IReadOnlyList<ModelOption> _availableModels = [];
     private Task<IReadOnlyList<ModelOption>>? _modelCatalogTask;
     private readonly Dictionary<string, FrameworkElement> _named = new(StringComparer.Ordinal);
@@ -65,6 +66,7 @@ public partial class MainWindow : Window
     private DrawingIcon? _trayImage;
     private Process? _activeProcess;
     private bool _isRunning;
+    private bool _isPumpingPromptQueue;
     private bool _sidebarCollapsed;
     private bool _contextOpen;
     private bool _showArchivedChats;
@@ -108,11 +110,8 @@ public partial class MainWindow : Window
             _ = RefreshUsageLimitsAsync();
             _ = CheckForUpdatesAsync(interactive: false);
             _updateCheckTimer.Start();
-            if (_currentThread is not null)
-            {
-                _ = RestoreThreadContextUsageAsync(_currentThread);
-                _ = RestoreThreadHistoryAsync(_currentThread);
-            }
+            RenderPromptQueue();
+            _ = ResumePendingWorkAsync();
         };
         Closed += (_, _) =>
         {
@@ -129,9 +128,9 @@ public partial class MainWindow : Window
             if (_stateSaveDebounce.IsEnabled)
             {
                 _stateSaveDebounce.Stop();
-                SaveState();
             }
-            StopCodexProcess();
+            SaveState();
+            CleanupWindowResources();
         };
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         SourceInitialized += (_, _) => ApplyDarkTitleBar();
@@ -432,6 +431,7 @@ public partial class MainWindow : Window
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
         Click("ArchivedChatsButton", (_, _) => ToggleArchivedChats());
         Click("SendButton", async (_, _) => await SendPromptAsync());
+        Click("ClearPromptQueueButton", (_, _) => ClearPromptQueue());
         Click("ModeButton", (_, _) => ShowAccessMenu());
         Click("ModelButton", async (_, _) => await ShowModelMenuAsync());
         Click("EffortButton", async (_, _) => await ShowEffortMenuAsync());
@@ -479,6 +479,7 @@ public partial class MainWindow : Window
         }
         UpdateContextIndicator();
         UpdateChatInfoPanel();
+        RenderPromptQueue();
         if (_activeView is { ColumnDefinitions.Count: 3 } view)
         {
             view.ColumnDefinitions[0].Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(250);
@@ -667,9 +668,11 @@ public partial class MainWindow : Window
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
                 await CodexCliService.RunSessionCommandAsync("delete", sessionId);
             _threads.Remove(thread);
+            _promptQueue.RemoveAll(prompt => prompt.ThreadId == thread.Id);
             if (_currentThread == thread)
                 _currentThread = _threads.LastOrDefault(item => item.ProjectId == thread.ProjectId && item.IsArchived == _showArchivedChats);
             SaveState();
+            RenderPromptQueue();
             UpdateChatSectionHeading();
             RefreshChatSelection();
             SetStatus("Чат удален", thread.Title);
@@ -712,14 +715,14 @@ public partial class MainWindow : Window
         return ParseUsageSnapshot(result);
     }
 
-    private Task RestoreThreadHistoryAsync(ChatThread thread)
+    private Task RestoreThreadHistoryAsync(ChatThread thread, bool force = false)
     {
-        if (thread.Messages.Count > 0)
+        if (!force && thread.Messages.Count > 0)
         {
             thread.HistoryLoaded = true;
             return Task.CompletedTask;
         }
-        if (string.IsNullOrWhiteSpace(thread.CodexSessionId) || thread.HistoryLoaded)
+        if (string.IsNullOrWhiteSpace(thread.CodexSessionId) || (!force && thread.HistoryLoaded))
             return Task.CompletedTask;
         if (thread.HistoryRestoreTask is { IsCompleted: false } inProgress)
             return inProgress;
@@ -1230,9 +1233,93 @@ public partial class MainWindow : Window
         _stateSaveDebounce.Start();
     }
 
+    private void RenderPromptQueue()
+    {
+        if (Control<Border>("PromptQueueBorder") is not { } border ||
+            Control<StackPanel>("PromptQueueList") is not { } list) return;
+
+        list.Children.Clear();
+        border.Visibility = _promptQueue.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (Control<TextBlock>("PromptQueueLabel") is { } heading)
+            heading.Text = $"В ОЧЕРЕДИ · {_promptQueue.Count}";
+        if (Control<Button>("ClearPromptQueueButton") is { } clearButton)
+            clearButton.IsEnabled = _promptQueue.Count > 0;
+
+        foreach (var queued in _promptQueue)
+        {
+            var threadTitle = _threads.FirstOrDefault(thread => thread.Id == queued.ThreadId)?.Title;
+            var text = queued.Text.ReplaceLineEndings(" ").Trim();
+            if (text.Length > 100) text = text[..97] + "…";
+            if (_currentThread?.Id != queued.ThreadId && !string.IsNullOrWhiteSpace(threadTitle))
+                text = $"{threadTitle}: {text}";
+
+            var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontSize = 10,
+                Foreground = Brush("#C7C8CC"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = queued.Text
+            });
+            var remove = new Button
+            {
+                Content = "×",
+                Width = 22,
+                Height = 22,
+                Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Foreground = Brush("#9A9BA1"),
+                ToolTip = "Убрать из очереди"
+            };
+            remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(remove);
+            list.Children.Add(row);
+        }
+
+        UpdateSendButtonState();
+    }
+
+    private void UpdateSendButtonState()
+    {
+        var queueing = _isRunning || _isPumpingPromptQueue;
+        if (Control<Button>("SendButton") is { } send)
+        {
+            send.IsEnabled = !_isInstallingUpdate && !_isClosing;
+            send.ToolTip = queueing ? "Добавить в очередь (Enter)" : "Отправить (Enter)";
+        }
+        if (Control<TextBlock>("SendButtonIcon") is { } icon)
+            icon.Text = queueing ? "＋" : "↑";
+    }
+
+    private void RemovePromptFromQueue(string promptId)
+    {
+        if (_promptQueue.RemoveAll(prompt => prompt.Id == promptId) == 0) return;
+        SaveState();
+        RenderPromptQueue();
+    }
+
+    private void ClearPromptQueue()
+    {
+        if (_promptQueue.Count == 0) return;
+        var result = MessageBox.Show(this,
+            $"Убрать из очереди все {_promptQueue.Count} сообщений?",
+            "Очередь сообщений",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+        _promptQueue.Clear();
+        SaveState();
+        RenderPromptQueue();
+    }
+
     private async Task SendPromptAsync()
     {
-        if (_isRunning || Control<TextBox>("PromptInput") is not { } input) return;
+        if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
         var prompt = input.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || prompt == PromptPlaceholder) return;
         if (_currentThread is null && _selectedProject is not null)
@@ -1244,46 +1331,162 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_currentThread?.IsArchived == true)
-        {
-            var archivedThread = _currentThread;
-            await SetThreadArchivedAsync(archivedThread, archived: false);
-            if (archivedThread.IsArchived) return;
-        }
-        _showArchivedChats = false;
-        UpdateChatSectionHeading();
         _currentThread ??= NewThread();
         var thread = _currentThread;
-        if (thread.CodexSessionId is not null && thread.Messages.Count == 0)
+        if (thread.Messages.Count == 0 && thread.ActiveRun is null && !_promptQueue.Any(item => item.ThreadId == thread.Id))
         {
-            await RestoreThreadHistoryAsync(thread);
-            if (!thread.HistoryLoaded) return;
+            thread.Title = TrimTitle(prompt);
+            RenderThreads();
         }
-        if (thread.Messages.Count == 0) thread.Title = TrimTitle(prompt);
-        thread.Messages.Add(new ChatMessage(true, prompt));
-        var assistantMessage = new ChatMessage(false, "Думаю…");
-        thread.Messages.Add(assistantMessage);
+        var project = _projects.FirstOrDefault(item => item.Id == thread.ProjectId);
+        _promptQueue.Add(new QueuedPrompt
+        {
+            ThreadId = thread.Id,
+            Text = prompt,
+            Model = _selectedModel,
+            Effort = _selectedEffort,
+            FullAccess = project?.FullAccess == true
+        });
         SaveState();
         input.Clear();
-        _isRunning = true;
-        SetStatus("Codex работает…", "Запрос выполняется в выбранной папке.");
-        RenderThreads();
-        RenderConversation();
-        UpdateChatInfoPanel();
-        if (Control<Button>("SendButton") is { } send) send.IsEnabled = false;
+        RenderPromptQueue();
+        if (!_isRunning) await ProcessQueuedPromptsAsync();
+    }
 
+    private async Task ResumePendingWorkAsync()
+    {
+        var thread = _threads.FirstOrDefault(item => item.ActiveRun is not null);
+        if (thread is not null && thread.ActiveRun is { } activeRun)
+        {
+            _isPumpingPromptQueue = true;
+            try
+            {
+                _isRunning = true;
+                UpdateSendButtonState();
+                _selectedProject = _projects.FirstOrDefault(project => project.Id == thread.ProjectId);
+                _projectPath = thread.ProjectPath;
+                _currentThread = thread;
+                _showArchivedChats = false;
+                RefreshView();
+                var assistantMessage = EnsureActiveRunMessages(thread, activeRun);
+                RenderThreads();
+                RenderConversation();
+                UpdateChatInfoPanel();
+                SetStatus("Codex продолжает работу", "Фоновая CLI-сессия продолжится здесь после завершения текущего шага.");
+                await ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: true);
+            }
+            finally
+            {
+                _isPumpingPromptQueue = false;
+                UpdateSendButtonState();
+            }
+        }
+        else if (_currentThread is not null)
+        {
+            _ = RestoreThreadContextUsageAsync(_currentThread);
+            await RestoreThreadHistoryAsync(_currentThread);
+        }
+
+        await ProcessQueuedPromptsAsync();
+    }
+
+    private static ChatMessage EnsureActiveRunMessages(ChatThread thread, ActiveCliRun activeRun)
+    {
+        var userIndex = thread.Messages.FindLastIndex(message => message.IsUser && message.Text == activeRun.Prompt);
+        if (userIndex < 0)
+        {
+            thread.Messages.Add(new ChatMessage(true, activeRun.Prompt));
+            userIndex = thread.Messages.Count - 1;
+        }
+
+        var assistant = thread.Messages.Skip(userIndex + 1).FirstOrDefault(message => !message.IsUser);
+        if (assistant is null)
+        {
+            assistant = new ChatMessage(false, "CLI продолжает выполнять запрос…");
+            thread.Messages.Add(assistant);
+        }
+        return assistant;
+    }
+
+    private async Task ProcessQueuedPromptsAsync()
+    {
+        if (_isRunning || _isPumpingPromptQueue || _isClosing) return;
+        _isPumpingPromptQueue = true;
         try
         {
-            var response = await RunCodexAsync(thread, prompt, assistantMessage);
-            assistantMessage.Text = response;
-            SaveState();
-            if (string.IsNullOrWhiteSpace(response)) assistantMessage.Text = "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале.";
-            SetStatus("Codex CLI готов", "Ответ получен.");
+            while (_promptQueue.Count > 0 && !_isClosing)
+            {
+                var queued = _promptQueue[0];
+                var thread = _threads.FirstOrDefault(item => item.Id == queued.ThreadId);
+                if (thread is null)
+                {
+                    _promptQueue.RemoveAt(0);
+                    SaveState();
+                    RenderPromptQueue();
+                    continue;
+                }
+                if (!Directory.Exists(thread.ProjectPath))
+                {
+                    SetStatus("Папка проекта недоступна", thread.ProjectPath, isError: true);
+                    return;
+                }
+                if (thread.IsArchived)
+                {
+                    await SetThreadArchivedAsync(thread, archived: false);
+                    if (thread.IsArchived) return;
+                }
+                var activeRun = CreateActiveCliRun(queued);
+                thread.ActiveRun = activeRun;
+                _promptQueue.RemoveAt(0);
+                _selectedProject = _projects.FirstOrDefault(item => item.Id == thread.ProjectId);
+                _projectPath = thread.ProjectPath;
+                _currentThread = thread;
+                _showArchivedChats = false;
+                _isRunning = true;
+                SaveState();
+                UpdateChatSectionHeading();
+                RefreshView();
+                SetStatus("Codex работает…", "Запрос выполняется в выбранной папке.");
+                if (thread.CodexSessionId is not null && thread.Messages.Count == 0)
+                {
+                    await RestoreThreadHistoryAsync(thread);
+                    if (!thread.HistoryLoaded)
+                    {
+                        thread.ActiveRun = null;
+                        _promptQueue.Insert(0, queued);
+                        _isRunning = false;
+                        SaveState();
+                        RenderPromptQueue();
+                        SetStatus("Не удалось восстановить чат", thread.HistoryError ?? thread.Title, isError: true);
+                        return;
+                    }
+                }
+                var userMessage = new ChatMessage(true, queued.Text);
+                var assistantMessage = new ChatMessage(false, "Думаю…");
+                thread.Messages.Add(userMessage);
+                thread.Messages.Add(assistantMessage);
+                SaveState();
+                RenderConversation();
+                UpdateChatInfoPanel();
+                await ExecuteActiveCliRunAsync(thread, activeRun, assistantMessage, reloadHistoryWhenFinished: false);
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
-            assistantMessage.Text = "Запрос остановлен.";
-            SetStatus("Запрос остановлен", "Можно отправить следующий запрос.");
+            _isPumpingPromptQueue = false;
+            UpdateSendButtonState();
+        }
+    }
+
+    private async Task ExecuteActiveCliRunAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage, bool reloadHistoryWhenFinished)
+    {
+        try
+        {
+            var response = await RunCodexAsync(thread, activeRun, assistantMessage);
+            assistantMessage.Text = string.IsNullOrWhiteSpace(response)
+                ? "Codex завершил запрос без текстового ответа. Проверьте детали команды в терминале."
+                : response;
+            SetStatus("Codex CLI готов", "Ответ получен.");
         }
         catch (Exception error)
         {
@@ -1295,77 +1498,60 @@ public partial class MainWindow : Window
             _isRunning = false;
             _activeProcess?.Dispose();
             _activeProcess = null;
-            if (Control<Button>("SendButton") is { } sendButton) sendButton.IsEnabled = true;
+            if (thread.ActiveRun?.RunId == activeRun.RunId) thread.ActiveRun = null;
+            SaveState();
+            if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
+                await RestoreThreadHistoryAsync(thread, force: true);
+            CleanupCliRun(activeRun);
             RenderThreads();
             if (_currentThread == thread) RenderConversation();
-            _ = RefreshUsageLimitsAsync();
             UpdateChatInfoPanel();
+            RenderPromptQueue();
+            UpdateSendButtonState();
+            _ = RefreshUsageLimitsAsync();
             if (_contextOpen) await RefreshRepositoryInfoAsync();
         }
     }
 
-    private async Task<string> RunCodexAsync(ChatThread thread, string prompt, ChatMessage assistantMessage)
+    private ActiveCliRun CreateActiveCliRun(QueuedPrompt queued)
     {
-        var startInfo = new ProcessStartInfo(CodexCliService.ResolveExecutable())
+        var runId = Guid.NewGuid().ToString("N");
+        var runDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", runId);
+        Directory.CreateDirectory(runDirectory);
+        return new ActiveCliRun
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-            WorkingDirectory = thread.ProjectPath
+            RunId = runId,
+            Prompt = queued.Text,
+            Model = queued.Model,
+            Effort = queued.Effort,
+            FullAccess = queued.FullAccess,
+            RequestPath = Path.Combine(runDirectory, "request.json"),
+            ScriptPath = Path.Combine(runDirectory, "CodexCliWorker.ps1"),
+            StartedPath = Path.Combine(runDirectory, "started.json"),
+            OutputPath = Path.Combine(runDirectory, "stdout.jsonl"),
+            ErrorPath = Path.Combine(runDirectory, "stderr.txt"),
+            CompletionPath = Path.Combine(runDirectory, "completed.json")
         };
+    }
 
-        if (IsFullAccess)
-        {
-            startInfo.ArgumentList.Add("--dangerously-bypass-approvals-and-sandbox");
-        }
-        else
-        {
-            startInfo.ArgumentList.Add("--ask-for-approval");
-            startInfo.ArgumentList.Add("on-request");
-        }
-        startInfo.ArgumentList.Add("--model");
-        startInfo.ArgumentList.Add(_selectedModel);
-        startInfo.ArgumentList.Add("--config");
-        startInfo.ArgumentList.Add($"model_reasoning_effort={_selectedEffort}");
-        startInfo.ArgumentList.Add("exec");
-        if (thread.CodexSessionId is not null)
-        {
-            startInfo.ArgumentList.Add("resume");
-            startInfo.ArgumentList.Add("--json");
-            startInfo.ArgumentList.Add(thread.CodexSessionId);
-            startInfo.ArgumentList.Add(prompt);
-        }
-        else
-        {
-            startInfo.ArgumentList.Add("--json");
-            startInfo.ArgumentList.Add("--skip-git-repo-check");
-            if (!IsFullAccess)
-            {
-                startInfo.ArgumentList.Add("--sandbox");
-                startInfo.ArgumentList.Add("workspace-write");
-            }
-            startInfo.ArgumentList.Add("-C");
-            startInfo.ArgumentList.Add(thread.ProjectPath);
-            startInfo.ArgumentList.Add(prompt);
-        }
-
-        using var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить codex CLI.");
+    private async Task<string> RunCodexAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage)
+    {
+        var process = await StartOrAttachCliWorkerAsync(thread, activeRun);
         _activeProcess = process;
         var response = new StringBuilder();
-        var errors = new StringBuilder();
         var responseLock = new object();
         var updateQueued = 0;
+        var outputTail = new CliOutputTail();
+        var missingCompletionChecks = 0;
 
         void QueueResponseRefresh()
         {
+            if (_isClosing || Dispatcher.HasShutdownStarted) return;
             if (Interlocked.Exchange(ref updateQueued, 1) != 0) return;
             _ = Dispatcher.BeginInvoke(() =>
             {
                 Interlocked.Exchange(ref updateQueued, 0);
+                if (_isClosing) return;
                 string text;
                 lock (responseLock) text = response.ToString();
                 if (!_isRunning) return;
@@ -1391,87 +1577,283 @@ public partial class MainWindow : Window
             QueueResponseRefresh();
         }
 
-        var outputTask = Task.Run(async () =>
+        void HandleOutputLine(string line)
+        {
+            if (_isClosing || string.IsNullOrWhiteSpace(line)) return;
+            try
+            {
+                using var json = JsonDocument.Parse(line);
+                var root = json.RootElement;
+                var eventType = GetString(root, "type");
+                if (eventType == "thread.started" && GetString(root, "thread_id") is { } id)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        thread.CodexSessionId = id;
+                        SaveState();
+                        if (_currentThread == thread) UpdateChatInfoPanel();
+                    }, DispatcherPriority.Background);
+                }
+
+                if (eventType == "token_count" && root.TryGetProperty("info", out var tokenInfo) &&
+                    tokenInfo.TryGetProperty("last_token_usage", out var lastUsage) &&
+                    lastUsage.TryGetProperty("total_tokens", out var totalTokens) && totalTokens.TryGetInt64(out var tokenCount) && tokenCount >= 0 &&
+                    tokenInfo.TryGetProperty("model_context_window", out var contextWindow) && contextWindow.TryGetInt64(out var windowSize) && windowSize > 0)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        thread.ContextTokens = tokenCount;
+                        thread.ContextWindowTokens = windowSize;
+                        ScheduleStateSave();
+                        if (_currentThread == thread) UpdateContextIndicator();
+                        if (_currentThread == thread) UpdateChatInfoPanel();
+                    }, DispatcherPriority.Background);
+                }
+
+                if (eventType == "item.completed" && root.TryGetProperty("item", out var item) && GetString(item, "type") == "agent_message")
+                {
+                    var text = GetString(item, "text");
+                    if (!string.IsNullOrEmpty(text)) AppendResponse(text, skipIfAlreadyEmitted: true);
+                }
+                else if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
+                    AppendResponse(delta);
+            }
+            catch (JsonException)
+            {
+                AppendResponse(line + Environment.NewLine);
+            }
+        }
+
+        while (true)
+        {
+            foreach (var line in await ReadAppendedOutputLinesAsync(activeRun.OutputPath, outputTail))
+                HandleOutputLine(line);
+
+            var workerExited = process is null || process.HasExited;
+            if (workerExited && File.Exists(activeRun.CompletionPath))
+            {
+                await Task.Delay(100);
+                foreach (var line in await ReadAppendedOutputLinesAsync(activeRun.OutputPath, outputTail))
+                    HandleOutputLine(line);
+                if (outputTail.PendingBytes.Count > 0)
+                {
+                    HandleOutputLine(Encoding.UTF8.GetString(outputTail.PendingBytes.ToArray()).TrimEnd('\r'));
+                    outputTail.PendingBytes.Clear();
+                }
+                break;
+            }
+            if (workerExited)
+            {
+                var replacement = TryGetCliWorkerProcess(activeRun);
+                if (replacement is not null && replacement.Id != process?.Id)
+                {
+                    process?.Dispose();
+                    process = replacement;
+                    _activeProcess = replacement;
+                    continue;
+                }
+                if (File.Exists(activeRun.CompletionPath)) continue;
+                if (++missingCompletionChecks > 20)
+                    throw new InvalidOperationException("Фоновый процесс Codex завершился без файла результата.");
+                await Task.Delay(100);
+                continue;
+            }
+
+            await Task.Delay(100);
+        }
+
+        var completion = JsonSerializer.Deserialize<CodexCliWorkerCompletion>(await File.ReadAllTextAsync(activeRun.CompletionPath));
+        if (completion?.SessionId is { Length: > 0 } sessionId && thread.CodexSessionId != sessionId)
+        {
+            thread.CodexSessionId = sessionId;
+            SaveState();
+        }
+        if (completion is null || completion.ExitCode != 0)
+        {
+            var detail = File.Exists(activeRun.ErrorPath) ? (await File.ReadAllTextAsync(activeRun.ErrorPath)).Trim() : "";
+            if (string.IsNullOrWhiteSpace(detail)) detail = completion?.Error ?? response.ToString().Trim();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"codex завершился с кодом {completion?.ExitCode ?? -1}."
+                : detail);
+        }
+
+        lock (responseLock) return response.ToString().Trim();
+    }
+
+    private async Task<Process?> StartOrAttachCliWorkerAsync(ChatThread thread, ActiveCliRun run)
+    {
+        if (TryGetCliWorkerProcess(run) is { } existing) return existing;
+        if (File.Exists(run.CompletionPath)) return null;
+        if (File.Exists(run.StartedPath))
+        {
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                await Task.Delay(100);
+                if (TryGetCliWorkerProcess(run) is { } delayed) return delayed;
+                if (File.Exists(run.CompletionPath)) return null;
+            }
+            throw new InvalidOperationException("Фоновый процесс Codex завершился до того, как интерфейс смог подключиться.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(run.RequestPath)!);
+        using var workerResource = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.CodexCliWorker.ps1")
+            ?? throw new FileNotFoundException("Не найден сценарий фонового запуска Codex CLI.");
+        await using (var workerFile = File.Create(run.ScriptPath))
+            await workerResource.CopyToAsync(workerFile);
+
+        var request = new CodexCliWorkerRequest
+        {
+            RunId = run.RunId,
+            ExecutablePath = CodexCliService.ResolveExecutable(),
+            WorkingDirectory = thread.ProjectPath,
+            Arguments = BuildCodexArguments(thread, run),
+            StartedPath = run.StartedPath,
+            OutputPath = run.OutputPath,
+            ErrorPath = run.ErrorPath,
+            CompletionPath = run.CompletionPath
+        };
+        await File.WriteAllTextAsync(run.RequestPath, JsonSerializer.Serialize(request));
+
+        var startInfo = new ProcessStartInfo("powershell.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(run.ScriptPath)!
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-ExecutionPolicy");
+        startInfo.ArgumentList.Add("Bypass");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(run.ScriptPath);
+        startInfo.ArgumentList.Add("-RequestPath");
+        startInfo.ArgumentList.Add(run.RequestPath);
+
+        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Не удалось запустить фоновый процесс Codex.");
+        run.WorkerProcessId = process.Id;
+        run.WorkerStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
+        SaveState();
+        return process;
+    }
+
+    private static List<string> BuildCodexArguments(ChatThread thread, ActiveCliRun run)
+    {
+        var arguments = new List<string>();
+        if (run.FullAccess)
+        {
+            arguments.Add("--dangerously-bypass-approvals-and-sandbox");
+        }
+        else
+        {
+            arguments.Add("--ask-for-approval");
+            arguments.Add("on-request");
+        }
+        arguments.Add("--model");
+        arguments.Add(run.Model);
+        arguments.Add("--config");
+        arguments.Add($"model_reasoning_effort={run.Effort}");
+        arguments.Add("exec");
+        if (thread.CodexSessionId is not null)
+        {
+            arguments.Add("resume");
+            arguments.Add("--json");
+            arguments.Add(thread.CodexSessionId);
+            arguments.Add(run.Prompt);
+        }
+        else
+        {
+            arguments.Add("--json");
+            arguments.Add("--skip-git-repo-check");
+            if (!run.FullAccess)
+            {
+                arguments.Add("--sandbox");
+                arguments.Add("workspace-write");
+            }
+            arguments.Add("-C");
+            arguments.Add(thread.ProjectPath);
+            arguments.Add(run.Prompt);
+        }
+        return arguments;
+    }
+
+    private static Process? TryGetCliWorkerProcess(ActiveCliRun run)
+    {
+        if (File.Exists(run.StartedPath))
         {
             try
             {
-                while (await process.StandardOutput.ReadLineAsync() is { } line)
+                using var marker = JsonDocument.Parse(File.ReadAllText(run.StartedPath));
+                var root = marker.RootElement;
+                if (GetString(root, "RunId") == run.RunId &&
+                    root.TryGetProperty("ProcessId", out var pid) && pid.TryGetInt32(out var processId) &&
+                    root.TryGetProperty("StartTimeUtcTicks", out var ticks) && ticks.TryGetInt64(out var startTicks))
                 {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    try
-                    {
-                        using var json = JsonDocument.Parse(line);
-                        var root = json.RootElement;
-                        var eventType = GetString(root, "type");
-                        if (eventType == "thread.started" && GetString(root, "thread_id") is { } id)
-                        {
-                            _ = Dispatcher.BeginInvoke(() =>
-                            {
-                                thread.CodexSessionId = id;
-                                SaveState();
-                                if (_currentThread == thread) UpdateChatInfoPanel();
-                            }, DispatcherPriority.Background);
-                        }
-
-                        if (eventType == "token_count" && root.TryGetProperty("info", out var tokenInfo) &&
-                            tokenInfo.TryGetProperty("last_token_usage", out var lastUsage) &&
-                            lastUsage.TryGetProperty("total_tokens", out var totalTokens) && totalTokens.TryGetInt64(out var tokenCount) && tokenCount >= 0 &&
-                            tokenInfo.TryGetProperty("model_context_window", out var contextWindow) && contextWindow.TryGetInt64(out var windowSize) && windowSize > 0)
-                        {
-                            _ = Dispatcher.BeginInvoke(() =>
-                            {
-                                thread.ContextTokens = tokenCount;
-                                thread.ContextWindowTokens = windowSize;
-                                ScheduleStateSave();
-                                if (_currentThread == thread) UpdateContextIndicator();
-                                if (_currentThread == thread) UpdateChatInfoPanel();
-                            }, DispatcherPriority.Background);
-                        }
-
-                        if (eventType == "item.completed" && root.TryGetProperty("item", out var item) && GetString(item, "type") == "agent_message")
-                        {
-                            var text = GetString(item, "text");
-                            if (!string.IsNullOrEmpty(text)) AppendResponse(text, skipIfAlreadyEmitted: true);
-                        }
-                        else if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
-                            AppendResponse(delta);
-                    }
-                    catch (JsonException)
-                    {
-                        AppendResponse(line + Environment.NewLine);
-                    }
+                    run.WorkerProcessId = processId;
+                    run.WorkerStartTimeUtcTicks = startTicks;
                 }
             }
-            catch (Exception error) when (error is IOException or ObjectDisposedException)
-            {
-                // A descendant process can keep the inherited pipe open after Codex exits.
-            }
-        });
-        var errorTask = Task.Run(async () =>
-        {
-            try { errors.Append(await process.StandardError.ReadToEndAsync()); }
-            catch (Exception error) when (error is IOException or ObjectDisposedException) { }
-        });
-        await process.WaitForExitAsync();
-        var readersTask = Task.WhenAll(outputTask, errorTask);
-        if (await Task.WhenAny(readersTask, Task.Delay(TimeSpan.FromSeconds(3))) != readersTask)
-        {
-            process.StandardOutput.Dispose();
-            process.StandardError.Dispose();
+            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException) { }
         }
-        await readersTask;
-        _activeProcess = null;
 
-        if (process.ExitCode != 0)
+        if (run.WorkerProcessId <= 0) return null;
+        try
         {
-            var detail = errors.ToString().Trim();
-            if (string.IsNullOrEmpty(detail))
+            var process = Process.GetProcessById(run.WorkerProcessId);
+            var actualStart = process.StartTime.ToUniversalTime().Ticks;
+            if (run.WorkerStartTimeUtcTicks > 0 && Math.Abs(actualStart - run.WorkerStartTimeUtcTicks) > TimeSpan.TicksPerSecond * 2)
             {
-                lock (responseLock) detail = response.ToString().Trim();
+                process.Dispose();
+                return null;
             }
-            throw new InvalidOperationException(string.IsNullOrEmpty(detail) ? $"codex завершился с кодом {process.ExitCode}." : detail);
+            return process;
         }
-        lock (responseLock) return response.ToString().Trim();
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadAppendedOutputLinesAsync(string path, CliOutputTail tail)
+    {
+        if (!File.Exists(path)) return [];
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length <= tail.Offset) return [];
+            stream.Position = tail.Offset;
+            var buffer = new byte[8192];
+            while (true)
+            {
+                var count = await stream.ReadAsync(buffer.AsMemory());
+                if (count <= 0) break;
+                tail.Offset += count;
+                for (var index = 0; index < count; index++) tail.PendingBytes.Add(buffer[index]);
+            }
+
+            var lines = new List<string>();
+            var lineStart = 0;
+            for (var index = 0; index < tail.PendingBytes.Count; index++)
+            {
+                if (tail.PendingBytes[index] != (byte)'\n') continue;
+                var length = index - lineStart;
+                if (length > 0 && tail.PendingBytes[index - 1] == (byte)'\r') length--;
+                lines.Add(Encoding.UTF8.GetString(tail.PendingBytes.GetRange(lineStart, length).ToArray()));
+                lineStart = index + 1;
+            }
+            if (lineStart > 0) tail.PendingBytes.RemoveRange(0, lineStart);
+            return lines;
+        }
+        catch (IOException error) when ((error.HResult & 0xFFFF) is 32 or 33)
+        {
+            return [];
+        }
+    }
+
+    private static void CleanupCliRun(ActiveCliRun run)
+    {
+        try { Directory.Delete(Path.GetDirectoryName(run.RequestPath)!, recursive: true); }
+        catch (DirectoryNotFoundException) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private static string? GetString(JsonElement element, string property) =>
@@ -2104,9 +2486,15 @@ public partial class MainWindow : Window
                             CodexSessionId = stored.CodexSessionId,
                             IsArchived = stored.IsArchived,
                             ContextTokens = stored.ContextTokens,
-                            ContextWindowTokens = stored.ContextWindowTokens
+                            ContextWindowTokens = stored.ContextWindowTokens,
+                            ActiveRun = stored.ActiveRun
                         });
                     }
+                    _promptQueue.AddRange(state.QueuedPrompts.Where(prompt =>
+                        !string.IsNullOrWhiteSpace(prompt.Id) &&
+                        !string.IsNullOrWhiteSpace(prompt.ThreadId) &&
+                        !string.IsNullOrWhiteSpace(prompt.Text) &&
+                        _threads.Any(thread => thread.Id == prompt.ThreadId)));
                     _selectedProject = _projects.FirstOrDefault(project => project.Id == state.SelectedProjectId);
                     _selectedModel = string.IsNullOrWhiteSpace(state.SelectedModel) ? DefaultModel : state.SelectedModel;
                     _selectedEffort = string.IsNullOrWhiteSpace(state.SelectedEffort) ? DefaultEffort : state.SelectedEffort;
@@ -2143,6 +2531,7 @@ public partial class MainWindow : Window
                 SelectedEffort = _selectedEffort,
                 Projects = _projects,
                 RemovedProjects = _removedProjects,
+                QueuedPrompts = _promptQueue,
                 Threads = _threads.Select(thread => new StoredThread
                 {
                     Id = thread.Id,
@@ -2152,7 +2541,8 @@ public partial class MainWindow : Window
                     CodexSessionId = thread.CodexSessionId,
                     IsArchived = thread.IsArchived,
                     ContextTokens = thread.ContextTokens,
-                    ContextWindowTokens = thread.ContextWindowTokens
+                    ContextWindowTokens = thread.ContextWindowTokens,
+                    ActiveRun = thread.ActiveRun
                 }).ToList()
             };
             var temporary = statePath + ".tmp";
@@ -2294,11 +2684,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private void StopCodexProcess()
+    private void CleanupWindowResources()
     {
-        try { if (_activeProcess is { HasExited: false }) _activeProcess.Kill(entireProcessTree: true); }
-        catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception) { }
         _viewWatcher?.Dispose();
         _trayIcon?.Dispose();
         _trayImage?.Dispose();
@@ -2314,6 +2701,7 @@ public partial class MainWindow : Window
         public bool IsArchived { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
+        public ActiveCliRun? ActiveRun { get; set; }
         public bool HistoryLoaded { get; set; }
         public bool HistoryLoading { get; set; }
         public string? HistoryError { get; set; }
@@ -2339,6 +2727,59 @@ public partial class MainWindow : Window
         public bool IsArchived { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
+        public ActiveCliRun? ActiveRun { get; set; }
+    }
+
+    private sealed class QueuedPrompt
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+        public string ThreadId { get; set; } = "";
+        public string Text { get; set; } = "";
+        public string Model { get; set; } = DefaultModel;
+        public string Effort { get; set; } = DefaultEffort;
+        public bool FullAccess { get; set; }
+    }
+
+    private sealed class ActiveCliRun
+    {
+        public string RunId { get; set; } = Guid.NewGuid().ToString("N");
+        public string Prompt { get; set; } = "";
+        public string Model { get; set; } = DefaultModel;
+        public string Effort { get; set; } = DefaultEffort;
+        public bool FullAccess { get; set; }
+        public string RequestPath { get; set; } = "";
+        public string ScriptPath { get; set; } = "";
+        public string StartedPath { get; set; } = "";
+        public string OutputPath { get; set; } = "";
+        public string ErrorPath { get; set; } = "";
+        public string CompletionPath { get; set; } = "";
+        public int WorkerProcessId { get; set; }
+        public long WorkerStartTimeUtcTicks { get; set; }
+    }
+
+    private sealed class CodexCliWorkerRequest
+    {
+        public string RunId { get; set; } = "";
+        public string ExecutablePath { get; set; } = "";
+        public string WorkingDirectory { get; set; } = "";
+        public List<string> Arguments { get; set; } = [];
+        public string StartedPath { get; set; } = "";
+        public string OutputPath { get; set; } = "";
+        public string ErrorPath { get; set; } = "";
+        public string CompletionPath { get; set; } = "";
+    }
+
+    private sealed class CodexCliWorkerCompletion
+    {
+        public int ExitCode { get; set; }
+        public string? Error { get; set; }
+        public string? SessionId { get; set; }
+    }
+
+    private sealed class CliOutputTail
+    {
+        public long Offset { get; set; }
+        public List<byte> PendingBytes { get; } = [];
     }
 
     private sealed class StoredState
@@ -2348,6 +2789,7 @@ public partial class MainWindow : Window
         public string? SelectedEffort { get; set; }
         public List<ProjectEntry> Projects { get; set; } = [];
         public List<ProjectEntry> RemovedProjects { get; set; } = [];
+        public List<QueuedPrompt> QueuedPrompts { get; set; } = [];
         public List<StoredThread> Threads { get; set; } = [];
     }
 

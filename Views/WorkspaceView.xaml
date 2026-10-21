@@ -120,9 +120,16 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <TextBox x:Name="PromptInput" Grid.Row="0" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="54" MaxHeight="150" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#DCDDE0" Text="Спросите Codex о задаче или попросите изменить проект…" />
-            <Grid Grid.Row="1" Margin="0,7,0,0" MinHeight="36">
+            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#25272C" CornerRadius="9" Padding="9,7" Margin="0,0,0,7" Visibility="Collapsed">
+              <StackPanel>
+                <DockPanel Margin="0,0,0,4"><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="4,1" FontSize="9" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="В ОЧЕРЕДИ" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextFaint}" VerticalAlignment="Center"/></DockPanel>
+                <ScrollViewer MaxHeight="88" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
+              </StackPanel>
+            </Border>
+            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="54" MaxHeight="150" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#DCDDE0" Text="Спросите Codex о задаче или попросите изменить проект…" />
+            <Grid Grid.Row="2" Margin="0,7,0,0" MinHeight="36">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -137,10 +144,10 @@
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                 <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата"><Ellipse Stroke="#3B3D42" StrokeThickness="2.6"/><Path x:Name="ContextUsageArc" Stroke="#77C99B" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><TextBlock x:Name="ContextPercent" Text="—" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
                 <Border Background="#25272C" CornerRadius="6" Padding="8,5" Margin="0,0,9,0" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock Text="CLI" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border>
-                <Button x:Name="SendButton" Width="36" Height="36" Padding="0" Background="#F0F0F1" Foreground="#17181B" ToolTip="Отправить (Enter)"><TextBlock Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
+                <Button x:Name="SendButton" Width="36" Height="36" Padding="0" Background="#F0F0F1" Foreground="#17181B" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="2" BorderBrush="#303238" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
+            <Border Grid.Row="3" BorderBrush="#303238" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
