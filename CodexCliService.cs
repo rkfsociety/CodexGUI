@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CodexGUI;
@@ -66,6 +67,44 @@ internal static class CodexCliService
         var errors = await errorTask;
         if (process.ExitCode != 0)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
+    }
+
+    public static async Task<string> RunPluginCommandAsync(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo(ResolveExecutable())
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+        startInfo.ArgumentList.Add("plugin");
+        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить менеджер плагинов Codex CLI.");
+        process.StandardInput.Close();
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            await Task.WhenAll(outputTask, errorTask);
+            throw new TimeoutException("Менеджер плагинов Codex CLI не завершил операцию за две минуты.");
+        }
+        var output = await outputTask;
+        var errors = await errorTask;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
+        return output;
     }
 
     public static async Task<IReadOnlyList<ModelOption>> LoadModelCatalogAsync(string defaultEffort)

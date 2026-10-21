@@ -13,6 +13,23 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     public Task<JsonElement> ReadRateLimitsAsync() => SendRequestAsync("account/rateLimits/read", new { });
 
+    public Task<JsonElement> ReadSkillsAsync(string projectPath) => SendRequestAsync("skills/list", new
+    {
+        cwds = new[] { projectPath },
+        forceReload = true
+    });
+
+    public Task<JsonElement> SetSkillEnabledAsync(string path, bool enabled) =>
+        SendRequestAsync("skills/config/write", new { path, enabled });
+
+    public Task<JsonElement> SetPluginEnabledAsync(string pluginId, bool enabled) =>
+        SendRequestAsync("config/value/write", new
+        {
+            keyPath = $"plugins.{JsonSerializer.Serialize(pluginId)}.enabled",
+            value = enabled,
+            mergeStrategy = "replace"
+        });
+
     public Task<JsonElement> ReadThreadAsync(string sessionId) => SendRequestAsync("thread/read", new
     {
         threadId = sessionId,

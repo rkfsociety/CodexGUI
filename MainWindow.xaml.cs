@@ -439,6 +439,8 @@ public partial class MainWindow : Window
         Click("EffortButton", async (_, _) => await ShowEffortMenuAsync());
         Click("AddContextButton", (_, _) => AddFileContext());
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
+        Click("PluginsButton", (_, _) => ShowExtensions(showSkills: false));
+        Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
 
         if (Control<TextBox>("PromptInput") is { } prompt)
@@ -1402,6 +1404,12 @@ public partial class MainWindow : Window
         if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
         var prompt = input.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || prompt == PromptPlaceholder) return;
+        if (prompt is "/plugins" or "/skills")
+        {
+            input.Clear();
+            ShowExtensions(showSkills: prompt == "/skills");
+            return;
+        }
         if (_currentThread is null && _selectedProject is not null)
             _projectPath = _selectedProject.Path;
         if (!Directory.Exists(_projectPath))
@@ -2661,6 +2669,26 @@ public partial class MainWindow : Window
         input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n") + $"Файл для контекста: {dialog.FileName}";
         input.Focus();
         input.CaretIndex = input.Text.Length;
+    }
+
+    private void ShowExtensions(bool showSkills)
+    {
+        try
+        {
+            var dialog = new ExtensionsWindow(_projectPath, skill =>
+            {
+                if (Control<TextBox>("PromptInput") is not { } input) return;
+                if (input.Text == PromptPlaceholder) input.Clear();
+                input.Text = $"${skill.Name} " + input.Text;
+                input.CaretIndex = input.Text.Length;
+            }, showSkills) { Owner = this };
+            dialog.ShowDialog();
+            Control<TextBox>("PromptInput")?.Focus();
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось открыть плагины и скиллы", error.Message, isError: true);
+        }
     }
 
     private async Task CaptureScreenshotAsync()
