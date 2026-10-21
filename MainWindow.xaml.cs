@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private const string DefaultEffort = "high";
     private readonly ObservableCollection<ChatThread> _threads = [];
     private readonly List<ProjectEntry> _projects = [];
+    private readonly List<ProjectEntry> _removedProjects = [];
     private IReadOnlyList<ModelOption> _availableModels = [];
     private Task<IReadOnlyList<ModelOption>>? _modelCatalogTask;
     private readonly Dictionary<string, FrameworkElement> _named = new(StringComparer.Ordinal);
@@ -892,6 +893,11 @@ public partial class MainWindow : Window
                 }
             };
             button.Click += (_, _) => SelectProject(project);
+            var projectMenu = new ContextMenu();
+            var removeProjectItem = new MenuItem { Header = "Убрать из списка…" };
+            removeProjectItem.Click += (_, _) => RemoveProjectFromList(project);
+            projectMenu.Items.Add(removeProjectItem);
+            button.ContextMenu = projectMenu;
             var newChat = new Button
             {
                 Width = 26,
@@ -1454,6 +1460,35 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RemoveProjectFromList(ProjectEntry project)
+    {
+        if (_projects.Count <= 1)
+        {
+            MessageBox.Show(this, "В списке должен остаться хотя бы один проект.", "Проекты", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(this,
+            $"Убрать проект «{project.Name}» из списка? Папка, файлы и сохранённые чаты останутся на диске. Чтобы вернуть проект, добавьте ту же папку снова.",
+            "Убрать проект из списка",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        _projects.Remove(project);
+        _removedProjects.RemoveAll(item => item.Id == project.Id);
+        _removedProjects.Add(project);
+        if (_selectedProject?.Id == project.Id)
+        {
+            SelectProject(_projects[0]);
+        }
+        else
+        {
+            RenderProjects();
+            SaveState();
+        }
+    }
+
     private void ToggleSidebar()
     {
         _sidebarCollapsed = !_sidebarCollapsed;
@@ -1850,6 +1885,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        var removed = _removedProjects.FirstOrDefault(project => string.Equals(project.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (removed is not null)
+        {
+            _removedProjects.Remove(removed);
+            _projects.Add(removed);
+            SelectProject(removed);
+            return;
+        }
+
         var project = new ProjectEntry { Id = Guid.NewGuid().ToString("N"), Name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), Path = path };
         _projects.Add(project);
         SelectProject(project);
@@ -1866,6 +1910,10 @@ public partial class MainWindow : Window
                 if (state is not null)
                 {
                     _projects.AddRange(state.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Id) && !string.IsNullOrWhiteSpace(project.Path)));
+                    _removedProjects.AddRange(state.RemovedProjects.Where(project =>
+                        !string.IsNullOrWhiteSpace(project.Id) &&
+                        !string.IsNullOrWhiteSpace(project.Path) &&
+                        !_projects.Any(active => active.Id == project.Id)));
                     foreach (var stored in state.Threads)
                     {
                         if (string.IsNullOrWhiteSpace(stored.Id) || string.IsNullOrWhiteSpace(stored.ProjectPath)) continue;
@@ -1916,6 +1964,7 @@ public partial class MainWindow : Window
                 SelectedModel = _selectedModel,
                 SelectedEffort = _selectedEffort,
                 Projects = _projects,
+                RemovedProjects = _removedProjects,
                 Threads = _threads.Select(thread => new StoredThread
                 {
                     Id = thread.Id,
@@ -2120,6 +2169,7 @@ public partial class MainWindow : Window
         public string? SelectedModel { get; set; }
         public string? SelectedEffort { get; set; }
         public List<ProjectEntry> Projects { get; set; } = [];
+        public List<ProjectEntry> RemovedProjects { get; set; } = [];
         public List<StoredThread> Threads { get; set; } = [];
     }
 
