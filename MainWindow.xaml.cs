@@ -46,12 +46,17 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _stateSaveDebounce;
     private readonly DispatcherTimer _usageRefreshTimer;
     private readonly DispatcherTimer _updateCheckTimer;
+    private readonly DispatcherTimer _repositoryRefreshTimer;
     private readonly CancellationTokenSource _updateCheckCancellation = new();
+    private readonly CancellationTokenSource _repositoryRefreshCancellation = new();
     private bool _isRefreshingUsage;
     private bool _isCheckingUpdates;
     private bool _isInstallingUpdate;
     private bool _isClosing;
     private PreparedAppUpdate? _preparedUpdate;
+    private GitRepositorySnapshot? _repositorySnapshot;
+    private bool _isRefreshingRepository;
+    private bool _repositoryRefreshPending;
     private string _updateProgressText = "Проверка обновлений…";
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
@@ -91,6 +96,8 @@ public partial class MainWindow : Window
         _usageRefreshTimer.Tick += async (_, _) => await RefreshUsageLimitsAsync();
         _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
         _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(interactive: false);
+        _repositoryRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        _repositoryRefreshTimer.Tick += async (_, _) => await RefreshRepositoryInfoAsync();
         LoadState();
         ReloadView();
         InitializeTrayIcon();
@@ -111,9 +118,12 @@ public partial class MainWindow : Window
         {
             _usageRefreshTimer.Stop();
             _updateCheckTimer.Stop();
+            _repositoryRefreshTimer.Stop();
             _isClosing = true;
             _updateCheckCancellation.Cancel();
             _updateCheckCancellation.Dispose();
+            _repositoryRefreshCancellation.Cancel();
+            _repositoryRefreshCancellation.Dispose();
             if (!_isInstallingUpdate && _preparedUpdate is not null)
                 AppUpdater.DiscardPreparedUpdate(_preparedUpdate);
             if (_stateSaveDebounce.IsEnabled)
@@ -410,6 +420,13 @@ public partial class MainWindow : Window
         Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ContextButton", (_, _) => ToggleContext());
         Click("CloseContextButton", (_, _) => ToggleContext(false));
+        Click("RefreshRepositoryButton", (_, _) =>
+        {
+            RefreshFileTree();
+            UpdateChatInfoPanel();
+            _ = RefreshRepositoryInfoAsync();
+        });
+        Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
         Click("OpenFolderButton", (_, _) => OpenProjectFolder());
         Click("ProjectButton", (_, _) => ChooseProjectFolder());
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
@@ -461,6 +478,7 @@ public partial class MainWindow : Window
             usageLabel.ToolTip = _usageLimitsTooltip;
         }
         UpdateContextIndicator();
+        UpdateChatInfoPanel();
         if (_activeView is { ColumnDefinitions.Count: 3 } view)
         {
             view.ColumnDefinitions[0].Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(250);
@@ -472,7 +490,11 @@ public partial class MainWindow : Window
         RenderThreads();
         RenderProjects();
         RenderConversation();
-        if (_contextOpen) RefreshFileTree();
+        if (_contextOpen)
+        {
+            RefreshFileTree();
+            _ = RefreshRepositoryInfoAsync();
+        }
         SetStatus(_isRunning ? "Codex работает…" : "Codex CLI готов",
             _startupIssue ?? (_isRunning ? "Запрос выполняется в выбранной папке." : "Запросы выполняются в выбранной папке."),
             isError: _startupIssue is not null);
@@ -1061,6 +1083,147 @@ public partial class MainWindow : Window
 
     private void RefreshFileTree() => RenderFileTree();
 
+    private void UpdateChatInfoPanel()
+    {
+        if (Control<TextBlock>("ChatInfoTitle") is not { } title ||
+            Control<TextBlock>("ChatInfoDetails") is not { } details ||
+            Control<TextBlock>("ChatSessionInfo") is not { } session) return;
+
+        var thread = _currentThread;
+        title.Text = thread?.Title ?? "Новый чат";
+        var modelName = _availableModels.FirstOrDefault(model => model.Slug == _selectedModel)?.DisplayName ?? _selectedModel;
+        details.Text = $"{modelName} · Сообщений: {thread?.Messages.Count ?? 0}";
+        if (thread?.ContextTokens is { } tokens && thread.ContextWindowTokens is > 0 and { } contextWindow)
+            details.Text += $" · Контекст: {tokens * 100 / contextWindow}%";
+        session.Text = thread?.CodexSessionId is { Length: > 0 } sessionId
+            ? $"Сессия {sessionId[..Math.Min(8, sessionId.Length)]}"
+            : "Сессия создастся при первом запросе";
+    }
+
+    private async Task RefreshRepositoryInfoAsync()
+    {
+        if (!_contextOpen || _isClosing) return;
+        if (_isRefreshingRepository)
+        {
+            _repositoryRefreshPending = true;
+            return;
+        }
+
+        _isRefreshingRepository = true;
+        try
+        {
+            do
+            {
+                _repositoryRefreshPending = false;
+                var projectPath = _projectPath;
+                var snapshot = await GitRepositoryInspector.ReadAsync(projectPath, _repositoryRefreshCancellation.Token);
+                if (_isClosing || !_contextOpen) return;
+                if (!string.Equals(projectPath, _projectPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _repositoryRefreshPending = true;
+                    continue;
+                }
+
+                _repositorySnapshot = snapshot;
+                RenderRepositoryInfo(snapshot);
+            }
+            while (_repositoryRefreshPending && !_isClosing && _contextOpen);
+        }
+        catch (OperationCanceledException) when (_isClosing) { }
+        finally
+        {
+            _isRefreshingRepository = false;
+            if (_repositoryRefreshPending && !_isClosing && _contextOpen)
+                _ = RefreshRepositoryInfoAsync();
+        }
+    }
+
+    private void RenderRepositoryInfo(GitRepositorySnapshot snapshot)
+    {
+        if (Control<TextBlock>("RepositoryBranch") is not { } branch ||
+            Control<TextBlock>("RepositorySummary") is not { } summary ||
+            Control<StackPanel>("RepositoryChangesPanel") is not { } changesPanel ||
+            Control<Button>("RepositoryRemoteButton") is not { } remoteButton) return;
+
+        changesPanel.Children.Clear();
+        remoteButton.Visibility = snapshot.RemoteUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        remoteButton.ToolTip = snapshot.RemoteUrl;
+        if (!snapshot.IsRepository)
+        {
+            branch.Text = snapshot.Error ?? "Git-репозиторий не найден";
+            summary.Text = "Нет данных о состоянии репозитория";
+            return;
+        }
+
+        var branchLabel = string.IsNullOrWhiteSpace(snapshot.Branch) ? "(без ветки)" : snapshot.Branch;
+        if (snapshot.Upstream is { Length: > 0 } upstream) branchLabel += $" · {upstream}";
+        if (snapshot.Ahead > 0 || snapshot.Behind > 0)
+            branchLabel += $" · ↑{snapshot.Ahead} ↓{snapshot.Behind}";
+        branch.Text = branchLabel;
+
+        var staged = snapshot.Changes.Where(file => !file.IsUntracked && file.IndexStatus != '.').ToArray();
+        var modified = snapshot.Changes.Where(file => !file.IsUntracked && file.WorktreeStatus != '.').ToArray();
+        var untracked = snapshot.Changes.Where(file => file.IsUntracked).ToArray();
+        summary.Text = snapshot.Changes.Count == 0
+            ? "Нет незакоммиченных изменений"
+            : $"Файлов: {snapshot.Changes.Count} · В индексе: {staged.Length} · Изменены: {modified.Length} · Новые: {untracked.Length}";
+
+        AddRepositoryFileGroup(changesPanel, "В ИНДЕКСЕ", staged, snapshot.Root);
+        AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root);
+        AddRepositoryFileGroup(changesPanel, "НЕ ОТСЛЕЖИВАЮТСЯ", untracked, snapshot.Root);
+        if (snapshot.Changes.Count == 0)
+            changesPanel.Children.Add(new TextBlock { Text = "Рабочее дерево чистое", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(0, 5, 0, 2) });
+    }
+
+    private void AddRepositoryFileGroup(StackPanel panel, string heading, IReadOnlyList<RepositoryFileStatus> files, string repositoryRoot)
+    {
+        if (files.Count == 0) return;
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{heading} · {files.Count}",
+            FontSize = 9,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brush("#777980"),
+            Margin = new Thickness(0, 8, 0, 2)
+        });
+
+        foreach (var file in files.Take(8))
+        {
+            var status = file.IsUntracked ? "?" : $"{file.IndexStatus}{file.WorktreeStatus}";
+            var button = new Button
+            {
+                Content = new TextBlock { Text = $"{status}  {file.Path}", FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis },
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(2, 2, 0, 2),
+                Background = Brushes.Transparent,
+                Foreground = Brush("#AEB0B5"),
+                ToolTip = $"Открыть {file.Path} в проводнике"
+            };
+            button.Click += (_, _) => OpenRepositoryFile(repositoryRoot, file.Path);
+            panel.Children.Add(button);
+        }
+
+        if (files.Count > 8)
+            panel.Children.Add(new TextBlock { Text = $"и ещё {files.Count - 8}…", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(2, 2, 0, 0) });
+    }
+
+    private void OpenRepositoryFile(string repositoryRoot, string relativePath)
+    {
+        var fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, relativePath));
+        var rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryRoot)) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return;
+
+        var startInfo = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+        startInfo.ArgumentList.Add(File.Exists(fullPath) ? $"/select,{fullPath}" : repositoryRoot);
+        _ = Process.Start(startInfo);
+    }
+
+    private void OpenRepositoryRemote()
+    {
+        if (_repositorySnapshot?.RemoteUrl is not { } remoteUrl) return;
+        _ = Process.Start(new ProcessStartInfo(remoteUrl) { UseShellExecute = true });
+    }
+
     private void ScheduleStateSave()
     {
         _stateSaveDebounce.Stop();
@@ -1106,6 +1269,7 @@ public partial class MainWindow : Window
         SetStatus("Codex работает…", "Запрос выполняется в выбранной папке.");
         RenderThreads();
         RenderConversation();
+        UpdateChatInfoPanel();
         if (Control<Button>("SendButton") is { } send) send.IsEnabled = false;
 
         try
@@ -1135,6 +1299,8 @@ public partial class MainWindow : Window
             RenderThreads();
             if (_currentThread == thread) RenderConversation();
             _ = RefreshUsageLimitsAsync();
+            UpdateChatInfoPanel();
+            if (_contextOpen) await RefreshRepositoryInfoAsync();
         }
     }
 
@@ -1243,6 +1409,7 @@ public partial class MainWindow : Window
                             {
                                 thread.CodexSessionId = id;
                                 SaveState();
+                                if (_currentThread == thread) UpdateChatInfoPanel();
                             }, DispatcherPriority.Background);
                         }
 
@@ -1257,6 +1424,7 @@ public partial class MainWindow : Window
                                 thread.ContextWindowTokens = windowSize;
                                 ScheduleStateSave();
                                 if (_currentThread == thread) UpdateContextIndicator();
+                                if (_currentThread == thread) UpdateChatInfoPanel();
                             }, DispatcherPriority.Background);
                         }
 
@@ -1502,7 +1670,17 @@ public partial class MainWindow : Window
         if (_activeView is { ColumnDefinitions.Count: 3 } view)
             view.ColumnDefinitions[2].Width = _contextOpen ? new GridLength(310) : new GridLength(0);
         if (Control<Border>("ContextPanel") is { } panel) panel.Visibility = _contextOpen ? Visibility.Visible : Visibility.Collapsed;
-        if (_contextOpen) RefreshFileTree();
+        if (_contextOpen)
+        {
+            RefreshFileTree();
+            UpdateChatInfoPanel();
+            _ = RefreshRepositoryInfoAsync();
+            _repositoryRefreshTimer.Start();
+        }
+        else
+        {
+            _repositoryRefreshTimer.Stop();
+        }
     }
 
     private void ShowAccessMenu()

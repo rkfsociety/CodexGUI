@@ -107,7 +107,7 @@
 
   <Grid Grid.Column="1">
     <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Border Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Background="{StaticResource Canvas}"><Grid Margin="26,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock x:Name="HeaderTitle" Text="Новая задача" FontSize="13" FontWeight="SemiBold"/><TextBlock Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="8,1,0,0" VerticalAlignment="Center"/><Border Background="#202125" BorderBrush="#2B2D32" BorderThickness="1" CornerRadius="6" Padding="8,4" Margin="14,0,0,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="UpdateButton" Margin="0,0,6,0" Padding="10,7" Background="Transparent" Foreground="{StaticResource TextMuted}" ToolTip="Проверить наличие обновлений"><StackPanel Orientation="Horizontal"><TextBlock Text="⟳" FontSize="15" Margin="0,0,6,0"/><TextBlock x:Name="UpdateButtonLabel" Text="Проверить обновления" FontSize="11"/></StackPanel></Button><Button x:Name="ContextButton" Padding="10,7" Foreground="{StaticResource TextMuted}"><StackPanel Orientation="Horizontal"><TextBlock Text="▤" Margin="0,0,7,0"/><TextBlock Text="Файлы" FontSize="11"/></StackPanel></Button><Button x:Name="OpenFolderButton" Padding="9,6" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта"><TextBlock Text="↗" FontSize="16"/></Button></StackPanel></Grid></Border>
+    <Border Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Background="{StaticResource Canvas}"><Grid Margin="26,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock x:Name="HeaderTitle" Text="Новая задача" FontSize="13" FontWeight="SemiBold"/><TextBlock Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="8,1,0,0" VerticalAlignment="Center"/><Border Background="#202125" BorderBrush="#2B2D32" BorderThickness="1" CornerRadius="6" Padding="8,4" Margin="14,0,0,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="UpdateButton" Margin="0,0,6,0" Padding="10,7" Background="Transparent" Foreground="{StaticResource TextMuted}" ToolTip="Проверить наличие обновлений"><StackPanel Orientation="Horizontal"><TextBlock Text="⟳" FontSize="15" Margin="0,0,6,0"/><TextBlock x:Name="UpdateButtonLabel" Text="Проверить обновления" FontSize="11"/></StackPanel></Button><Button x:Name="ContextButton" Padding="10,7" Foreground="{StaticResource TextMuted}" ToolTip="Данные чата, репозитория и файлы"><StackPanel Orientation="Horizontal"><TextBlock Text="▤" Margin="0,0,7,0"/><TextBlock Text="Данные" FontSize="11"/></StackPanel></Button><Button x:Name="OpenFolderButton" Padding="9,6" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта"><TextBlock Text="↗" FontSize="16"/></Button></StackPanel></Grid></Border>
     <Grid Grid.Row="1">
       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <ScrollViewer x:Name="ConversationScroll" Grid.Row="0" Margin="32,0,32,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -155,5 +155,59 @@
         <TextBlock Text="Codex использует настройки и вход вашей локальной установки." Foreground="{StaticResource TextFaint}" FontSize="10" HorizontalAlignment="Center" Margin="0,9,0,0" />
       </StackPanel>
     </Grid>
-  </Grid>  <Border x:Name="ContextPanel" Grid.Column="2" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed"><Grid Margin="15,18"><Grid.RowDefinitions><RowDefinition Height="34"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><DockPanel Grid.Row="0"><Button x:Name="CloseContextButton" DockPanel.Dock="Right" Padding="5,2" Content="×" FontSize="16" Foreground="{StaticResource TextMuted}"/><TextBlock Text="Рабочая область" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel><StackPanel Grid.Row="1" Margin="0,17,0,12"><TextBlock Text="ПАПКА" FontSize="10" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold"/><TextBlock x:Name="FolderLabel" Text="—" FontSize="11" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel><TreeView x:Name="FileTree" Grid.Row="2" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}"/><StackPanel Grid.Row="3"><Border Height="1" Background="{StaticResource Line}" Margin="0,0,0,12"/><TextBlock Text="Сохраните XAML, чтобы обновить интерфейс на лету." FontSize="10" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" LineHeight="16"/></StackPanel></Grid></Border>
+  </Grid>
+  <Border x:Name="ContextPanel" Grid.Column="2" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed">
+    <Grid Margin="15,16">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="32" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <DockPanel Grid.Row="0">
+        <Button x:Name="CloseContextButton" DockPanel.Dock="Right" Padding="5,2" Content="×" FontSize="16" Foreground="{StaticResource TextMuted}" />
+        <TextBlock Text="Чат и репозиторий" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+      </DockPanel>
+      <Border Grid.Row="1" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,9,0,0">
+        <StackPanel>
+          <TextBlock Text="ЧАТ" FontSize="9" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" />
+          <TextBlock x:Name="ChatInfoTitle" Text="Новый чат" FontSize="12" Foreground="{StaticResource TextMain}" TextTrimming="CharacterEllipsis" Margin="0,5,0,0" />
+          <TextBlock x:Name="ChatInfoDetails" Text="Модель · Сообщений: 0" FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,3,0,0" />
+          <TextBlock x:Name="ChatSessionInfo" Text="Сессия создастся при первом запросе" FontSize="9" Foreground="{StaticResource TextFaint}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+        </StackPanel>
+      </Border>
+      <StackPanel Grid.Row="2" Margin="1,10,1,9">
+        <TextBlock Text="ПАПКА ПРОЕКТА" FontSize="9" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" />
+        <TextBlock x:Name="FolderLabel" Text="—" FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,4,0,0" />
+      </StackPanel>
+      <Border Grid.Row="3" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,9">
+        <StackPanel>
+          <TextBlock Text="РЕПОЗИТОРИЙ" FontSize="9" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" />
+          <TextBlock x:Name="RepositoryBranch" Text="Проверяю состояние…" FontSize="10" Foreground="{StaticResource TextMain}" TextWrapping="Wrap" Margin="0,5,0,0" />
+          <TextBlock x:Name="RepositorySummary" Text="" FontSize="9" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,3,0,0" />
+          <Button x:Name="RepositoryRemoteButton" Content="Открыть origin ↗" HorizontalAlignment="Left" Padding="2,3" Foreground="{StaticResource Accent}" Visibility="Collapsed" ToolTip="Открыть удалённый репозиторий" />
+          <ScrollViewer MaxHeight="145" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="RepositoryChangesPanel" />
+          </ScrollViewer>
+        </StackPanel>
+      </Border>
+      <Grid Grid.Row="4">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="28" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <DockPanel Grid.Row="0">
+          <Button x:Name="RefreshRepositoryButton" DockPanel.Dock="Right" Padding="5,2" Content="↻" FontSize="14" Foreground="{StaticResource TextMuted}" ToolTip="Обновить сведения о репозитории" />
+          <TextBlock Text="ФАЙЛЫ" FontSize="9" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </DockPanel>
+        <TreeView x:Name="FileTree" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}" />
+      </Grid>
+      <StackPanel Grid.Row="5" Margin="0,8,0,0">
+        <Border Height="1" Background="{StaticResource Line}" Margin="0,0,0,9" />
+        <TextBlock Text="Сохраните XAML, чтобы обновить интерфейс на лету." FontSize="9" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" LineHeight="14" />
+      </StackPanel>
+    </Grid>
+  </Border>
 </Grid>
