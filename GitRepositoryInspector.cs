@@ -84,8 +84,67 @@ internal static class GitRepositoryInspector
             : result.Output[..maximumDiffCharacters] + "\n\n… Diff сокращён: вывод превышает 500 000 символов.";
     }
 
+    public static async Task<string> CreateDetachedWorktreeAsync(string repositoryPath, string worktreePath,
+        CancellationToken cancellationToken)
+    {
+        var repository = await ReadAsync(repositoryPath, cancellationToken);
+        if (!repository.IsRepository)
+            throw new InvalidOperationException(repository.Error ?? "Папка проекта не является Git-репозиторием.");
+
+        var root = Path.GetFullPath(repository.Root);
+        var destination = Path.GetFullPath(worktreePath);
+        var managedRoot = Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "worktrees"));
+        var managedPrefix = Path.TrimEndingDirectorySeparator(managedRoot) + Path.DirectorySeparatorChar;
+        if (!destination.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("CodexGUI worktree должен находиться в локальной папке приложения.");
+        var rootInfo = new DirectoryInfo(managedRoot);
+        if (rootInfo.Exists && (rootInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Папка worktrees не должна быть junction или symbolic link.");
+        if (Directory.Exists(destination) || File.Exists(destination))
+            throw new IOException("Папка для изолированной копии уже существует.");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var result = await RunGitAsync(root, cancellationToken, "worktree", "add", "--detach", destination, "HEAD");
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Error)
+                ? result.Output.Trim()
+                : result.Error.Trim());
+
+        if (!await IsRegisteredWorktreeAsync(root, destination, cancellationToken))
+            throw new InvalidDataException("Git не подтвердил созданный worktree.");
+        return destination;
+    }
+
+    public static async Task<bool> IsRegisteredWorktreeAsync(string repositoryPath, string worktreePath,
+        CancellationToken cancellationToken)
+    {
+        var repository = await ReadAsync(repositoryPath, cancellationToken);
+        if (!repository.IsRepository) return false;
+        var projectCommonDirectory = await ReadGitPathAsync(repository.Root, "--git-common-dir", cancellationToken);
+        var worktreeCommonDirectory = await ReadGitPathAsync(worktreePath, "--git-common-dir", cancellationToken);
+        var worktreeGitDirectory = await ReadGitPathAsync(worktreePath, "--git-dir", cancellationToken);
+        return projectCommonDirectory is not null
+            && worktreeCommonDirectory is not null
+            && worktreeGitDirectory is not null
+            && PathsEqual(projectCommonDirectory, worktreeCommonDirectory)
+            && !PathsEqual(worktreeGitDirectory, worktreeCommonDirectory);
+    }
+
+    private static async Task<string?> ReadGitPathAsync(string directory, string pathKind, CancellationToken cancellationToken)
+    {
+        var result = await RunGitAsync(directory, cancellationToken, "rev-parse", "--path-format=absolute", pathKind);
+        return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Output)
+            ? Path.GetFullPath(result.Output.Trim())
+            : null;
+    }
+
     private static GitRepositorySnapshot EmptySnapshot(string path, string error) =>
         new(false, path, "", null, 0, 0, null, [], error);
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)), StringComparison.OrdinalIgnoreCase);
 
     private static async Task<GitCommandResult> RunGitAsync(string directory, CancellationToken cancellationToken, params string[] arguments)
     {

@@ -1,9 +1,9 @@
 # Active technical decisions
 
-## Use app-server for normal chat turns
+## Use the pinned standalone App Server runtime
 
 - Status: active.
-- Decision: drive ordinary new and resumed chats through Codex app-server JSON-RPC; keep CLI subcommands only where the app-server path does not yet cover the operation, such as managed-worktree bootstrap and CLI review.
-- Reason: OpenAI documents app-server as the rich-client interface for persistent conversations, streamed events, approvals, and turn control. It is the same harness interface used by Codex clients, without running the CLI TUI.
-- Constraint: the current app package still requires an installed `codex.exe` runtime. The documented `codex app-server` CLI command is currently labeled experimental, so protocol requests must be verified against the installed runtime schema and current official docs.
-- Sources: [OpenAI harness architecture](https://openai.com/index/unlocking-the-codex-harness/), [app-server docs](https://learn.chatgpt.com/docs/app-server).
+- Decision: use the official `codex-app-server` Windows package pinned at `0.163.0`; drive turns, model discovery, history, review, approvals, login, and worktree forks through its JSON-RPC protocol. Use Git worktrees for local isolation. Keep CLI subcommands only for plugin marketplace operations not yet recommended for production app-server clients.
+- Reason: OpenAI documents that Codex Desktop and IDE clients bundle or fetch a platform-specific App Server binary and keep it pinned to a tested version. This gives CodexGUI the same client/harness boundary without requiring the CLI TUI or CLI package for regular work.
+- Constraint: verify the package SHA-256 and required files before extraction. Verify protocol requests against the pinned package schema and current official docs.
+- Sources: [OpenAI harness architecture](https://openai.com/index/unlocking-the-codex-harness/), [official Codex package builder](https://github.com/openai/codex/blob/main/scripts/codex_package/README.md), [app-server docs](https://learn.chatgpt.com/docs/app-server).

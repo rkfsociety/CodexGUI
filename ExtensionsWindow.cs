@@ -33,7 +33,7 @@ internal sealed class ExtensionsWindow : Window
     {
         _projectPath = projectPath;
         _useSkill = useSkill;
-        _client = new CodexAppServerClient(CodexCliService.ResolveExecutable());
+        _client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
         Title = "Плагины и скиллы Codex";
         Width = 800;
         Height = 690;

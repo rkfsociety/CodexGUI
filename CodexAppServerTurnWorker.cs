@@ -23,6 +23,7 @@ internal sealed class CodexAppServerWorkerRequest
     public string Effort { get; set; } = "high";
     public bool FullAccess { get; set; }
     public string? ThreadId { get; set; }
+    public string? ForkFromThreadId { get; set; }
     public string StartedPath { get; set; } = "";
     public string OutputPath { get; set; } = "";
     public string ErrorPath { get; set; } = "";
@@ -158,7 +159,20 @@ internal static class CodexAppServerTurnWorker
         var approvalPolicy = request.FullAccess ? "never" : "on-request";
         var sandbox = request.FullAccess ? "danger-full-access" : "workspace-write";
         JsonElement result;
-        if (string.IsNullOrWhiteSpace(request.ThreadId))
+        if (!string.IsNullOrWhiteSpace(request.ForkFromThreadId))
+        {
+            result = await connection.SendRequestAsync("thread/fork", new
+            {
+                threadId = request.ForkFromThreadId,
+                cwd = request.WorkingDirectory,
+                model = request.Model,
+                approvalPolicy,
+                sandbox,
+                config = new { model_reasoning_effort = request.Effort },
+                excludeTurns = true
+            });
+        }
+        else if (string.IsNullOrWhiteSpace(request.ThreadId))
         {
             result = await connection.SendRequestAsync("thread/start", new
             {
@@ -358,8 +372,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
-        startInfo.ArgumentList.Add("app-server");
-        startInfo.ArgumentList.Add("--stdio");
+        CodexAppServerRuntime.AddProcessArguments(startInfo, executablePath);
         var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
         return Task.FromResult(new CodexAppServerConnection(process));
@@ -376,7 +389,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
 
     public bool TryReadIncoming(out JsonElement message) => _incoming.Reader.TryRead(out message);
 
-    public async Task<JsonElement> SendRequestAsync(string method, object parameters)
+    public async Task<JsonElement> SendRequestAsync(string method, object parameters, CancellationToken cancellationToken = default)
     {
         var id = Interlocked.Increment(ref _nextRequestId);
         var key = id.ToString(CultureInfo.InvariantCulture);
@@ -385,7 +398,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         try
         {
             await WriteMessageAsync(new { id, method, @params = parameters });
-            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
         }
         finally
         {

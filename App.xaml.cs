@@ -60,6 +60,65 @@ public partial class App : Application
             return;
         }
 
+        AppServerRuntimeSetupWindow? runtimeSetupWindow = null;
+        try
+        {
+            var canUseDevelopmentCli = AppInstaller.IsDevelopmentCheckout(executablePath ?? "")
+                && CodexAppServerRuntime.TryResolveInstalledCli(out _);
+            if (!CodexAppServerRuntime.IsInstalled && !canUseDevelopmentCli)
+            {
+                runtimeSetupWindow = new AppServerRuntimeSetupWindow();
+                runtimeSetupWindow.Show();
+                var progress = new Progress<AppServerRuntimeProgress>(runtimeSetupWindow.Report);
+                await CodexAppServerRuntime.EnsureInstalledAsync(progress);
+            }
+        }
+        catch (Exception error)
+        {
+            if (runtimeSetupWindow?.IsVisible == true) runtimeSetupWindow.Close();
+            if (CodexAppServerRuntime.TryResolveInstalledCli(out _))
+            {
+                CodexAppServerRuntime.UseInstalledCliFallback = true;
+                MessageBox.Show(
+                    $"Не удалось подготовить App Server {CodexAppServerRuntime.Version}. Запущена установленная версия Codex runtime.\n\n{error.Message}",
+                    "CodexGUI",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"CodexGUI не смог загрузить обязательный App Server {CodexAppServerRuntime.Version}. Проверьте подключение к интернету и запустите приложение снова.\n\n{error.Message}",
+                    "CodexGUI",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Shutdown();
+                return;
+            }
+        }
+        finally
+        {
+            if (runtimeSetupWindow?.IsVisible == true) runtimeSetupWindow.Close();
+        }
+
+        try
+        {
+            if (!await CodexAppServerLogin.EnsureSignedInAsync())
+            {
+                MessageBox.Show("Вход в Codex отменён. Для запуска CodexGUI требуется авторизация.",
+                    "Вход в Codex", MessageBoxButton.OK, MessageBoxImage.Information);
+                Shutdown();
+                return;
+            }
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show($"Не удалось завершить вход в Codex.\n\n{error.Message}",
+                "Вход в Codex", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown();
+            return;
+        }
+
         if (updateCheckError is not null)
             MessageBox.Show(
                 $"Не удалось проверить или подготовить обновление. Запущена текущая версия.\n\n{updateCheckError}",

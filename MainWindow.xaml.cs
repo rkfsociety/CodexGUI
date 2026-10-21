@@ -471,7 +471,11 @@ public partial class MainWindow : Window
     private void RefreshView()
     {
         if (Control<TextBlock>("ProjectPathShort") is { } shortPath)
-            shortPath.Text = Path.GetFileName(_projectPath.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } name ? name : _projectPath;
+        {
+            var projectName = _selectedProject?.Name
+                ?? (Path.GetFileName(_currentThread?.ProjectPath?.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } name ? name : _projectPath);
+            shortPath.Text = _currentThread?.WorktreePath is null ? projectName : projectName + " · worktree";
+        }
         if (Control<TextBlock>("FolderLabel") is { } folderLabel) folderLabel.Text = _projectPath;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         UpdateUpdateButton();
@@ -599,7 +603,7 @@ public partial class MainWindow : Window
         SetStatus("Создаю ответвление чата…", "Копирую сохранённую историю Codex.");
         try
         {
-            var result = await new CodexAppServerClient(CodexCliService.ResolveExecutable())
+            var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable())
                 .ForkThreadAsync(source.CodexSessionId);
             if (!result.TryGetProperty("thread", out var codexThread)
                 || GetString(codexThread, "id") is not { Length: > 0 } sessionId)
@@ -698,7 +702,11 @@ public partial class MainWindow : Window
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
-                await CodexCliService.RunSessionCommandAsync(archived ? "archive" : "unarchive", sessionId);
+            {
+                var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                if (archived) await client.ArchiveThreadAsync(sessionId);
+                else await client.UnarchiveThreadAsync(sessionId);
+            }
             thread.IsArchived = archived;
             if (archived && _currentThread == thread)
                 _currentThread = _threads.LastOrDefault(item => item != thread && item.ProjectId == thread.ProjectId && !item.IsArchived);
@@ -722,14 +730,14 @@ public partial class MainWindow : Window
     {
         if (thread.ActiveRun is not null) return;
         var result = MessageBox.Show(this,
-            $"Удалить чат «{thread.Title}»? Его история будет удалена из Codex CLI и приложения. Это действие нельзя отменить.",
+            $"Удалить чат «{thread.Title}»? Codex удалит историю и порождённые ответвления. Это действие нельзя отменить.",
             "Удалить чат", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) return;
 
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
-                await CodexCliService.RunSessionCommandAsync("delete", sessionId);
+                await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).DeleteThreadAsync(sessionId);
             _threads.Remove(thread);
             _promptQueue.RemoveAll(prompt => prompt.ThreadId == thread.Id);
             if (_currentThread == thread)
@@ -774,7 +782,7 @@ public partial class MainWindow : Window
 
     private static async Task<UsageSnapshot> ReadUsageLimitsAsync()
     {
-        var result = await new CodexAppServerClient(CodexCliService.ResolveExecutable()).ReadRateLimitsAsync();
+            var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).ReadRateLimitsAsync();
         return ParseUsageSnapshot(result);
     }
 
@@ -832,7 +840,7 @@ public partial class MainWindow : Window
 
     private static async Task<JsonElement> ReadThreadHistoryAsync(string sessionId)
     {
-        return await new CodexAppServerClient(CodexCliService.ResolveExecutable()).ReadThreadAsync(sessionId);
+        return await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).ReadThreadAsync(sessionId);
     }
 
     private static List<ChatMessage> ParseThreadMessages(JsonElement result)
@@ -1339,7 +1347,7 @@ public partial class MainWindow : Window
         SetStatus("Проверяю изменения…", $"Codex анализирует незакоммиченные изменения в {snapshot.Root}.");
         try
         {
-            var findings = await CodexCliService.ReviewUncommittedChangesAsync(snapshot.Root, _repositoryRefreshCancellation.Token);
+            var findings = await ReviewUncommittedWithAppServerAsync(snapshot.Root, _repositoryRefreshCancellation.Token);
             if (_isClosing) return;
             ShowCodeReviewResults(snapshot.Root, findings);
             SetStatus("Проверка завершена", string.IsNullOrWhiteSpace(findings) ? "Codex не сообщил замечаний." : $"Проверены изменения в {Path.GetFileName(snapshot.Root)}.");
@@ -1353,6 +1361,96 @@ public partial class MainWindow : Window
         {
             _isReviewingChanges = false;
             UpdateReviewChangesButton();
+        }
+    }
+
+    private async Task<string> ReviewUncommittedWithAppServerAsync(string repositoryPath, CancellationToken cancellationToken)
+    {
+        await using var connection = await CodexAppServerConnection.StartAsync(CodexAppServerRuntime.ResolveExecutable());
+        string? threadId = null;
+        string? turnId = null;
+        string? status = null;
+        try
+        {
+            await connection.InitializeAsync();
+            var threadResult = await connection.SendRequestAsync("thread/start", new
+            {
+                cwd = repositoryPath,
+                model = _selectedModel,
+                approvalPolicy = "on-request",
+                sandbox = "read-only",
+                config = new { model_reasoning_effort = _selectedEffort }
+            });
+            threadId = threadResult.TryGetProperty("thread", out var thread) ? GetString(thread, "id") : null;
+            if (string.IsNullOrWhiteSpace(threadId))
+                throw new InvalidDataException("Codex App Server не создал временный чат для review.");
+
+            var reviewResult = await connection.SendRequestAsync("review/start", new
+            {
+                threadId,
+                delivery = "inline",
+                target = new { type = "uncommittedChanges" }
+            });
+            turnId = reviewResult.TryGetProperty("turn", out var turn) ? GetString(turn, "id") : null;
+            if (string.IsNullOrWhiteSpace(turnId))
+                throw new InvalidDataException("Codex App Server не вернул идентификатор review-хода.");
+
+            string? findings = null;
+            string? failure = null;
+            while (status is null)
+            {
+                while (connection.TryReadIncoming(out var message))
+                {
+                    if (!message.TryGetProperty("method", out var methodValue)) continue;
+                    var method = methodValue.GetString() ?? "";
+                    if (message.TryGetProperty("id", out var requestId))
+                    {
+                        if ((method is "item/commandExecution/requestApproval" or "item/fileChange/requestApproval")
+                            && message.TryGetProperty("params", out var approvalParameters))
+                        {
+                            ShowFromTray();
+                            var decision = ShowAppServerApprovalDialog(method, approvalParameters);
+                            await connection.SendResponseAsync(requestId, new { decision });
+                        }
+                        else
+                            await connection.SendErrorAsync(requestId, -32601, "CodexGUI does not support this review request yet.");
+                        continue;
+                    }
+
+                    if (!message.TryGetProperty("params", out var parameters)) continue;
+                    if (method == "error" && parameters.TryGetProperty("error", out var error))
+                        failure = GetString(error, "message");
+                    else if (method == "item/completed" && parameters.TryGetProperty("item", out var item)
+                        && GetString(item, "type") == "exitedReviewMode")
+                        findings = GetString(item, "review");
+                    else if (method == "turn/completed" && parameters.TryGetProperty("turn", out var completedTurn)
+                        && GetString(completedTurn, "id") == turnId)
+                        status = GetString(completedTurn, "status") ?? "failed";
+                }
+
+                if (status is not null) break;
+                if (connection.ReaderTask.IsCompleted)
+                    throw new EndOfStreamException("Codex App Server завершился до окончания review.");
+                await Task.Delay(50, cancellationToken);
+            }
+
+            if (status != "completed")
+                throw new InvalidOperationException(failure ?? $"Codex review завершился со статусом {status}.");
+            return findings ?? "Codex не вернул текст результата review.";
+        }
+        finally
+        {
+            if (threadId is { Length: > 0 })
+            {
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                if (status is null && turnId is { Length: > 0 })
+                {
+                    try { await connection.SendRequestAsync("turn/interrupt", new { threadId, turnId }, cleanup.Token); }
+                    catch (Exception error) when (error is IOException or InvalidOperationException or TimeoutException or OperationCanceledException) { }
+                }
+                try { await connection.SendRequestAsync("thread/delete", new { threadId }, cleanup.Token); }
+                catch (Exception error) when (error is IOException or InvalidOperationException or TimeoutException or OperationCanceledException) { }
+            }
         }
     }
 
@@ -1703,9 +1801,9 @@ public partial class MainWindow : Window
             && !_isClosing;
         button.ToolTip = enabled
             ? _currentThread?.CodexSessionId is not null
-                ? "Этот чат уже продолжает отдельную Git-сессию. Создайте новый чат, если хотите выбрать другую среду."
-                : "Для этого чата включён отдельный управляемый Git worktree."
-            : "Вести запросы этого чата в отдельном Git worktree, управляемом Codex CLI.";
+                ? "Этот чат уже продолжает отдельную Git-копию. Создайте новый чат, если хотите выбрать другую среду."
+                : "Для этого чата включён отдельный Git worktree."
+            : "Вести запросы этого чата в отдельном изолированном Git worktree.";
     }
 
     private async Task ToggleWorktreeModeAsync()
@@ -1754,8 +1852,8 @@ public partial class MainWindow : Window
             await RestoreThreadHistoryAsync(thread);
         UpdateWorktreeButton();
         SetStatus("Изолированная копия включена", thread.CodexSessionId is null
-            ? "Первый запрос создаст отдельный управляемый Git worktree."
-            : "Ответвлённый чат продолжится в отдельном управляемом Git worktree.");
+            ? "Первый запрос создаст отдельный Git worktree."
+            : "Ответвлённый чат продолжится в отдельном Git worktree.");
     }
 
     private void RemovePromptFromQueue(string promptId)
@@ -1898,6 +1996,17 @@ public partial class MainWindow : Window
                     await SetThreadArchivedAsync(thread, archived: false);
                     if (thread.IsArchived) continue;
                 }
+                try
+                {
+                    await EnsureThreadWorktreeAsync(thread);
+                }
+                catch (Exception error)
+                {
+                    if (_currentThread == thread)
+                        SetStatus("Не удалось подготовить рабочую копию", error.Message, isError: true);
+                    RenderPromptQueue();
+                    break;
+                }
                 var activeRun = CreateActiveCliRun(thread, queued);
                 thread.ActiveRun = activeRun;
                 _promptQueue.Remove(queued);
@@ -1996,8 +2105,44 @@ public partial class MainWindow : Window
             OutputPath = Path.Combine(runDirectory, "stdout.jsonl"),
             ErrorPath = Path.Combine(runDirectory, "stderr.txt"),
             CompletionPath = Path.Combine(runDirectory, "completed.json"),
-            AppServerMode = thread.ForkFromSessionId is null && (!thread.UseWorktree || thread.CodexSessionId is not null)
+            WorkingDirectory = thread.WorktreePath ?? thread.ProjectPath,
+            AppServerMode = true
         };
+    }
+
+    private async Task EnsureThreadWorktreeAsync(ChatThread thread)
+    {
+        if (!thread.UseWorktree) return;
+        if (thread.WorktreeSessionStarted && thread.CodexSessionId is { Length: > 0 } && thread.WorktreePath is null)
+            return;
+        if (!Guid.TryParseExact(thread.ProjectId, "N", out var projectId)
+            || !Guid.TryParseExact(thread.Id, "N", out var threadId))
+            throw new InvalidDataException("Не удалось определить безопасный идентификатор для worktree.");
+
+        var worktreePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CodexGUI", "worktrees", projectId.ToString("N"), threadId.ToString("N"));
+        if (thread.WorktreePath is { Length: > 0 } existingPath)
+        {
+            if (!string.Equals(Path.GetFullPath(existingPath), Path.GetFullPath(worktreePath), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Сохранённый путь worktree не совпадает с управляемой папкой CodexGUI.");
+            if (Directory.Exists(worktreePath)
+                && await GitRepositoryInspector.IsRegisteredWorktreeAsync(thread.ProjectPath, worktreePath, CancellationToken.None))
+                return;
+            throw new DirectoryNotFoundException("Сохранённый Git worktree больше не зарегистрирован в проекте.");
+        }
+
+        var repository = await GitRepositoryInspector.ReadAsync(thread.ProjectPath, CancellationToken.None);
+        if (!repository.IsRepository)
+            throw new InvalidOperationException(repository.Error ?? "Папка проекта не является Git-репозиторием.");
+        thread.WorktreePath = await GitRepositoryInspector.CreateDetachedWorktreeAsync(
+            repository.Root, worktreePath, CancellationToken.None);
+        SaveState();
+        if (_currentThread == thread)
+        {
+            _projectPath = thread.WorktreePath;
+            RefreshView();
+        }
     }
 
     private async Task<string> RunCodexAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage)
@@ -2460,21 +2605,48 @@ public partial class MainWindow : Window
     {
         var runtimeRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "worker-runtimes");
-        if (!Directory.Exists(runtimeRoot)) return;
+        if (Directory.Exists(runtimeRoot))
+        {
+            var root = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var retainedDirectories = _threads
+                .Select(thread => thread.ActiveRun?.WorkerRuntimeDirectory)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => Path.GetFullPath(path!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var currentDirectory = Path.GetFullPath(Path.Combine(runtimeRoot, AppUpdater.CurrentVersion));
+            foreach (var directory in Directory.EnumerateDirectories(runtimeRoot))
+            {
+                var fullPath = Path.GetFullPath(directory);
+                if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(fullPath, currentDirectory, StringComparison.OrdinalIgnoreCase)
+                    || retainedDirectories.Contains(fullPath)) continue;
+                try { Directory.Delete(fullPath, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
 
-        var root = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        CleanupObsoleteAppServerRuntimeCaches();
+    }
+
+    private void CleanupObsoleteAppServerRuntimeCaches()
+    {
+        var runtimeRoot = Path.GetFullPath(CodexAppServerRuntime.RuntimeRoot);
+        if (!Directory.Exists(runtimeRoot)) return;
+        var root = runtimeRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var retainedDirectories = _threads
-            .Select(thread => thread.ActiveRun?.WorkerRuntimeDirectory)
+            .Select(thread => thread.ActiveRun?.AppServerRuntimeDirectory)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFullPath(path!))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var currentDirectory = Path.GetFullPath(Path.Combine(runtimeRoot, AppUpdater.CurrentVersion));
+        var currentDirectory = Path.GetFullPath(CodexAppServerRuntime.RuntimeDirectory);
         foreach (var directory in Directory.EnumerateDirectories(runtimeRoot))
         {
             var fullPath = Path.GetFullPath(directory);
             if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(fullPath, currentDirectory, StringComparison.OrdinalIgnoreCase)
-                || retainedDirectories.Contains(fullPath)) continue;
+                || retainedDirectories.Contains(fullPath)
+                || (new DirectoryInfo(fullPath).Attributes & FileAttributes.ReparsePoint) != 0) continue;
             try { Directory.Delete(fullPath, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -2499,16 +2671,21 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(Path.GetDirectoryName(run.RequestPath)!);
         if (run.AppServerMode)
         {
+            var appServerExecutable = CodexAppServerRuntime.ResolveExecutable();
+            run.AppServerRuntimeDirectory = CodexAppServerRuntime.IsInstalled
+                ? CodexAppServerRuntime.RuntimeDirectory
+                : null;
             var serverRequest = new CodexAppServerWorkerRequest
             {
                 RunId = run.RunId,
-                ExecutablePath = CodexCliService.ResolveExecutable(),
-                WorkingDirectory = thread.ProjectPath,
+                ExecutablePath = appServerExecutable,
+                WorkingDirectory = run.WorkingDirectory,
                 Prompt = run.Prompt,
                 Model = run.Model,
                 Effort = run.Effort,
                 FullAccess = run.FullAccess,
-                ThreadId = thread.CodexSessionId,
+                ThreadId = thread.ForkFromSessionId is null ? thread.CodexSessionId : null,
+                ForkFromThreadId = thread.ForkFromSessionId,
                 StartedPath = run.StartedPath,
                 OutputPath = run.OutputPath,
                 ErrorPath = run.ErrorPath,
@@ -2745,6 +2922,7 @@ public partial class MainWindow : Window
     private ChatThread NewThread()
     {
         var project = _selectedProject ?? throw new InvalidOperationException("Сначала выберите или создайте проект.");
+        _projectPath = project.Path;
         var thread = new ChatThread { Title = "Новый чат", ProjectId = project.Id, ProjectPath = project.Path };
         _threads.Add(thread);
         _currentThread = thread;
@@ -2768,7 +2946,7 @@ public partial class MainWindow : Window
     {
         _currentThread = thread;
         _selectedProject = _projects.FirstOrDefault(project => project.Id == thread.ProjectId);
-        if (_selectedProject is not null) _projectPath = _selectedProject.Path;
+        _projectPath = thread.WorktreePath ?? _selectedProject?.Path ?? thread.ProjectPath;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = thread.Title;
         RefreshView();
         SaveState();
@@ -3048,7 +3226,7 @@ public partial class MainWindow : Window
         if (_availableModels.Count == 0) return;
 
         var model = _availableModels.FirstOrDefault(item => item.Slug == _selectedModel)
-            ?? throw new InvalidDataException($"Выбранная модель {_selectedModel} отсутствует в каталоге Codex CLI.");
+            ?? throw new InvalidDataException($"Выбранная модель {_selectedModel} отсутствует в каталоге Codex App Server.");
         var choices = model.ReasoningLevels.Select(level =>
             (EffortDisplayName(level), level, _selectedEffort == level, (Action)(() => SetSelectedEffort(level)))).ToList();
         ShowChoicePopup(anchor, "Уровень усилий", choices);
@@ -3063,10 +3241,11 @@ public partial class MainWindow : Window
         anchor.IsEnabled = false;
         try
         {
-            _modelCatalogTask ??= CodexCliService.LoadModelCatalogAsync(DefaultEffort);
+            _modelCatalogTask ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable())
+                .ReadModelCatalogAsync(DefaultEffort);
             _availableModels = await _modelCatalogTask;
             if (_availableModels.Count == 0)
-                throw new InvalidDataException("Codex CLI не сообщил доступные модели.");
+                throw new InvalidDataException("Codex App Server не сообщил доступные модели.");
             NormalizeModelSettings();
         }
         catch (Exception error)
@@ -3328,6 +3507,7 @@ public partial class MainWindow : Window
                             Title = string.IsNullOrWhiteSpace(stored.Title) ? "Новый чат" : stored.Title,
                             ProjectId = stored.ProjectId,
                             ProjectPath = stored.ProjectPath,
+                            WorktreePath = stored.WorktreePath,
                             CodexSessionId = stored.CodexSessionId,
                             ForkFromSessionId = stored.ForkFromSessionId,
                             IsArchived = stored.IsArchived,
@@ -3386,6 +3566,7 @@ public partial class MainWindow : Window
                     Title = thread.Title,
                     ProjectId = thread.ProjectId,
                     ProjectPath = thread.ProjectPath,
+                    WorktreePath = thread.WorktreePath,
                     CodexSessionId = thread.CodexSessionId,
                     ForkFromSessionId = thread.ForkFromSessionId,
                     IsArchived = thread.IsArchived,
@@ -3611,6 +3792,7 @@ public partial class MainWindow : Window
         public string Title { get; set; } = "Новый чат";
         public string ProjectId { get; set; } = "";
         public string ProjectPath { get; set; } = "";
+        public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
@@ -3641,6 +3823,7 @@ public partial class MainWindow : Window
         public string Title { get; set; } = "";
         public string ProjectId { get; set; } = "";
         public string ProjectPath { get; set; } = "";
+        public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
@@ -3668,6 +3851,7 @@ public partial class MainWindow : Window
         public string Model { get; set; } = DefaultModel;
         public string Effort { get; set; } = DefaultEffort;
         public bool FullAccess { get; set; }
+        public string WorkingDirectory { get; set; } = "";
         public string RequestPath { get; set; } = "";
         public string ScriptPath { get; set; } = "";
         public string StartedPath { get; set; } = "";
@@ -3680,6 +3864,7 @@ public partial class MainWindow : Window
         public List<string> ResolvedApprovalRequestIds { get; set; } = [];
         public string? CompletionStatus { get; set; }
         public string? WorkerRuntimeDirectory { get; set; }
+        public string? AppServerRuntimeDirectory { get; set; }
         public int WorkerProcessId { get; set; }
         public long WorkerStartTimeUtcTicks { get; set; }
     }
