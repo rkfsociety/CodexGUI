@@ -1486,6 +1486,24 @@ public partial class MainWindow : Window
                             var decision = ShowAppServerApprovalDialog(method, approvalParameters);
                             await connection.SendResponseAsync(requestId, new { decision });
                         }
+                        else if ((method is "item/tool/requestUserInput" or "mcpServer/elicitation/request" or "item/permissions/requestApproval")
+                            && message.TryGetProperty("params", out var requestParameters))
+                        {
+                            ShowFromTray();
+                            string responseJson;
+                            try
+                            {
+                                responseJson = CodexAppServerRequestDialog.Show(this,
+                                    "review:" + requestId.GetRawText(), method, requestParameters.Clone());
+                            }
+                            catch (Exception displayError)
+                            {
+                                SetStatus("Не удалось показать запрос Codex", displayError.Message, isError: true);
+                                responseJson = CodexAppServerRequestDialog.BuildSafeCancellationResponse(method, requestParameters);
+                            }
+                            using var responseDocument = JsonDocument.Parse(responseJson);
+                            await connection.SendResponseAsync(requestId, responseDocument.RootElement);
+                        }
                         else
                             await connection.SendErrorAsync(requestId, -32601, "CodexGUI does not support this review request yet.");
                         continue;
@@ -2389,14 +2407,30 @@ public partial class MainWindow : Window
                     }, DispatcherPriority.Background);
                 }
 
-                if (eventType == "approval.request" && GetString(root, "request_id") is { } approvalId &&
-                    root.TryGetProperty("method", out var approvalMethod) && root.TryGetProperty("params", out var approvalParameters) &&
-                    !activeRun.ResolvedApprovalRequestIds.Contains(approvalId, StringComparer.Ordinal))
+                if ((eventType is "approval.request" or "interactive.request") && GetString(root, "request_id") is { } requestKey &&
+                    root.TryGetProperty("method", out var requestMethod) && root.TryGetProperty("params", out var requestParameters) &&
+                    !activeRun.ResolvedApprovalRequestIds.Contains(requestKey, StringComparer.Ordinal))
                 {
-                    var method = approvalMethod.GetString() ?? "";
-                    var parameterSnapshot = approvalParameters.Clone();
-                    _ = Dispatcher.BeginInvoke(new Action(async () =>
-                        await ResolveAppServerApprovalAsync(thread, activeRun, approvalId, method, parameterSnapshot)));
+                    var method = requestMethod.GetString() ?? "";
+                    var parameterSnapshot = requestParameters.Clone();
+                    if (eventType == "approval.request")
+                        _ = Dispatcher.BeginInvoke(new Action(async () =>
+                            await ResolveAppServerApprovalAsync(thread, activeRun, requestKey, method, parameterSnapshot)));
+                    else
+                        _ = Dispatcher.BeginInvoke(new Action(async () =>
+                            await ResolveAppServerInteractiveRequestAsync(thread, activeRun, requestKey, method, parameterSnapshot)));
+                    return;
+                }
+
+                if (eventType == "server.request.resolved" && GetString(root, "request_id") is { } resolvedRequestId)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        if (!activeRun.ResolvedApprovalRequestIds.Contains(resolvedRequestId, StringComparer.Ordinal))
+                            activeRun.ResolvedApprovalRequestIds.Add(resolvedRequestId);
+                        CodexAppServerRequestDialog.ClosePending(activeRun.RunId + ":" + resolvedRequestId);
+                        SaveState();
+                    }, DispatcherPriority.Background);
                     return;
                 }
 
@@ -2597,6 +2631,52 @@ public partial class MainWindow : Window
                 thread.Messages.Insert(index, new ChatMessage(false, error.Message)
                 {
                     ActivityTitle = "✕  Ошибка подтверждения",
+                    IsError = true
+                });
+            if (_currentThread == thread) RenderConversation();
+            SaveState();
+        }
+    }
+
+    private async Task ResolveAppServerInteractiveRequestAsync(ChatThread thread, ActiveCliRun run, string requestId,
+        string method, JsonElement parameters)
+    {
+        if (_isClosing || thread.ActiveRun?.RunId != run.RunId || run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
+            return;
+
+        ShowFromTray();
+        string responseJson;
+        try
+        {
+            responseJson = CodexAppServerRequestDialog.Show(this, run.RunId + ":" + requestId, method, parameters);
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось показать запрос Codex", error.Message, isError: true);
+            responseJson = CodexAppServerRequestDialog.BuildSafeCancellationResponse(method, parameters);
+        }
+        if (thread.ActiveRun?.RunId != run.RunId || _isClosing
+            || run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal)) return;
+        try
+        {
+            await WriteAppServerControlAsync(run, new CodexAppServerWorkerControl
+            {
+                Action = "response",
+                RequestId = requestId,
+                ResponseJson = responseJson
+            });
+            if (!run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
+                run.ResolvedApprovalRequestIds.Add(requestId);
+            SaveState();
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось отправить ответ Codex", error.Message, isError: true);
+            var index = thread.Messages.FindLastIndex(message => !message.IsUser && message.ActivityTitle is null);
+            if (index >= 0)
+                thread.Messages.Insert(index, new ChatMessage(false, error.Message)
+                {
+                    ActivityTitle = "✕  Ошибка ответа Codex",
                     IsError = true
                 });
             if (_currentThread == thread) RenderConversation();

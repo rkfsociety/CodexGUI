@@ -205,6 +205,10 @@ internal static class CodexAppServerTurnWorker
         if (!message.TryGetProperty("params", out var parameters)) return false;
         switch (method)
         {
+            case "serverRequest/resolved":
+                if (parameters.TryGetProperty("requestId", out var resolvedRequestId))
+                    await WriteOutputEventAsync(request.OutputPath, "server.request.resolved", new { request_id = resolvedRequestId.GetRawText() });
+                break;
             case "thread/started":
                 if (parameters.TryGetProperty("thread", out var thread) && ReadString(thread, "id") is { } threadId)
                     await WriteOutputEventAsync(request.OutputPath, "thread.started", new { thread_id = threadId });
@@ -243,9 +247,24 @@ internal static class CodexAppServerTurnWorker
         JsonElement message, string method, JsonElement requestId)
     {
         var isApproval = method is "item/commandExecution/requestApproval" or "item/fileChange/requestApproval";
-        if (isApproval && message.TryGetProperty("params", out var parameters))
+        var isInteractive = method is "item/tool/requestUserInput" or "mcpServer/elicitation/request" or "item/permissions/requestApproval";
+        if ((isApproval || isInteractive) && message.TryGetProperty("params", out var parameters))
         {
-            await WriteOutputEventAsync(request.OutputPath, "approval.request", new
+            if (request.Unattended)
+            {
+                object response = method switch
+                {
+                    "item/tool/requestUserInput" => BuildEmptyUserInputResponse(parameters),
+                    "mcpServer/elicitation/request" => new { action = "cancel", content = (object?)null, _meta = (object?)null },
+                    "item/permissions/requestApproval" => new { permissions = new { }, scope = "turn" },
+                    _ => new { decision = "decline" }
+                };
+                await connection.SendResponseAsync(requestId, response);
+                await WriteOutputEventAsync(request.OutputPath, "server.request.auto_resolved", new { method });
+                return;
+            }
+
+            await WriteOutputEventAsync(request.OutputPath, isApproval ? "approval.request" : "interactive.request", new
             {
                 request_id = requestId.GetRawText(),
                 method,
@@ -256,6 +275,16 @@ internal static class CodexAppServerTurnWorker
 
         await WriteOutputEventAsync(request.OutputPath, "server.request.unsupported", new { method });
         await connection.SendErrorAsync(requestId, UnsupportedRequestCode, "CodexGUI does not support this app-server request yet.");
+    }
+
+    private static object BuildEmptyUserInputResponse(JsonElement parameters)
+    {
+        var answers = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (parameters.TryGetProperty("questions", out var questions) && questions.ValueKind == JsonValueKind.Array)
+            foreach (var question in questions.EnumerateArray())
+                if (ReadString(question, "id") is { Length: > 0 } id)
+                    answers[id] = new { answers = Array.Empty<string>() };
+        return new { answers };
     }
 
     private static async Task ProcessControlFilesAsync(CodexAppServerConnection connection, CodexAppServerWorkerRequest request,
@@ -278,6 +307,11 @@ internal static class CodexAppServerTurnWorker
                     case "approval" when control.RequestId is { Length: > 0 } requestId && control.Decision is { Length: > 0 } decision:
                         using (var idDocument = JsonDocument.Parse(requestId))
                             await connection.SendResponseAsync(idDocument.RootElement, new { decision });
+                        break;
+                    case "response" when control.RequestId is { Length: > 0 } requestId && control.ResponseJson is { Length: > 0 } responseJson:
+                        using (var idDocument = JsonDocument.Parse(requestId))
+                        using (var responseDocument = JsonDocument.Parse(responseJson))
+                            await connection.SendResponseAsync(idDocument.RootElement, responseDocument.RootElement);
                         break;
                     case "interrupt" when threadId is { Length: > 0 }:
                         await connection.SendRequestAsync("turn/interrupt", new { threadId, turnId });
@@ -339,6 +373,7 @@ internal sealed class CodexAppServerWorkerControl
     public string Action { get; set; } = "";
     public string? RequestId { get; set; }
     public string? Decision { get; set; }
+    public string? ResponseJson { get; set; }
     public string? Prompt { get; set; }
 }
 
@@ -383,7 +418,8 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     {
         _ = await SendRequestAsync("initialize", new
         {
-            clientInfo = new { name = "codexgui", title = "CodexGUI", version = AppUpdater.CurrentVersion }
+            clientInfo = new { name = "codexgui", title = "CodexGUI", version = AppUpdater.CurrentVersion },
+            capabilities = new { experimentalApi = true, mcpServerOpenaiFormElicitation = true }
         });
         await SendNotificationAsync("initialized", new { });
     }

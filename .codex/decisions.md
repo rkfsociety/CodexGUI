@@ -13,5 +13,12 @@
 - Status: active.
 - Decision: keep daily/weekly schedules in CodexGUI's LocalAppData store and check due times while the desktop app is open. Launch each run through the existing detached App Server worker; use `approvalPolicy=never` only with `workspaceWrite` and sandbox network access disabled, with a managed Git worktree enabled by default for isolation.
 - Reason: scheduled tasks cannot wait for an interactive approval prompt. The bounded sandbox lets a run proceed unattended while limiting writes to its working directory; a managed worktree keeps the project checkout separate.
-- Constraint: closing CodexGUI stops schedule polling, though already launched workers continue and are reconciled on next launch. Local schedules are not an OS background service.
+- Constraint: closing CodexGUI stops schedule polling, though already launched workers continue and are reconciled on next launch. Local schedules are not an OS background service. User-input requests receive empty answers and permission/MCP elicitations are cancelled in unattended runs.
 - Source: `CodexAutomationStore.cs`, `CodexAppServerTurnWorker.cs`, `MainWindow.xaml.cs`, and user workflow in `README.md`.
+
+## Handle App Server interactive requests in the client
+
+- Status: active.
+- Decision: route `item/tool/requestUserInput`, `mcpServer/elicitation/request`, and `item/permissions/requestApproval` through dedicated user dialogs and the existing worker response-control channel. Grant only selected permission categories; default to turn scope and require an explicit click before opening an MCP URL.
+- Constraint: worker initialization opts into `experimentalApi` for tool input and `mcpServerOpenaiFormElicitation` for MCP forms. Unattended workers cancel MCP elicitations and grant no additional permissions.
+- Source: the pinned App Server `0.163.0` protocol schema and the App Server documentation; implementation lives in `CodexAppServerRequestDialog.cs`, `CodexAppServerTurnWorker.cs`, and `MainWindow.xaml.cs`.
