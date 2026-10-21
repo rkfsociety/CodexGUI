@@ -17,6 +17,7 @@ using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -2703,6 +2704,44 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool TryPasteContext(TextBox input)
+    {
+        try
+        {
+            var data = Clipboard.GetDataObject();
+            if (data is null) return false;
+
+            var paths = new List<string>();
+            if (data.GetData(DataFormats.FileDrop) is string[] files)
+            {
+                paths.AddRange(files.Where(File.Exists));
+            }
+            else if (data.GetData(DataFormats.Bitmap) is BitmapSource image)
+            {
+                var directory = Path.Combine(Path.GetDirectoryName(GetStatePath())!, "attachments");
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, $"clipboard-{Guid.NewGuid():N}.png");
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                    encoder.Save(stream);
+                paths.Add(path);
+            }
+
+            if (paths.Count == 0) return false;
+            if (input.Text == PromptPlaceholder) input.Clear();
+            input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n")
+                + string.Join("\n", paths.Select(path => $"Файл для контекста: {path}"));
+            input.CaretIndex = input.Text.Length;
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or ExternalException or NotSupportedException)
+        {
+            SetStatus("Не удалось вставить вложение", error.Message, isError: true);
+            return true;
+        }
+    }
+
     private void ShowSearch()
     {
         var dialog = new Window
@@ -2759,6 +2798,11 @@ public partial class MainWindow : Window
 
     private async void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control && sender is TextBox input)
+        {
+            e.Handled = TryPasteContext(input);
+            return;
+        }
         if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
         {
             e.Handled = true;
