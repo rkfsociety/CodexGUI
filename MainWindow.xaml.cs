@@ -438,6 +438,7 @@ public partial class MainWindow : Window
         Click("ModeButton", (_, _) => ShowAccessMenu());
         Click("ModelButton", async (_, _) => await ShowModelMenuAsync());
         Click("EffortButton", async (_, _) => await ShowEffortMenuAsync());
+        Click("WorktreeButton", async (_, _) => await ToggleWorktreeModeAsync());
         Click("AddContextButton", (_, _) => AddFileContext());
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
         Click("PluginsButton", (_, _) => ShowExtensions(showSkills: false));
@@ -484,6 +485,7 @@ public partial class MainWindow : Window
         }
         UpdateContextIndicator();
         UpdateChatInfoPanel();
+        UpdateWorktreeButton();
         RenderPromptQueue();
         UpdatePanelLayout();
         if (Control<Border>("ContextPanel") is { } contextPanel)
@@ -1373,6 +1375,50 @@ public partial class MainWindow : Window
         }
         if (Control<TextBlock>("SendButtonIcon") is { } icon)
             icon.Text = queueing ? "＋" : "↑";
+        UpdateWorktreeButton();
+    }
+
+    private void UpdateWorktreeButton()
+    {
+        if (Control<Button>("WorktreeButton") is not { } button) return;
+        var enabled = _currentThread?.UseWorktree == true;
+        if (Control<TextBlock>("WorktreeLabel") is { } label)
+            label.Text = enabled ? "Изолированная копия" : "Рабочая копия";
+        button.Background = Brush(enabled ? "#223B38" : "#222E3D");
+        button.Foreground = Brush(enabled ? "#A8E6CF" : "#C8D4E2");
+        button.IsEnabled = _currentThread?.ActiveRun is null && !_isClosing;
+        button.ToolTip = enabled
+            ? "Для этого чата включён отдельный управляемый Git worktree. Нажмите, чтобы отключить его для следующих запросов."
+            : "Вести запросы этого чата в отдельном Git worktree, управляемом Codex CLI.";
+    }
+
+    private async Task ToggleWorktreeModeAsync()
+    {
+        var thread = _currentThread;
+        if (thread?.ActiveRun is not null) return;
+        if (thread?.UseWorktree != true)
+        {
+            var projectPath = thread?.ProjectPath ?? _selectedProject?.Path;
+            if (projectPath is null) return;
+            var repository = await GitRepositoryInspector.ReadAsync(projectPath, CancellationToken.None);
+            if (!repository.IsRepository)
+            {
+                MessageBox.Show(this, "Для отдельной рабочей копии выберите Git-репозиторий.", "Рабочая копия", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+        }
+
+        thread ??= _selectedProject is null ? null : NewThread();
+        if (thread is null) return;
+
+        thread.UseWorktree = !thread.UseWorktree;
+        SaveState();
+        RenderThreads();
+        RenderConversation();
+        UpdateChatInfoPanel();
+        UpdateWorktreeButton();
+        SetStatus(thread.UseWorktree ? "Изолированная копия включена" : "Изолированная копия отключена",
+            thread.UseWorktree ? "Codex CLI будет запускать этот чат в отдельном Git worktree." : "Новые запросы будут работать в папке проекта.");
     }
 
     private void RemovePromptFromQueue(string promptId)
@@ -1843,12 +1889,14 @@ public partial class MainWindow : Window
         if (thread.CodexSessionId is not null)
         {
             arguments.Add("resume");
+            if (thread.UseWorktree) arguments.Add("--worktree");
             arguments.Add("--json");
             arguments.Add(thread.CodexSessionId);
             arguments.Add(run.Prompt);
         }
         else
         {
+            if (thread.UseWorktree) arguments.Add("--worktree");
             arguments.Add("--json");
             arguments.Add("--skip-git-repo-check");
             if (!run.FullAccess)
@@ -2580,6 +2628,7 @@ public partial class MainWindow : Window
                             ProjectPath = stored.ProjectPath,
                             CodexSessionId = stored.CodexSessionId,
                             IsArchived = stored.IsArchived,
+                            UseWorktree = stored.UseWorktree,
                             ContextTokens = stored.ContextTokens,
                             ContextWindowTokens = stored.ContextWindowTokens,
                             ActiveRun = stored.ActiveRun
@@ -2635,6 +2684,7 @@ public partial class MainWindow : Window
                     ProjectPath = thread.ProjectPath,
                     CodexSessionId = thread.CodexSessionId,
                     IsArchived = thread.IsArchived,
+                    UseWorktree = thread.UseWorktree,
                     ContextTokens = thread.ContextTokens,
                     ContextWindowTokens = thread.ContextWindowTokens,
                     ActiveRun = thread.ActiveRun
@@ -2857,6 +2907,7 @@ public partial class MainWindow : Window
         public string ProjectPath { get; set; } = "";
         public string? CodexSessionId { get; set; }
         public bool IsArchived { get; set; }
+        public bool UseWorktree { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }
@@ -2883,6 +2934,7 @@ public partial class MainWindow : Window
         public string ProjectPath { get; set; } = "";
         public string? CodexSessionId { get; set; }
         public bool IsArchived { get; set; }
+        public bool UseWorktree { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }
