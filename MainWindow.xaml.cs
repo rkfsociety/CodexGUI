@@ -91,7 +91,11 @@ public partial class MainWindow : Window
         {
             _ = RefreshUsageLimitsAsync();
             _ = CheckForUpdatesAsync(interactive: false);
-            if (_currentThread is not null) _ = RestoreThreadHistoryAsync(_currentThread);
+            if (_currentThread is not null)
+            {
+                _ = RestoreThreadContextUsageAsync(_currentThread);
+                _ = RestoreThreadHistoryAsync(_currentThread);
+            }
         };
         Closed += (_, _) =>
         {
@@ -762,7 +766,11 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         RenderThreads();
         RenderConversation();
-        if (_currentThread is not null) _ = RestoreThreadHistoryAsync(_currentThread);
+        if (_currentThread is not null)
+        {
+            _ = RestoreThreadContextUsageAsync(_currentThread);
+            _ = RestoreThreadHistoryAsync(_currentThread);
+        }
     }
 
     private void RenderProjects()
@@ -1220,41 +1228,30 @@ public partial class MainWindow : Window
             return;
         }
 
-        const long baselineTokens = 12_000;
-        if (window.Value <= baselineTokens)
-        {
-            label.Text = "0%";
-            label.ToolTip = "Для этой модели нет доступного окна контекста";
-            arc.Data = Geometry.Empty;
-            arc.Stroke = Brush("#E78C8C");
-            return;
-        }
-
-        var effectiveWindow = window.Value - baselineTokens;
-        var usedTokens = Math.Max(tokens.Value - baselineTokens, 0);
-        var remainingFraction = Math.Clamp((double)(effectiveWindow - Math.Min(usedTokens, effectiveWindow)) / effectiveWindow, 0d, 1d);
-        var remainingPercent = (int)Math.Round(remainingFraction * 100, MidpointRounding.AwayFromZero);
-        label.Text = remainingPercent.ToString(CultureInfo.InvariantCulture) + "%";
-        label.ToolTip = $"Осталось {remainingPercent}% контекста · использовано {tokens.Value.ToString("N0", CultureInfo.CurrentCulture)} из {window.Value.ToString("N0", CultureInfo.CurrentCulture)} токенов";
-        arc.Stroke = Brush(remainingPercent <= 15 ? "#E78C8C" : remainingPercent <= 35 ? "#E6BC70" : "#77C99B");
+        var availableTokens = Math.Max(window.Value - tokens.Value, 0);
+        var usedFraction = Math.Clamp((double)Math.Min(tokens.Value, window.Value) / window.Value, 0d, 1d);
+        var usedPercent = (int)Math.Round(usedFraction * 100, MidpointRounding.AwayFromZero);
+        label.Text = usedPercent.ToString(CultureInfo.InvariantCulture) + "%";
+        label.ToolTip = $"Context window:\n{usedPercent}% used ({100 - usedPercent}% left)\n{tokens.Value.ToString("N0", CultureInfo.CurrentCulture)} tokens used\n{availableTokens.ToString("N0", CultureInfo.CurrentCulture)} tokens available";
+        arc.Stroke = Brush(usedPercent >= 85 ? "#E78C8C" : usedPercent >= 65 ? "#E6BC70" : "#77C99B");
 
         const double center = 18;
         const double radius = 14;
-        if (remainingFraction <= 0)
+        if (usedFraction <= 0)
         {
             arc.Data = Geometry.Empty;
             return;
         }
-        if (remainingFraction >= 1)
+        if (usedFraction >= 1)
         {
             arc.Data = new EllipseGeometry(new Point(center, center), radius, radius);
             return;
         }
 
-        var angle = remainingFraction * Math.PI * 2;
+        var angle = usedFraction * Math.PI * 2;
         var end = new Point(center + radius * Math.Sin(angle), center - radius * Math.Cos(angle));
         var figure = new PathFigure { StartPoint = new Point(center, center - radius), IsClosed = false, IsFilled = false };
-        figure.Segments.Add(new ArcSegment(end, new Size(radius, radius), 0, remainingFraction > 0.5, SweepDirection.Clockwise, true));
+        figure.Segments.Add(new ArcSegment(end, new Size(radius, radius), 0, usedFraction > 0.5, SweepDirection.Clockwise, true));
         arc.Data = new PathGeometry([figure]);
     }
 
@@ -1357,7 +1354,11 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         RefreshView();
         SaveState();
-        if (_currentThread is not null) _ = RestoreThreadHistoryAsync(_currentThread);
+        if (_currentThread is not null)
+        {
+            _ = RestoreThreadContextUsageAsync(_currentThread);
+            _ = RestoreThreadHistoryAsync(_currentThread);
+        }
     }
 
     private void ToggleSidebar()
