@@ -312,7 +312,7 @@ public partial class MainWindow : Window
         var enabled = 1;
         _ = DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
         _ = DwmSetWindowAttribute(handle, 19, ref enabled, sizeof(int));
-        uint captionColor = 0x00111310;
+        uint captionColor = 0x001B1511;
         uint textColor = 0x00F1F0F0;
         _ = DwmSetWindowAttribute(handle, 35, ref captionColor, sizeof(uint));
         _ = DwmSetWindowAttribute(handle, 36, ref textColor, sizeof(uint));
@@ -379,6 +379,7 @@ public partial class MainWindow : Window
             _named.Clear();
             IndexNamedElements(root);
             _activeView = root;
+            root.SizeChanged += (_, _) => UpdatePanelLayout();
             ViewHost.Content = root;
             BindEvents();
             RefreshView();
@@ -484,11 +485,7 @@ public partial class MainWindow : Window
         UpdateContextIndicator();
         UpdateChatInfoPanel();
         RenderPromptQueue();
-        if (_activeView is { ColumnDefinitions.Count: 3 } view)
-        {
-            view.ColumnDefinitions[0].Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(250);
-            view.ColumnDefinitions[2].Width = _contextOpen ? new GridLength(310) : new GridLength(0);
-        }
+        UpdatePanelLayout();
         if (Control<Border>("ContextPanel") is { } contextPanel)
             contextPanel.Visibility = _contextOpen ? Visibility.Visible : Visibility.Collapsed;
 
@@ -518,7 +515,7 @@ public partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(10, 8, 7, 8),
                 Margin = new Thickness(0, 1, 0, 1),
-                Background = thread == _currentThread ? Brush("#27292E") : Brushes.Transparent,
+                Background = thread == _currentThread ? Brush("#263344") : Brushes.Transparent,
                 Foreground = Brush(thread == _currentThread ? "#F0F0F1" : "#A4A5AA"),
                 FontSize = 12,
                 ToolTip = thread.ActiveRun is null ? thread.Title : "Выполняется… " + thread.Title
@@ -569,8 +566,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 194,
-            Background = Brush("#202124"),
-            BorderBrush = Brush("#3B3D42"),
+            Background = Brush("#1C2430"),
+            BorderBrush = Brush("#34465A"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(5),
@@ -911,7 +908,7 @@ public partial class MainWindow : Window
             {
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(9, 7, 38, 7),
-                Background = isSelected ? Brush("#27292E") : Brushes.Transparent,
+                Background = isSelected ? Brush("#263344") : Brushes.Transparent,
                 Foreground = Brush(isSelected ? "#F0F0F1" : "#A4A5AA"),
                 ToolTip = project.Path,
                 Content = new StackPanel
@@ -972,19 +969,19 @@ public partial class MainWindow : Window
         stack.Children.Clear();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
-            var welcome = new StackPanel { Margin = new Thickness(0, 104, 0, 0), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center };
+            var welcome = new StackPanel { Margin = new Thickness(0, 48, 0, 0), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center };
             welcome.Children.Add(new Border
             {
-                Width = 44,
-                Height = 44,
+                Width = 52,
+                Height = 52,
                 CornerRadius = new CornerRadius(14),
-                Background = Brush("#24262B"),
-                BorderBrush = Brush("#34363C"),
+                Background = Brush("#223B38"),
+                BorderBrush = Brush("#2B3746"),
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 0, 20),
-                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#E5E5E7"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#A8E6CF"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             });
-            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? $"Работаем над проектом «{_selectedProject?.Name ?? "CodexGUI"}»", FontSize = 29, FontWeight = FontWeights.SemiBold, Foreground = Brush("#F0F0F1"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
+            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? "С чего начнём?", FontSize = 32, FontWeight = FontWeights.SemiBold, Foreground = Brush("#F0F0F1"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
             var detail = _currentThread?.HistoryLoading == true
                 ? "Загружаю историю из Codex…"
                 : _currentThread?.HistoryError is { } historyError
@@ -992,7 +989,7 @@ public partial class MainWindow : Window
                     : _currentThread?.CodexSessionId is not null
                 ? "Этот чат сохранён в Codex. Отправьте сообщение, чтобы продолжить разговор."
                     : "Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.";
-            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 14, LineHeight = 22, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A1A2A8"), Margin = new Thickness(0, 11, 0, 24), MaxWidth = 600 });
+            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 14, LineHeight = 22, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A4B1C2"), Margin = new Thickness(0, 11, 0, 24), MaxWidth = 600 });
             if (_currentThread is null)
             {
                 welcome.Children.Add(CreateSuggestion("Разберись в структуре проекта"));
@@ -1017,17 +1014,17 @@ public partial class MainWindow : Window
             {
                 Children =
                 {
-                    new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = text, Margin = new Thickness(0, 0, 24, 0), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center },
                     new TextBlock { Text = "↗", Foreground = Brush("#777981"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }
                 }
             },
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Background = Brush("#1A1B1F"),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = Brush("#18212C"),
             Foreground = Brush("#D1D2D5"),
             Padding = new Thickness(14, 11, 14, 11),
             Margin = new Thickness(0, 4, 9, 4),
-            Width = 330,
-            BorderBrush = Brush("#303238"),
+            Width = 350,
+            BorderBrush = Brush("#2B3746"),
             BorderThickness = new Thickness(1)
         };
         button.Click += async (_, _) =>
@@ -1059,7 +1056,7 @@ public partial class MainWindow : Window
             expander.Collapsed += (_, _) => message.IsExpanded = false;
             return new Border
             {
-                Background = Brush("#1D2026"), BorderBrush = Brush(message.IsError ? "#78434A" : "#394355"),
+                Background = Brush("#18212C"), BorderBrush = Brush(message.IsError ? "#78434A" : "#394355"),
                 BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(12, 9, 12, 9),
                 Margin = new Thickness(4, 4, 4, 10), Child = expander
             };
@@ -1085,12 +1082,12 @@ public partial class MainWindow : Window
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
-            var bubble = new Border { Background = Brush("#292B30"), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 10, 14, 10), Child = text };
+            var bubble = new Border { Background = Brush("#223B38"), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 10, 14, 10), Child = text };
             outer.Children.Add(bubble);
         }
         else outer.Children.Add(new Border
         {
-            Background = Brush("#202227"), BorderBrush = Brush("#34373F"),
+            Background = Brush("#18212C"), BorderBrush = Brush("#2B3746"),
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
             Padding = new Thickness(16, 13, 16, 13), Child = text
         });
@@ -2130,18 +2127,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdatePanelLayout()
+    {
+        if (_activeView is not { ColumnDefinitions.Count: 3 } view) return;
+        // Keep the conversation usable when repository details are open in a narrow window.
+        var hideSidebar = _sidebarCollapsed || (_contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120);
+        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 0 : 260);
+        view.ColumnDefinitions[2].Width = new GridLength(_contextOpen ? 310 : 0);
+    }
+
     private void ToggleSidebar()
     {
         _sidebarCollapsed = !_sidebarCollapsed;
-        if (_activeView is { ColumnDefinitions.Count: 3 } view)
-            view.ColumnDefinitions[0].Width = _sidebarCollapsed ? new GridLength(0) : new GridLength(250);
+        UpdatePanelLayout();
     }
 
     private void ToggleContext(bool? open = null)
     {
         _contextOpen = open ?? !_contextOpen;
-        if (_activeView is { ColumnDefinitions.Count: 3 } view)
-            view.ColumnDefinitions[2].Width = _contextOpen ? new GridLength(310) : new GridLength(0);
+        UpdatePanelLayout();
         if (Control<Border>("ContextPanel") is { } panel) panel.Visibility = _contextOpen ? Visibility.Visible : Visibility.Collapsed;
         if (_contextOpen)
         {
@@ -2211,8 +2215,8 @@ public partial class MainWindow : Window
         {
             Width = 430,
             MinHeight = 170,
-            Background = Brush("#202124"),
-            BorderBrush = Brush("#3B3D42"),
+            Background = Brush("#1C2430"),
+            BorderBrush = Brush("#34465A"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -2363,8 +2367,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 360,
-            Background = Brush("#202124"),
-            BorderBrush = Brush("#3B3D42"),
+            Background = Brush("#1C2430"),
+            BorderBrush = Brush("#34465A"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -2507,7 +2511,7 @@ public partial class MainWindow : Window
             Height = 178,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#1A1B1F"),
+            Background = Brush("#18212C"),
             Foreground = Brush("#F0F0F1")
         };
         var content = new StackPanel { Margin = new Thickness(18) };
@@ -2780,7 +2784,7 @@ public partial class MainWindow : Window
             Height = 170,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#1A1B1F"),
+            Background = Brush("#18212C"),
             Foreground = Brush("#F0F0F1")
         };
         var layout = new StackPanel { Margin = new Thickness(18) };
@@ -2792,7 +2796,7 @@ public partial class MainWindow : Window
             if (!string.IsNullOrEmpty(query.Text) && match is not null) dialog.Tag = match;
         };
         layout.Children.Add(query);
-        var open = new Button { Content = "Открыть чат", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#34363C") };
+        var open = new Button { Content = "Открыть чат", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#2B3746") };
         open.Click += (_, _) =>
         {
             if (dialog.Tag is ChatThread match) SelectThread(match);
