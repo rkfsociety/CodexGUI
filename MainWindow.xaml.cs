@@ -1386,9 +1386,13 @@ public partial class MainWindow : Window
             label.Text = enabled ? "Изолированная копия" : "Рабочая копия";
         button.Background = Brush(enabled ? "#223B38" : "#222E3D");
         button.Foreground = Brush(enabled ? "#A8E6CF" : "#C8D4E2");
-        button.IsEnabled = _currentThread?.ActiveRun is null && !_isClosing;
+        button.IsEnabled = _currentThread?.ActiveRun is null
+            && !(_currentThread?.UseWorktree == true && _currentThread.CodexSessionId is not null)
+            && !_isClosing;
         button.ToolTip = enabled
-            ? "Для этого чата включён отдельный управляемый Git worktree. Нажмите, чтобы отключить его для следующих запросов."
+            ? _currentThread?.CodexSessionId is not null
+                ? "Этот чат уже продолжает отдельную Git-сессию. Создайте новый чат, если хотите выбрать другую среду."
+                : "Для этого чата включён отдельный управляемый Git worktree."
             : "Вести запросы этого чата в отдельном Git worktree, управляемом Codex CLI.";
     }
 
@@ -1396,6 +1400,7 @@ public partial class MainWindow : Window
     {
         var thread = _currentThread;
         if (thread?.ActiveRun is not null) return;
+        if (thread?.UseWorktree == true && thread.CodexSessionId is not null) return;
         if (thread?.UseWorktree != true)
         {
             var projectPath = thread?.ProjectPath ?? _selectedProject?.Path;
@@ -1408,17 +1413,37 @@ public partial class MainWindow : Window
             }
         }
 
-        thread ??= _selectedProject is null ? null : NewThread();
-        if (thread is null) return;
+        if (thread?.CodexSessionId is { Length: > 0 } sessionId)
+        {
+            var fork = new ChatThread
+            {
+                Title = "Копия: " + TrimTitle(thread.Title),
+                ProjectId = thread.ProjectId,
+                ProjectPath = thread.ProjectPath,
+                CodexSessionId = sessionId,
+                ForkFromSessionId = sessionId,
+                UseWorktree = true
+            };
+            _threads.Add(fork);
+            thread = _currentThread = fork;
+        }
+        else
+        {
+            thread ??= _selectedProject is null ? null : NewThread();
+            if (thread is null) return;
+            thread.UseWorktree = !thread.UseWorktree;
+        }
 
-        thread.UseWorktree = !thread.UseWorktree;
         SaveState();
         RenderThreads();
         RenderConversation();
         UpdateChatInfoPanel();
+        if (thread.CodexSessionId is not null)
+            await RestoreThreadHistoryAsync(thread);
         UpdateWorktreeButton();
-        SetStatus(thread.UseWorktree ? "Изолированная копия включена" : "Изолированная копия отключена",
-            thread.UseWorktree ? "Codex CLI будет запускать этот чат в отдельном Git worktree." : "Новые запросы будут работать в папке проекта.");
+        SetStatus("Изолированная копия включена", thread.CodexSessionId is null
+            ? "Первый запрос создаст отдельный управляемый Git worktree."
+            : "Ответвлённый чат продолжится в отдельном управляемом Git worktree.");
     }
 
     private void RemovePromptFromQueue(string promptId)
@@ -1701,6 +1726,8 @@ public partial class MainWindow : Window
                     _ = Dispatcher.BeginInvoke(() =>
                     {
                         thread.CodexSessionId = id;
+                        thread.ForkFromSessionId = null;
+                        if (thread.UseWorktree) thread.WorktreeSessionStarted = true;
                         SaveState();
                         if (_currentThread == thread) UpdateChatInfoPanel();
                     }, DispatcherPriority.Background);
@@ -1886,10 +1913,17 @@ public partial class MainWindow : Window
         arguments.Add("--config");
         arguments.Add($"model_reasoning_effort={run.Effort}");
         arguments.Add("exec");
-        if (thread.CodexSessionId is not null)
+        if (thread.ForkFromSessionId is { Length: > 0 } forkFromSessionId)
+        {
+            arguments.Add("fork");
+            arguments.Add("--worktree");
+            arguments.Add("--json");
+            arguments.Add(forkFromSessionId);
+            arguments.Add(run.Prompt);
+        }
+        else if (thread.CodexSessionId is not null)
         {
             arguments.Add("resume");
-            if (thread.UseWorktree) arguments.Add("--worktree");
             arguments.Add("--json");
             arguments.Add(thread.CodexSessionId);
             arguments.Add(run.Prompt);
@@ -2627,8 +2661,10 @@ public partial class MainWindow : Window
                             ProjectId = stored.ProjectId,
                             ProjectPath = stored.ProjectPath,
                             CodexSessionId = stored.CodexSessionId,
+                            ForkFromSessionId = stored.ForkFromSessionId,
                             IsArchived = stored.IsArchived,
                             UseWorktree = stored.UseWorktree,
+                            WorktreeSessionStarted = stored.WorktreeSessionStarted,
                             ContextTokens = stored.ContextTokens,
                             ContextWindowTokens = stored.ContextWindowTokens,
                             ActiveRun = stored.ActiveRun
@@ -2683,8 +2719,10 @@ public partial class MainWindow : Window
                     ProjectId = thread.ProjectId,
                     ProjectPath = thread.ProjectPath,
                     CodexSessionId = thread.CodexSessionId,
+                    ForkFromSessionId = thread.ForkFromSessionId,
                     IsArchived = thread.IsArchived,
                     UseWorktree = thread.UseWorktree,
+                    WorktreeSessionStarted = thread.WorktreeSessionStarted,
                     ContextTokens = thread.ContextTokens,
                     ContextWindowTokens = thread.ContextWindowTokens,
                     ActiveRun = thread.ActiveRun
@@ -2906,8 +2944,10 @@ public partial class MainWindow : Window
         public string ProjectId { get; set; } = "";
         public string ProjectPath { get; set; } = "";
         public string? CodexSessionId { get; set; }
+        public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
         public bool UseWorktree { get; set; }
+        public bool WorktreeSessionStarted { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }
@@ -2933,8 +2973,10 @@ public partial class MainWindow : Window
         public string ProjectId { get; set; } = "";
         public string ProjectPath { get; set; } = "";
         public string? CodexSessionId { get; set; }
+        public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
         public bool UseWorktree { get; set; }
+        public bool WorktreeSessionStarted { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }
