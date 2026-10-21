@@ -1124,11 +1124,28 @@ public partial class MainWindow : Window
             };
             expander.Expanded += (_, _) => message.IsExpanded = true;
             expander.Collapsed += (_, _) => message.IsExpanded = false;
+            var activityContent = new StackPanel();
+            activityContent.Children.Add(expander);
+            if (message.RelatedThreadId is { Length: > 0 } subagentId)
+            {
+                var openSubagent = new Button
+                {
+                    Content = "Открыть субагента",
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(9, 5, 9, 5),
+                    Margin = new Thickness(0, 7, 0, 0),
+                    Background = Brush("#263344"),
+                    Foreground = Brush("#C8D4E2"),
+                    FontSize = 10
+                };
+                openSubagent.Click += async (_, _) => await OpenSubagentThreadAsync(subagentId);
+                activityContent.Children.Add(openSubagent);
+            }
             return new Border
             {
                 Background = Brush("#18212C"), BorderBrush = Brush(message.IsError ? "#78434A" : "#394355"),
                 BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(12, 9, 12, 9),
-                Margin = new Thickness(4, 4, 4, 10), Child = expander
+                Margin = new Thickness(4, 4, 4, 10), Child = activityContent
             };
         }
         var outer = new StackPanel
@@ -1172,6 +1189,7 @@ public partial class MainWindow : Window
             existing.Text = message.Text;
             existing.ActivityTitle = message.ActivityTitle;
             existing.IsError = message.IsError;
+            existing.RelatedThreadId = message.RelatedThreadId;
             return;
         }
         var index = messages.IndexOf(anchor);
@@ -1199,7 +1217,11 @@ public partial class MainWindow : Window
         var failed = type == "error" || GetString(item, "status") is "failed" or "declined" ||
             (item.TryGetProperty("exit_code", out var exit) && exit.TryGetInt32(out var code) && code != 0);
         var parts = new List<string>();
-        foreach (var key in new[] { "command", "text", "query", "server", "tool", "aggregated_output", "aggregatedOutput" })
+        foreach (var key in new[]
+                 {
+                     "command", "text", "query", "server", "tool", "aggregated_output", "aggregatedOutput",
+                     "prompt", "senderThreadId", "receiverThreadId", "newThreadId", "agentStatus"
+                 })
             if (GetString(item, key) is { Length: > 0 } value) parts.Add(value);
         foreach (var key in new[] { "summary", "content", "changes", "items", "arguments", "result", "error" })
             if (item.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null)
@@ -1207,8 +1229,40 @@ public partial class MainWindow : Window
         return new ChatMessage(false, string.Join(Environment.NewLine + Environment.NewLine, parts))
         {
             ActivityTitle = $"{(failed ? "✕" : completed ? "✓" : "●")}  {title} · {(failed ? "ошибка" : completed ? "завершено" : "выполняется")}",
-            IsError = failed
+            IsError = failed,
+            RelatedThreadId = type == "collabToolCall"
+                ? GetString(item, "newThreadId") ?? GetString(item, "receiverThreadId")
+                : null
         };
+    }
+
+    private async Task OpenSubagentThreadAsync(string sessionId)
+    {
+        var existing = _threads.FirstOrDefault(thread => thread.CodexSessionId == sessionId);
+        if (existing is not null)
+        {
+            SelectThread(existing);
+            return;
+        }
+
+        var parent = _currentThread;
+        var projectId = parent?.ProjectId ?? _selectedProject?.Id;
+        if (projectId is null) return;
+        var subagent = new ChatThread
+        {
+            Title = "Субагент · " + (parent?.Title ?? "задача"),
+            ProjectId = projectId,
+            ProjectPath = parent?.ProjectPath ?? _projectPath,
+            WorktreePath = parent?.WorktreePath,
+            CodexSessionId = sessionId
+        };
+        _threads.Add(subagent);
+        _currentThread = subagent;
+        _selectedProject = _projects.FirstOrDefault(project => project.Id == projectId);
+        _projectPath = subagent.WorktreePath ?? _selectedProject?.Path ?? subagent.ProjectPath;
+        SaveState();
+        RefreshView();
+        await RestoreThreadHistoryAsync(subagent);
     }
 
     private void RenderFileTree()
@@ -1472,6 +1526,7 @@ public partial class MainWindow : Window
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.Children.Add(new TextBlock
         {
             Text = repositoryPath,
@@ -1610,10 +1665,27 @@ public partial class MainWindow : Window
         };
         Grid.SetRow(diffBox, 1);
         layout.Children.Add(diffBox);
+        var commentInput = new TextBox
+        {
+            MinHeight = 52,
+            MaxHeight = 100,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 10, 0, 0),
+            Background = Brush("#18212C"),
+            Foreground = Brush("#D2D9E3"),
+            BorderBrush = Brush("#2B3746"),
+            BorderThickness = new Thickness(1),
+            ToolTip = "Необязательное замечание к выбранным строкам"
+        };
+        Grid.SetRow(commentInput, 2);
+        layout.Children.Add(commentInput);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var addComment = new Button
         {
-            Content = "Добавить выбранные строки в запрос",
+            Content = "Добавить комментарий",
             Padding = new Thickness(12, 7, 12, 7),
             Background = Brush("#223B38"),
             Foreground = Brush("#A8E6CF"),
@@ -1623,19 +1695,21 @@ public partial class MainWindow : Window
         diffBox.SelectionChanged += (_, _) => addComment.IsEnabled = !string.IsNullOrWhiteSpace(diffBox.SelectedText);
         addComment.Click += (_, _) =>
         {
-            if (AppendDiffComment(relativePath, diffBox.SelectedText)) dialog.DialogResult = true;
+            var selectedDiff = diffBox.SelectedText;
+            var lineAnchor = GetDiffLineAnchor(diffBox.Text, diffBox.SelectionStart, diffBox.SelectionLength);
+            if (AppendDiffComment(relativePath, selectedDiff, lineAnchor, commentInput.Text)) dialog.DialogResult = true;
         };
         buttons.Children.Add(addComment);
         var close = new Button { Content = "Закрыть", Padding = new Thickness(14, 7, 14, 7), Background = Brush("#263344") };
         close.Click += (_, _) => dialog.Close();
         buttons.Children.Add(close);
-        Grid.SetRow(buttons, 2);
+        Grid.SetRow(buttons, 3);
         layout.Children.Add(buttons);
         dialog.Content = layout;
         if (dialog.ShowDialog() == true) Control<TextBox>("PromptInput")?.Focus();
     }
 
-    private bool AppendDiffComment(string relativePath, string selectedDiff)
+    private bool AppendDiffComment(string relativePath, string selectedDiff, string? lineAnchor, string? comment)
     {
         if (string.IsNullOrWhiteSpace(selectedDiff)) return false;
         var input = Control<TextBox>("PromptInput");
@@ -1648,10 +1722,97 @@ public partial class MainWindow : Window
             UpdateChatInfoPanel();
         }
         if (input.Text == PromptPlaceholder) input.Clear();
-        var note = $"Комментарий к изменениям в файле {relativePath}:\n```diff\n{selectedDiff.TrimEnd()}\n```";
+        var anchor = string.IsNullOrWhiteSpace(lineAnchor) ? "" : $" ({lineAnchor})";
+        var note = $"Комментарий к изменениям в файле `{relativePath}`{anchor}:\n";
+        if (!string.IsNullOrWhiteSpace(comment)) note += comment.Trim() + "\n\n";
+        note += $"```diff\n{selectedDiff.TrimEnd()}\n```";
         input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n\n") + note;
         input.CaretIndex = input.Text.Length;
         return true;
+    }
+
+    private static string? GetDiffLineAnchor(string diff, int selectionStart, int selectionLength)
+    {
+        if (selectionLength <= 0) return null;
+        var selectionEnd = selectionStart + selectionLength;
+        var oldLine = 0;
+        var newLine = 0;
+        var oldLines = new SortedSet<int>();
+        var newLines = new SortedSet<int>();
+        var lineStart = 0;
+
+        while (lineStart <= diff.Length)
+        {
+            var lineEnd = diff.IndexOf('\n', lineStart);
+            if (lineEnd < 0) lineEnd = diff.Length;
+            var line = diff[lineStart..lineEnd].TrimEnd('\r');
+            var selected = lineStart < selectionEnd && lineEnd > selectionStart;
+
+            if (line.StartsWith("@@", StringComparison.Ordinal))
+            {
+                var oldMarker = line.IndexOf('-', StringComparison.Ordinal);
+                var newMarker = line.IndexOf('+', StringComparison.Ordinal);
+                var oldEnd = oldMarker >= 0 ? line.IndexOfAny([',', ' '], oldMarker + 1) : -1;
+                var newEnd = newMarker >= 0 ? line.IndexOfAny([',', ' '], newMarker + 1) : -1;
+                if (oldMarker >= 0 && oldEnd > oldMarker && int.TryParse(line[(oldMarker + 1)..oldEnd], out var oldStart))
+                    oldLine = oldStart;
+                if (newMarker >= 0 && newEnd > newMarker && int.TryParse(line[(newMarker + 1)..newEnd], out var newStart))
+                    newLine = newStart;
+            }
+            else if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
+            {
+                // File headers are not source lines in a diff hunk.
+            }
+            else if (line.StartsWith('+'))
+            {
+                if (selected && newLine > 0) newLines.Add(newLine);
+                if (newLine > 0) newLine++;
+            }
+            else if (line.StartsWith('-'))
+            {
+                if (selected && oldLine > 0) oldLines.Add(oldLine);
+                if (oldLine > 0) oldLine++;
+            }
+            else if (line.StartsWith(' ') && oldLine > 0 && newLine > 0)
+            {
+                if (selected)
+                {
+                    oldLines.Add(oldLine);
+                    newLines.Add(newLine);
+                }
+                oldLine++;
+                newLine++;
+            }
+
+            if (lineEnd == diff.Length) break;
+            lineStart = lineEnd + 1;
+        }
+
+        var locations = new List<string>();
+        if (oldLines.Count > 0) locations.Add("old " + FormatLineNumbers(oldLines));
+        if (newLines.Count > 0) locations.Add("new " + FormatLineNumbers(newLines));
+        return locations.Count == 0 ? null : string.Join("; ", locations);
+    }
+
+    private static string FormatLineNumbers(IEnumerable<int> lines)
+    {
+        var ordered = lines.Order().ToArray();
+        if (ordered.Length == 0) return "";
+        var ranges = new List<string>();
+        var start = ordered[0];
+        var end = start;
+        for (var index = 1; index < ordered.Length; index++)
+        {
+            if (ordered[index] == end + 1)
+            {
+                end = ordered[index];
+                continue;
+            }
+            ranges.Add(start == end ? $"L{start}" : $"L{start}-L{end}");
+            start = end = ordered[index];
+        }
+        ranges.Add(start == end ? $"L{start}" : $"L{start}-L{end}");
+        return string.Join(", ", ranges);
     }
 
     private void OpenRepositoryRemote()
@@ -3914,6 +4075,7 @@ public partial class MainWindow : Window
         public bool IsUser { get; } = isUser;
         public string Text { get; set; } = text;
         public string? ActivityTitle { get; set; }
+        public string? RelatedThreadId { get; set; }
         public bool IsError { get; set; }
         public bool IsExpanded { get; set; }
         public bool HasCompletedMessages { get; set; }
