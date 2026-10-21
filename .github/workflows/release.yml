@@ -44,6 +44,8 @@ jobs:
 
       - name: Package release and checksum
         shell: pwsh
+        env:
+          CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY }}
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           Compress-Archive -Path artifacts/publish/* -DestinationPath artifacts/CodexGUI-win-x64.zip
@@ -51,6 +53,19 @@ jobs:
           Set-Content -Path artifacts/CodexGUI-win-x64.zip.sha256 -Value "$hash  CodexGUI-win-x64.zip" -NoNewline
           $exeHash = (Get-FileHash artifacts/single-file/CodexGUI.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -Path artifacts/CodexGUI.exe.sha256 -Value "$exeHash  CodexGUI.exe" -NoNewline
+          if ([string]::IsNullOrWhiteSpace($env:CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY)) {
+            throw 'Configure the CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY Actions secret before publishing releases.'
+          }
+          $signer = [System.Security.Cryptography.ECDsa]::Create()
+          try {
+            $signer.ImportFromPem($env:CODEXGUI_RELEASE_SIGNING_PRIVATE_KEY)
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+            $manifest = "$version`n$hash  CodexGUI-win-x64.zip"
+            $payload = [System.Text.Encoding]::UTF8.GetBytes($manifest)
+            $signature = $signer.SignData($payload, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+            [System.IO.File]::WriteAllText('artifacts/CodexGUI-win-x64.zip.sig', [Convert]::ToBase64String($signature))
+          }
+          finally { $signer.Dispose() }
 
       - name: Publish GitHub Release
         env:
@@ -61,6 +76,7 @@ jobs:
           "artifacts/CodexGUI.exe.sha256"
           "artifacts/CodexGUI-win-x64.zip"
           "artifacts/CodexGUI-win-x64.zip.sha256"
+          "artifacts/CodexGUI-win-x64.zip.sig"
           --title "${{ github.ref_name }}"
           --generate-notes
 

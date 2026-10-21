@@ -6,18 +6,21 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace CodexGUI;
 
-internal sealed record AppUpdate(string Version, Uri ArchiveUri, Uri ChecksumUri);
+internal sealed record AppUpdate(string Version, Uri ArchiveUri, Uri ChecksumUri, Uri SignatureUri);
 
 internal static class AppUpdater
 {
     private const string LatestReleaseApi = "https://api.github.com/repos/rkfsociety/CodexGUI/releases/latest";
     private const string ArchiveName = "CodexGUI-win-x64.zip";
     private const string ChecksumName = ArchiveName + ".sha256";
+    private const string SignatureName = ArchiveName + ".sig";
+    private const string ReleasePublicKey = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjKDFJz59PcWpOLTJqcxFN3FsM+Ah\nvbzdlyTJhKnLZ93rxwqsrOGJOigTcx6Ntn1DlNg5vVA6AihvsTZOXq+rDQ==\n-----END PUBLIC KEY-----";
     private static readonly HttpClient Client = CreateClient();
 
     public static string CurrentVersion =>
@@ -40,13 +43,16 @@ internal static class AppUpdater
         var assets = root.GetProperty("assets");
         var archiveUrl = FindAssetUrl(assets, ArchiveName);
         var checksumUrl = FindAssetUrl(assets, ChecksumName);
+        var signatureUrl = FindAssetUrl(assets, SignatureName);
         if (!Uri.TryCreate(archiveUrl, UriKind.Absolute, out var archiveUri)
             || archiveUri.Scheme != Uri.UriSchemeHttps
             || !Uri.TryCreate(checksumUrl, UriKind.Absolute, out var checksumUri)
-            || checksumUri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidDataException("В релизе отсутствует архив приложения или его SHA-256.");
+            || checksumUri.Scheme != Uri.UriSchemeHttps
+            || !Uri.TryCreate(signatureUrl, UriKind.Absolute, out var signatureUri)
+            || signatureUri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidDataException("В релизе отсутствует архив, SHA-256 или подпись.");
 
-        return new AppUpdate(latestVersion, archiveUri, checksumUri);
+        return new AppUpdate(latestVersion, archiveUri, checksumUri, signatureUri);
     }
 
     public static async Task DownloadAndInstallAsync(AppUpdate update)
@@ -55,12 +61,14 @@ internal static class AppUpdater
         Directory.CreateDirectory(tempDirectory);
         var archivePath = Path.Combine(tempDirectory, ArchiveName);
         var checksumPath = Path.Combine(tempDirectory, ChecksumName);
+        var signaturePath = Path.Combine(tempDirectory, SignatureName);
         var updaterPath = Path.Combine(tempDirectory, "Update-CodexGUI.ps1");
 
         try
         {
             await DownloadFileAsync(update.ArchiveUri, archivePath);
             await DownloadFileAsync(update.ChecksumUri, checksumPath);
+            await DownloadFileAsync(update.SignatureUri, signaturePath);
             var expectedHash = (await File.ReadAllTextAsync(checksumPath)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             if (expectedHash is null || expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
                 throw new InvalidDataException("Файл контрольной суммы релиза повреждён.");
@@ -69,6 +77,17 @@ internal static class AppUpdater
             var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(archive));
             if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Контрольная сумма архива не совпала.");
+
+            byte[] signature;
+            try { signature = Convert.FromBase64String((await File.ReadAllTextAsync(signaturePath)).Trim()); }
+            catch (FormatException error) { throw new InvalidDataException("Подпись архива имеет некорректный формат.", error); }
+            var signedManifest = Encoding.UTF8.GetBytes($"{update.Version}\n{actualHash.ToLowerInvariant()}  {ArchiveName}");
+            using (var verifier = ECDsa.Create())
+            {
+                verifier.ImportFromPem(ReleasePublicKey);
+                if (!verifier.VerifyData(signedManifest, signature, HashAlgorithmName.SHA256))
+                    throw new InvalidDataException("Подпись манифеста обновления неверна. Обновление отменено.");
+            }
 
             using var updaterResource = typeof(AppUpdater).Assembly.GetManifestResourceStream("CodexGUI.Update-CodexGUI.ps1")
                 ?? throw new FileNotFoundException("Не найден встроенный сценарий установки обновления.");

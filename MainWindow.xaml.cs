@@ -514,7 +514,7 @@ public partial class MainWindow : Window
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
-                await RunSessionCommandAsync(archived ? "archive" : "unarchive", sessionId);
+                await CodexCliService.RunSessionCommandAsync(archived ? "archive" : "unarchive", sessionId);
             thread.IsArchived = archived;
             if (archived && _currentThread == thread)
                 _currentThread = _threads.LastOrDefault(item => item != thread && item.ProjectId == thread.ProjectId && !item.IsArchived);
@@ -545,7 +545,7 @@ public partial class MainWindow : Window
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
-                await RunSessionCommandAsync("delete", sessionId);
+                await CodexCliService.RunSessionCommandAsync("delete", sessionId);
             _threads.Remove(thread);
             if (_currentThread == thread)
                 _currentThread = _threads.LastOrDefault(item => item.ProjectId == thread.ProjectId && item.IsArchived == _showArchivedChats);
@@ -558,61 +558,6 @@ public partial class MainWindow : Window
         {
             SetStatus("Не удалось удалить чат", error.Message, isError: true);
         }
-    }
-
-    private static async Task RunSessionCommandAsync(string command, string sessionId)
-    {
-        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        startInfo.ArgumentList.Add(command);
-        if (command == "delete") startInfo.ArgumentList.Add("--force");
-        startInfo.ArgumentList.Add(sessionId);
-        using var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить codex CLI.");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        var output = await outputTask;
-        var errors = await errorTask;
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
-    }
-
-    private static string ResolveCodexExecutable()
-    {
-        const string executableName = "codex.exe";
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "")
-                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var candidate = Path.Combine(directory.Trim('"'), executableName);
-            if (File.Exists(candidate)) return candidate;
-        }
-
-        var codexBin = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAI", "Codex", "bin");
-        var directCandidate = Path.Combine(codexBin, executableName);
-        if (File.Exists(directCandidate)) return directCandidate;
-
-        if (Directory.Exists(codexBin))
-        {
-            var versionedCandidate = Directory.EnumerateDirectories(codexBin)
-                .Select(directory => Path.Combine(directory, executableName))
-                .Where(File.Exists)
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-            if (versionedCandidate is not null) return versionedCandidate;
-        }
-
-        throw new FileNotFoundException(
-            "Не найден Codex CLI. Установите Codex для Windows или добавьте папку с codex.exe в пользовательский PATH.",
-            executableName);
     }
 
     private async Task RefreshUsageLimitsAsync()
@@ -643,42 +588,8 @@ public partial class MainWindow : Window
 
     private static async Task<UsageSnapshot> ReadUsageLimitsAsync()
     {
-        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        startInfo.ArgumentList.Add("app-server");
-        startInfo.ArgumentList.Add("--stdio");
-
-        using var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
-        var errorsTask = process.StandardError.ReadToEndAsync();
-        try
-        {
-            await process.StandardInput.WriteLineAsync(
-                "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codexgui\",\"title\":\"CodexGUI\",\"version\":\"1.0\"}}}");
-            _ = await ReadRpcResultAsync(process.StandardOutput, 1);
-            await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\",\"params\":{}}");
-            await process.StandardInput.WriteLineAsync("{\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":{}}");
-            var result = await ReadRpcResultAsync(process.StandardOutput, 2);
-            return ParseUsageSnapshot(result);
-        }
-        finally
-        {
-            process.StandardInput.Close();
-            if (!process.HasExited)
-            {
-                try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-                catch (TimeoutException) { process.Kill(entireProcessTree: true); }
-            }
-            await errorsTask;
-        }
+        var result = await new CodexAppServerClient(CodexCliService.ResolveExecutable()).ReadRateLimitsAsync();
+        return ParseUsageSnapshot(result);
     }
 
     private Task RestoreThreadHistoryAsync(ChatThread thread)
@@ -735,47 +646,7 @@ public partial class MainWindow : Window
 
     private static async Task<JsonElement> ReadThreadHistoryAsync(string sessionId)
     {
-        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        startInfo.ArgumentList.Add("app-server");
-        startInfo.ArgumentList.Add("--stdio");
-
-        using var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server для чтения истории.");
-        var errorsTask = process.StandardError.ReadToEndAsync();
-        try
-        {
-            await process.StandardInput.WriteLineAsync(
-                "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codexgui\",\"title\":\"CodexGUI\",\"version\":\"1.0\"}}}");
-            _ = await ReadRpcResultAsync(process.StandardOutput, 1);
-            await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\",\"params\":{}}");
-            var request = JsonSerializer.Serialize(new Dictionary<string, object?>
-            {
-                ["id"] = 2,
-                ["method"] = "thread/read",
-                ["params"] = new { threadId = sessionId, includeTurns = true }
-            });
-            await process.StandardInput.WriteLineAsync(request);
-            return await ReadRpcResultAsync(process.StandardOutput, 2);
-        }
-        finally
-        {
-            process.StandardInput.Close();
-            if (!process.HasExited)
-            {
-                try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-                catch (TimeoutException) { process.Kill(entireProcessTree: true); }
-            }
-            await errorsTask;
-        }
+        return await new CodexAppServerClient(CodexCliService.ResolveExecutable()).ReadThreadAsync(sessionId);
     }
 
     private static List<ChatMessage> ParseThreadMessages(JsonElement result)
@@ -825,22 +696,6 @@ public partial class MainWindow : Window
             }
         }
         return string.Join(Environment.NewLine, parts);
-    }
-
-    private static async Task<JsonElement> ReadRpcResultAsync(StreamReader reader, int requestId)
-    {
-        while (await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20)) is { } line)
-        {
-            using var document = JsonDocument.Parse(line);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.Number || id.GetInt32() != requestId)
-                continue;
-            if (root.TryGetProperty("error", out var error))
-                throw new InvalidOperationException(GetString(error, "message") ?? "Codex app-server отклонил запрос.");
-            if (root.TryGetProperty("result", out var result)) return result.Clone();
-            throw new InvalidDataException("Codex app-server вернул пустой ответ.");
-        }
-        throw new EndOfStreamException("Codex app-server завершился до ответа о лимитах.");
     }
 
     private static UsageSnapshot ParseUsageSnapshot(JsonElement result)
@@ -1178,7 +1033,7 @@ public partial class MainWindow : Window
 
     private async Task<string> RunCodexAsync(ChatThread thread, string prompt, ChatMessage assistantMessage)
     {
-        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
+        var startInfo = new ProcessStartInfo(CodexCliService.ResolveExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -1674,7 +1529,7 @@ public partial class MainWindow : Window
         anchor.IsEnabled = false;
         try
         {
-            _modelCatalogTask ??= LoadModelCatalogAsync();
+            _modelCatalogTask ??= CodexCliService.LoadModelCatalogAsync(DefaultEffort);
             _availableModels = await _modelCatalogTask;
             if (_availableModels.Count == 0)
                 throw new InvalidDataException("Codex CLI не сообщил доступные модели.");
@@ -1691,51 +1546,6 @@ public partial class MainWindow : Window
             if (label is not null) label.Text = previousText;
             UpdateComposerSettingsLabels();
         }
-    }
-
-    private static async Task<IReadOnlyList<ModelOption>> LoadModelCatalogAsync()
-    {
-        var startInfo = new ProcessStartInfo(ResolveCodexExecutable())
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        startInfo.ArgumentList.Add("debug");
-        startInfo.ArgumentList.Add("models");
-        using var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить codex debug models.");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        var output = await outputTask;
-        var errorOutput = await errorTask;
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorOutput)
-                ? $"codex debug models завершился с кодом {process.ExitCode}."
-                : errorOutput.Trim());
-
-        using var document = JsonDocument.Parse(output);
-        if (!document.RootElement.TryGetProperty("models", out var models))
-            throw new InvalidDataException("Ответ Codex CLI не содержит каталог моделей.");
-
-        return models.EnumerateArray()
-            .Where(item => GetString(item, "visibility") == "list" && item.TryGetProperty("supported_in_api", out var supported) && supported.GetBoolean())
-            .Select(item => new ModelOption(
-                GetString(item, "slug") ?? "",
-                GetString(item, "display_name") ?? GetString(item, "slug") ?? "",
-                GetString(item, "default_reasoning_level") ?? DefaultEffort,
-                item.TryGetProperty("supported_reasoning_levels", out var efforts)
-                    ? efforts.EnumerateArray().Select(effort => GetString(effort, "effort")).Where(effort => effort is not null).Cast<string>().ToArray()
-                    : [],
-                item.TryGetProperty("priority", out var priority) && priority.TryGetInt32(out var order) ? order : int.MaxValue))
-            .Where(model => !string.IsNullOrWhiteSpace(model.Slug) && model.ReasoningLevels.Count > 0)
-            .OrderBy(item => item.Priority)
-            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
     }
 
     private void ShowChoicePopup(Button anchor, string title, IReadOnlyList<(string Title, string Description, bool Selected, Action Select)> choices)
@@ -2219,7 +2029,6 @@ public partial class MainWindow : Window
         public List<StoredThread> Threads { get; set; } = [];
     }
 
-    private sealed record ModelOption(string Slug, string DisplayName, string DefaultReasoningLevel, IReadOnlyList<string> ReasoningLevels, int Priority);
     private sealed record UsageSnapshot(IReadOnlyList<UsageWindow> Windows);
     private sealed record UsageWindow(long? DurationMinutes, int UsedPercent, long? ResetsAt);
 
