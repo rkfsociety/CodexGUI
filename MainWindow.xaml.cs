@@ -4994,7 +4994,7 @@ public partial class MainWindow : Window
         var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
         var hideSidebar = _sidebarCollapsed || autoHideSidebar;
         view.ColumnDefinitions[0].Width = new GridLength(42);
-        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : 208);
+        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : 280);
         if (Control<Border>("SidebarPanel") is { } sidebar)
             sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
         if (Control<Border>("ChatOverviewCard") is { } overview)
