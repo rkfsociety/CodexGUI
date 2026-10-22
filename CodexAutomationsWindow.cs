@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -232,11 +233,12 @@ internal sealed class CodexAutomationsWindow : Window
             "weekly" => $"Еженедельно · {DayName(definition.DayOfWeek)} в {definition.TimeOfDay}",
             "monthly" => $"Ежемесячно · {definition.DayOfMonth}-е число в {definition.TimeOfDay}",
             "interval" => $"Каждые {definition.IntervalMinutes} мин.",
+            "rrule" => $"RRULE · {definition.RecurrenceRule}",
             _ => $"Ежедневно · {definition.TimeOfDay}"
         };
         stack.Children.Add(new TextBlock
         {
-            Text = $"{(definition.Enabled ? "Включено" : "Выключено")} · {cadence} · {project}",
+            Text = $"{(definition.RecurrenceExhausted ? "Завершено" : definition.Enabled ? "Включено" : "Выключено")} · {cadence} · {project}",
             Foreground = Brush("#A6B1BF"),
             FontSize = 10,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -339,7 +341,9 @@ internal sealed class CodexAutomationsWindow : Window
         _deleteButton.IsEnabled = selected is not null;
         _runButton.IsEnabled = selected is not null;
         if (selected is null) { _definitionDetails.Text = "Создайте расписание для одного или нескольких проектов."; return; }
-        var next = selected.NextRunAtUtc == default ? "будет рассчитан при запуске" : selected.NextRunAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.CurrentCulture);
+        var next = selected.RecurrenceExhausted ? "повторы завершены"
+            : selected.NextRunAtUtc == default ? "будет рассчитан при запуске"
+            : selected.NextRunAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.CurrentCulture);
         _definitionDetails.Text = $"Следующий запуск: {next}. {(selected.UseWorktree ? "Задача будет работать в отдельном Git worktree." : "Задача будет работать непосредственно в папке проекта.")}";
     }
 
@@ -416,8 +420,12 @@ internal sealed class CodexAutomationEditorWindow : Window
     private readonly ComboBox _cadence = new();
     private readonly TextBox _time = new();
     private readonly TextBox _interval = new();
+    private readonly DatePicker _ruleStartDate = new();
+    private readonly TextBox _ruleText = new();
     private TextBlock _timeLabel = new();
     private TextBlock _intervalLabel = new();
+    private TextBlock _ruleStartDateLabel = new();
+    private TextBlock _ruleLabel = new();
     private readonly ComboBox _day = new();
     private readonly ComboBox _monthDay = new();
     private TextBlock _monthDayLabel = new();
@@ -512,6 +520,9 @@ internal sealed class CodexAutomationEditorWindow : Window
         _timeLabel = AddField(form, "Время по местному часовому поясу (ЧЧ:ММ)", _time);
         _intervalLabel = AddField(form, "Интервал в минутах", _interval);
         _interval.ToolTip = "Укажите положительное целое число минут";
+        _ruleStartDateLabel = AddField(form, "Начальная дата (DTSTART)", _ruleStartDate);
+        _ruleLabel = AddField(form, "Правило повторения (RFC 5545 RRULE)", _ruleText);
+        _ruleText.ToolTip = "Например: RRULE:FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0";
         _day.ItemsSource = new[]
         {
             new DayChoice(DayOfWeek.Monday, "Понедельник"), new DayChoice(DayOfWeek.Tuesday, "Вторник"),
@@ -547,7 +558,8 @@ internal sealed class CodexAutomationEditorWindow : Window
             new CadenceChoice("daily", "Каждый день"),
             new CadenceChoice("weekly", "Каждую неделю"),
             new CadenceChoice("monthly", "Каждый месяц"),
-            new CadenceChoice("interval", "Через интервал")
+            new CadenceChoice("interval", "Через интервал"),
+            new CadenceChoice("rrule", "Расширенное правило (RRULE)")
         };
         _cadence.DisplayMemberPath = nameof(CadenceChoice.Label);
         _cadence.SelectionChanged += (_, _) =>
@@ -556,10 +568,15 @@ internal sealed class CodexAutomationEditorWindow : Window
             var weeklyVisibility = cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
             var monthlyVisibility = cadence == "monthly" ? Visibility.Visible : Visibility.Collapsed;
             var intervalVisibility = cadence == "interval" ? Visibility.Visible : Visibility.Collapsed;
+            var ruleVisibility = cadence == "rrule" ? Visibility.Visible : Visibility.Collapsed;
             _timeLabel.Visibility = intervalVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
             _time.Visibility = _timeLabel.Visibility;
             _intervalLabel.Visibility = intervalVisibility;
             _interval.Visibility = intervalVisibility;
+            _ruleStartDateLabel.Visibility = ruleVisibility;
+            _ruleStartDate.Visibility = ruleVisibility;
+            _ruleLabel.Visibility = ruleVisibility;
+            _ruleText.Visibility = ruleVisibility;
             _dayLabel.Visibility = weeklyVisibility;
             _dayRow.Visibility = weeklyVisibility;
             _monthDayLabel.Visibility = monthlyVisibility;
@@ -589,6 +606,8 @@ internal sealed class CodexAutomationEditorWindow : Window
             ?? _cadence.Items.Cast<CadenceChoice>().First();
         _time.Text = _source.TimeOfDay;
         _interval.Text = _source.IntervalMinutes.ToString(CultureInfo.InvariantCulture);
+        _ruleStartDate.SelectedDate = _source.RecurrenceStartLocal?.Date ?? DateTime.Today;
+        _ruleText.Text = _source.RecurrenceRule ?? "";
         _day.SelectedItem = _day.Items.Cast<DayChoice>().FirstOrDefault(item => item.Day == _source.DayOfWeek);
         if (_day.SelectedItem is null) _day.SelectedIndex = 0;
         _monthDay.SelectedItem = _monthDay.Items.Cast<MonthDayChoice>()
@@ -607,10 +626,15 @@ internal sealed class CodexAutomationEditorWindow : Window
         var weeklyVisibility = _source.Cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
         var monthlyVisibility = _source.Cadence == "monthly" ? Visibility.Visible : Visibility.Collapsed;
         var intervalVisibility = _source.Cadence == "interval" ? Visibility.Visible : Visibility.Collapsed;
+        var ruleVisibility = _source.Cadence == "rrule" ? Visibility.Visible : Visibility.Collapsed;
         _timeLabel.Visibility = intervalVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         _time.Visibility = _timeLabel.Visibility;
         _intervalLabel.Visibility = intervalVisibility;
         _interval.Visibility = intervalVisibility;
+        _ruleStartDateLabel.Visibility = ruleVisibility;
+        _ruleStartDate.Visibility = ruleVisibility;
+        _ruleLabel.Visibility = ruleVisibility;
+        _ruleText.Visibility = ruleVisibility;
         _dayRow.Visibility = weeklyVisibility;
         _dayLabel.Visibility = weeklyVisibility;
         _monthDayLabel.Visibility = monthlyVisibility;
@@ -729,6 +753,71 @@ internal sealed class CodexAutomationEditorWindow : Window
             MessageBox.Show(this, "Интервал должен быть положительным целым числом минут.", "Проверьте интервал", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+        string? recurrenceRule = null;
+        DateTime? recurrenceStartLocal = null;
+        var recurrenceOccurrencesBeforeNext = 0L;
+        var recurrenceExhausted = false;
+        var nextRunAtUtc = _source.NextRunAtUtc;
+        if (cadence == "rrule")
+        {
+            recurrenceRule = _ruleText.Text.Trim();
+            if (_ruleStartDate.SelectedDate is not { } startDate)
+            {
+                MessageBox.Show(this, "Выберите начальную дату RRULE.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var startTime = TimeOnly.ParseExact(_time.Text.Trim(), "HH:mm", CultureInfo.InvariantCulture);
+            recurrenceStartLocal = DateTime.SpecifyKind(startDate.Date.Add(startTime.ToTimeSpan()), DateTimeKind.Unspecified);
+            try { CodexRecurrenceRule.Validate(recurrenceRule); }
+            catch (InvalidDataException error)
+            {
+                MessageBox.Show(this, error.Message, "Проверьте RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var sameRule = _source.Cadence == "rrule"
+                && string.Equals(recurrenceRule, _source.RecurrenceRule, StringComparison.OrdinalIgnoreCase)
+                && recurrenceStartLocal == _source.RecurrenceStartLocal;
+            if (sameRule && _source.RecurrenceExhausted)
+            {
+                if (_enabled.IsChecked == true)
+                {
+                    MessageBox.Show(this, "В этом RRULE уже исчерпан COUNT или наступил UNTIL. Измените правило либо начальную дату.",
+                        "Повторы завершены", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                recurrenceOccurrencesBeforeNext = _source.RecurrenceOccurrencesBeforeNext;
+                recurrenceExhausted = true;
+                nextRunAtUtc = default;
+            }
+            else if (sameRule && _source.NextRunAtUtc != default)
+            {
+                recurrenceOccurrencesBeforeNext = _source.RecurrenceOccurrencesBeforeNext;
+                nextRunAtUtc = _source.NextRunAtUtc;
+            }
+            else
+            {
+                CodexRecurrenceCalculation calculated;
+                try
+                {
+                    calculated = CodexRecurrenceRule.CalculateNext(recurrenceRule, recurrenceStartLocal.Value,
+                        DateTimeOffset.UtcNow, previousOccurrenceUtc: null, occurrencesBeforeNext: 0);
+                }
+                catch (InvalidDataException error)
+                {
+                    MessageBox.Show(this, error.Message, "Не удалось рассчитать RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                if (calculated.NextRunAtUtc is not { } next)
+                {
+                    MessageBox.Show(this, "Для выбранного DTSTART в RRULE нет будущих запусков. Проверьте COUNT и UNTIL.",
+                        "Повторов нет", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                nextRunAtUtc = next;
+                recurrenceOccurrencesBeforeNext = calculated.OccurrencesBeforeNext;
+            }
+        }
         var firstProject = selectedProjects[0];
         Definition = new CodexAutomationDefinition
         {
@@ -747,13 +836,17 @@ internal sealed class CodexAutomationEditorWindow : Window
             Cadence = cadence,
             TimeOfDay = _time.Text.Trim(),
             IntervalMinutes = intervalMinutesValue,
+            RecurrenceRule = recurrenceRule,
+            RecurrenceStartLocal = recurrenceStartLocal,
+            RecurrenceOccurrencesBeforeNext = recurrenceOccurrencesBeforeNext,
+            RecurrenceExhausted = recurrenceExhausted,
             DayOfWeek = day.Day,
             DayOfMonth = (_monthDay.SelectedItem as MonthDayChoice)?.Day ?? _source.DayOfMonth,
             UseWorktree = existingThread?.ThreadId is null && _worktree.IsChecked == true,
             Enabled = _enabled.IsChecked == true,
-            NextRunAtUtc = _source.NextRunAtUtc
+            NextRunAtUtc = nextRunAtUtc
         };
-        Definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(Definition, DateTimeOffset.UtcNow);
+        if (cadence != "rrule") Definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(Definition, DateTimeOffset.UtcNow);
         DialogResult = true;
     }
 
@@ -824,6 +917,10 @@ internal sealed class CodexAutomationEditorWindow : Window
             Cadence = source.Cadence,
             TimeOfDay = source.TimeOfDay,
             IntervalMinutes = source.IntervalMinutes,
+            RecurrenceRule = source.RecurrenceRule,
+            RecurrenceStartLocal = source.RecurrenceStartLocal,
+            RecurrenceOccurrencesBeforeNext = source.RecurrenceOccurrencesBeforeNext,
+            RecurrenceExhausted = source.RecurrenceExhausted,
             DayOfWeek = source.DayOfWeek,
             DayOfMonth = source.DayOfMonth,
             UseWorktree = source.UseWorktree,

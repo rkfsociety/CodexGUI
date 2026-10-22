@@ -123,6 +123,7 @@ public partial class MainWindow : Window
         {
             _startupIssue = "Не удалось загрузить расписания Codex: " + error.Message;
         }
+        UpdateAutomationTimerInterval();
         CleanupObsoleteWorkerRuntimeCaches();
         ReloadView();
         InitializeTrayIcon();
@@ -4310,7 +4311,28 @@ public partial class MainWindow : Window
     private void PersistAutomationDefinitions()
     {
         CodexAutomationStore.SaveDefinitions(_automationDefinitions);
+        UpdateAutomationTimerInterval();
         _automationWindow?.UpdateLists();
+    }
+
+    private void UpdateAutomationTimerInterval()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nextRuleRun = _automationDefinitions
+            .Where(definition => definition.Enabled && !definition.RecurrenceExhausted
+                && definition.Cadence == "rrule" && !IsAutomationBusy(definition)
+                && definition.NextRunAtUtc > now)
+            .Select(definition => definition.NextRunAtUtc)
+            .OrderBy(nextRun => nextRun)
+            .FirstOrDefault();
+        var interval = TimeSpan.FromSeconds(30);
+        if (nextRuleRun != default)
+        {
+            var untilRule = nextRuleRun - now;
+            if (untilRule < TimeSpan.FromMilliseconds(100)) untilRule = TimeSpan.FromMilliseconds(100);
+            if (untilRule < interval) interval = untilRule;
+        }
+        _automationTimer.Interval = interval;
     }
 
     private void MarkAutomationRunReviewed(CodexAutomationRun run)
@@ -4385,12 +4407,13 @@ public partial class MainWindow : Window
             foreach (var definition in _automationDefinitions.Where(item => item.Enabled && item.NextRunAtUtc <= now).ToArray())
             {
                 if (IsAutomationBusy(definition)) continue;
-                definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(definition, now, definition.NextRunAtUtc);
+                CodexAutomationStore.CalculateNextOccurrence(definition, now, definition.NextRunAtUtc);
                 PersistAutomationDefinitions();
-                await StartAutomationAsync(definition);
+                await StartAutomationAsync(definition, scheduledOccurrence: true);
                 changed = true;
             }
 
+            UpdateAutomationTimerInterval();
             if (changed) _automationWindow?.UpdateLists();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
@@ -4414,9 +4437,10 @@ public partial class MainWindow : Window
                 && _threads.Any(thread => thread.CodexSessionId == existingThreadId && thread.ActiveRun is not null));
     }
 
-    private async Task StartAutomationAsync(CodexAutomationDefinition definition, bool manualRun = false)
+    private async Task StartAutomationAsync(CodexAutomationDefinition definition, bool manualRun = false,
+        bool scheduledOccurrence = false)
     {
-        if (!definition.Enabled && !manualRun)
+        if (!definition.Enabled && !manualRun && !scheduledOccurrence)
             return;
         if (IsAutomationBusy(definition))
         {

@@ -26,6 +26,10 @@ internal sealed class CodexAutomationDefinition
     public string Cadence { get; set; } = "daily";
     public string TimeOfDay { get; set; } = "09:00";
     public int IntervalMinutes { get; set; } = 60;
+    public string? RecurrenceRule { get; set; }
+    public DateTime? RecurrenceStartLocal { get; set; }
+    public long RecurrenceOccurrencesBeforeNext { get; set; }
+    public bool RecurrenceExhausted { get; set; }
     public DayOfWeek DayOfWeek { get; set; } = DayOfWeek.Monday;
     public int DayOfMonth { get; set; } = 1;
     public bool UseWorktree { get; set; } = true;
@@ -73,8 +77,8 @@ internal static class CodexAutomationStore
         foreach (var definition in definitions)
         {
             NormalizeDefinition(definition);
-            if (definition.NextRunAtUtc == default)
-                definition.NextRunAtUtc = CalculateNextRun(definition, DateTimeOffset.UtcNow);
+            if (definition.NextRunAtUtc == default && !definition.RecurrenceExhausted)
+                CalculateNextOccurrence(definition, DateTimeOffset.UtcNow);
         }
         return definitions;
     }
@@ -108,6 +112,27 @@ internal static class CodexAutomationStore
                 IsRegistered: registered is not null));
         }
         return projects;
+    }
+
+    internal static void CalculateNextOccurrence(CodexAutomationDefinition definition, DateTimeOffset nowUtc,
+        DateTimeOffset? previousOccurrenceUtc = null)
+    {
+        if (definition.Cadence == "rrule")
+        {
+            if (string.IsNullOrWhiteSpace(definition.RecurrenceRule) || definition.RecurrenceStartLocal is not { } startLocal)
+                throw new InvalidDataException("Для расширенного расписания укажите DTSTART и RRULE.");
+            var result = CodexRecurrenceRule.CalculateNext(definition.RecurrenceRule, startLocal, nowUtc,
+                previousOccurrenceUtc, definition.RecurrenceOccurrencesBeforeNext);
+            definition.RecurrenceOccurrencesBeforeNext = result.OccurrencesBeforeNext;
+            definition.NextRunAtUtc = result.NextRunAtUtc ?? default;
+            definition.RecurrenceExhausted = result.NextRunAtUtc is null;
+            if (definition.RecurrenceExhausted) definition.Enabled = false;
+            return;
+        }
+
+        definition.NextRunAtUtc = CalculateNextRun(definition, nowUtc, previousOccurrenceUtc);
+        definition.RecurrenceOccurrencesBeforeNext = 0;
+        definition.RecurrenceExhausted = false;
     }
 
     public static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions)
