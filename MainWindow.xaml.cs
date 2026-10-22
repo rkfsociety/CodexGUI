@@ -71,6 +71,7 @@ public partial class MainWindow : Window
     private readonly List<CodexAutomationDefinition> _automationDefinitions = [];
     private readonly List<CodexAutomationRun> _automationRuns = [];
     private CodexAutomationsWindow? _automationWindow;
+    private CodexTerminalWindow? _terminalWindow;
     private bool _isProcessingAutomationTick;
     private bool _isPumpingPromptQueue;
     private bool _sidebarCollapsed;
@@ -136,6 +137,8 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            _terminalWindow?.Close();
+            _terminalWindow = null;
             _usageRefreshTimer.Stop();
             _updateCheckTimer.Stop();
             _automationTimer.Stop();
@@ -442,6 +445,7 @@ public partial class MainWindow : Window
         Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ContextButton", (_, _) => ToggleContext());
         Click("CloseContextButton", (_, _) => ToggleContext(false));
+        Click("TerminalButton", (_, _) => ShowTerminalWindow());
         Click("RefreshRepositoryButton", (_, _) =>
         {
             RefreshFileTree();
@@ -3836,6 +3840,24 @@ public partial class MainWindow : Window
 
         var dialog = new CodexSubagentsWindow(parent.Title, ReadCurrentSubagents, OpenSubagentThreadAsync) { Owner = this };
         dialog.ShowDialog();
+    }
+
+    private void ShowTerminalWindow()
+    {
+        if (_terminalWindow is { IsVisible: true } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        var workingDirectory = _currentThread?.WorktreePath ?? _selectedProject?.Path ?? _projectPath;
+        if (!Directory.Exists(workingDirectory))
+        {
+            MessageBox.Show(this, "Сначала выберите доступную папку проекта.", "Терминал", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        _terminalWindow = new CodexTerminalWindow(workingDirectory, IsFullAccess) { Owner = this };
+        _terminalWindow.Closed += (_, _) => _terminalWindow = null;
+        _terminalWindow.Show();
     }
 
     private void PersistAutomationDefinitions()

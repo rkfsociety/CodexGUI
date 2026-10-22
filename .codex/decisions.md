@@ -36,3 +36,11 @@
 - Decision: treat each App Server `collabToolCall` item as a state update that can reference multiple child threads. Aggregate the latest status by child thread ID, expose a current-chat agent list, and open each child through the existing thread-history flow.
 - Reason: the pinned `0.163.0` payload contains `receiverThreadIds` and `agentsStates`; legacy `newThreadId` may identify only one receiver.
 - Source: pinned `rust-v0.163.0` `CollabToolCallItem` schema and `CreateActivityMessage` / `CodexSubagentsWindow.cs`.
+
+## Run interactive terminals through App Server
+
+- Status: active.
+- Decision: host PowerShell tabs through pinned `command/exec` PTY sessions. In the default Windows workspace sandbox, streaming PTY sessions are rejected by App Server; use `dangerFullAccess` only after explicit per-window consent, unless the project already has Full Access enabled.
+- Reason: the pinned Windows App Server exposes a stable PTY command API, while the experimental `process/spawn` API is not present in the pinned `0.163.0` package.
+- Constraint: shell commands run with the current Windows user's full file access after consent; no sandbox boundary remains for that terminal. Full-screen TUI rendering has not been verified.
+- Source: official `0.163.0` command-exec schema, App Server docs, and a local PTY smoke test; implementation is in `CodexAppServerTerminalHost.cs` and `CodexTerminalWindow.cs`.

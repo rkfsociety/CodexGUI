@@ -426,7 +426,14 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
 
     public bool TryReadIncoming(out JsonElement message) => _incoming.Reader.TryRead(out message);
 
-    public async Task<JsonElement> SendRequestAsync(string method, object parameters, CancellationToken cancellationToken = default)
+    public Task<JsonElement> SendRequestAsync(string method, object parameters, CancellationToken cancellationToken = default) =>
+        SendRequestCoreAsync(method, parameters, TimeSpan.FromSeconds(30), cancellationToken);
+
+    public Task<JsonElement> SendLongRunningRequestAsync(string method, object parameters) =>
+        SendRequestCoreAsync(method, parameters, null, CancellationToken.None);
+
+    private async Task<JsonElement> SendRequestCoreAsync(string method, object parameters, TimeSpan? timeout,
+        CancellationToken cancellationToken)
     {
         var id = Interlocked.Increment(ref _nextRequestId);
         var key = id.ToString(CultureInfo.InvariantCulture);
@@ -435,7 +442,9 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         try
         {
             await WriteMessageAsync(new { id, method, @params = parameters });
-            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            return timeout is { } responseTimeout
+                ? await completion.Task.WaitAsync(responseTimeout, cancellationToken)
+                : await completion.Task.WaitAsync(cancellationToken);
         }
         finally
         {
