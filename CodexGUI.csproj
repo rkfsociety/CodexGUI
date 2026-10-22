@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>0.0.033</Version>
+    <Version>0.0.034</Version>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\codex-assistant.ico</ApplicationIcon>
@@ -12,10 +12,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Views\WorkspaceView.xaml" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Update-CodexGUI.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Scripts\Update-CodexGUI.ps1" Link="Update-CodexGUI.ps1" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Views\WorkspaceView.xaml" LogicalName="CodexGUI.Views.WorkspaceView.xaml" />
-    <EmbeddedResource Include="Update-CodexGUI.ps1" LogicalName="CodexGUI.Update-CodexGUI.ps1" />
-    <EmbeddedResource Include="CodexCliWorker.ps1" LogicalName="CodexGUI.CodexCliWorker.ps1" />
+    <EmbeddedResource Include="Scripts\Update-CodexGUI.ps1" LogicalName="CodexGUI.Update-CodexGUI.ps1" />
+    <EmbeddedResource Include="Scripts\CodexCliWorker.ps1" LogicalName="CodexGUI.CodexCliWorker.ps1" />
     <Resource Include="Assets\codex-assistant.ico" />
     <Content Include="Assets\codex-assistant.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
