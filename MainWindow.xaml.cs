@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Automation;
@@ -3276,31 +3277,89 @@ public partial class MainWindow : Window
         var responseLock = new object();
         var completedItems = new Dictionary<string, ChatMessage>();
         var updateQueued = 0;
+        var conversationRefreshQueued = 0;
+        TextBlock? lastRenderedTextBlock = null;
+        var lastRenderedResponseLength = 0;
         var outputTail = new CliOutputTail();
         var missingCompletionChecks = 0;
+
+        void QueueConversationRefresh()
+        {
+            if (_isClosing || Dispatcher.HasShutdownStarted || _currentThread != thread
+                || Interlocked.Exchange(ref conversationRefreshQueued, 1) != 0) return;
+            _ = RefreshConversationAfterDelayAsync();
+        }
+
+        async Task RefreshConversationAfterDelayAsync()
+        {
+            try
+            {
+                await Task.Delay(80).ConfigureAwait(false);
+                if (_isClosing || Dispatcher.HasShutdownStarted) return;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!_isClosing && _currentThread == thread) RenderConversation();
+                }, DispatcherPriority.Background);
+            }
+            catch (InvalidOperationException) when (_isClosing || Dispatcher.HasShutdownStarted) { }
+            catch (OperationCanceledException) when (_isClosing || Dispatcher.HasShutdownStarted) { }
+            finally
+            {
+                Interlocked.Exchange(ref conversationRefreshQueued, 0);
+            }
+        }
 
         void QueueResponseRefresh()
         {
             if (_isClosing || Dispatcher.HasShutdownStarted) return;
             if (Interlocked.Exchange(ref updateQueued, 1) != 0) return;
-            _ = Dispatcher.BeginInvoke(() =>
+            _ = RefreshResponseAfterDelayAsync();
+        }
+
+        async Task RefreshResponseAfterDelayAsync()
+        {
+            try
             {
-                Interlocked.Exchange(ref updateQueued, 0);
-                if (_isClosing) return;
-                string text;
-                lock (responseLock) text = response.ToString();
-                if (thread.ActiveRun?.RunId != activeRun.RunId) return;
-                if (thread.Messages.Count == 0 || !ReferenceEquals(thread.Messages[^1], assistantMessage)) return;
-                assistantMessage.Text = string.IsNullOrEmpty(text) ? "Думаю…" : text;
-                if (_currentThread == thread && _streamingAssistantTextBlock is { } messageText)
+                await Task.Delay(80).ConfigureAwait(false);
+                if (_isClosing || Dispatcher.HasShutdownStarted) return;
+                await Dispatcher.InvokeAsync(() =>
                 {
+                    if (_isClosing || thread.ActiveRun?.RunId != activeRun.RunId
+                        || thread.Messages.Count == 0 || !ReferenceEquals(thread.Messages[^1], assistantMessage)) return;
+
+                    string text;
+                    lock (responseLock) text = response.ToString();
+                    assistantMessage.Text = string.IsNullOrEmpty(text) ? "Думаю…" : text;
+                    if (_currentThread != thread || _streamingAssistantTextBlock is not { } messageText) return;
+
                     var scroll = Control<ScrollViewer>("ConversationScroll");
                     var followTail = scroll is not null && IsNearConversationBottom(scroll);
-                    messageText.Text = assistantMessage.Text;
-                    if (followTail && scroll is not null)
-                        scroll.ScrollToEnd();
-                }
-            }, DispatcherPriority.Background);
+                    if (!ReferenceEquals(lastRenderedTextBlock, messageText))
+                    {
+                        messageText.Inlines.Clear();
+                        lastRenderedTextBlock = messageText;
+                        lastRenderedResponseLength = 0;
+                    }
+                    if (text.Length < lastRenderedResponseLength)
+                    {
+                        messageText.Inlines.Clear();
+                        lastRenderedResponseLength = 0;
+                    }
+                    var nextText = text.Length == 0 ? "Думаю…" : text;
+                    if (nextText.Length > lastRenderedResponseLength)
+                    {
+                        messageText.Inlines.Add(new Run(nextText[lastRenderedResponseLength..]));
+                        lastRenderedResponseLength = nextText.Length;
+                    }
+                    if (followTail && scroll is not null) scroll.ScrollToEnd();
+                }, DispatcherPriority.Background);
+            }
+            catch (InvalidOperationException) when (_isClosing || Dispatcher.HasShutdownStarted) { }
+            catch (OperationCanceledException) when (_isClosing || Dispatcher.HasShutdownStarted) { }
+            finally
+            {
+                Interlocked.Exchange(ref updateQueued, 0);
+            }
         }
 
         void AppendResponse(string text)
@@ -3467,7 +3526,7 @@ public partial class MainWindow : Window
                     lock (responseLock) response.Clear();
                 }
                 assistantMessage.Text = "Codex работает…";
-                if (_currentThread == thread) RenderConversation();
+                QueueConversationRefresh();
             });
         }
 
