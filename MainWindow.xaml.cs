@@ -1442,6 +1442,7 @@ public partial class MainWindow : Window
         if (message.ActivityTitle is not null) return CreateActivityGroup([message]);
         var outer = new StackPanel
         {
+            Tag = message,
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
             MaxWidth = message.IsUser ? 760 : 900,
             Margin = new Thickness(0, 14, 0, 18)
@@ -5892,7 +5893,7 @@ public partial class MainWindow : Window
             Owner = this,
             Title = "Поиск по чатам",
             Width = 520,
-            Height = 460,
+            Height = 520,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             Background = Brush("#16212B"),
@@ -5902,9 +5903,17 @@ public partial class MainWindow : Window
         var layout = new StackPanel { Margin = new Thickness(18) };
         layout.Children.Add(new TextBlock { Text = "Найти чат", FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) });
         var query = new TextBox { Height = 38, Padding = new Thickness(10, 8, 10, 5), Background = Brush("#25272C"), Text = "" };
+        var searchCurrentMessages = new CheckBox
+        {
+            Content = "Искать текст в сообщениях открытого чата",
+            IsEnabled = _currentThread is { HistoryLoading: false } current
+                && current.Messages.Any(message => message.ActivityTitle is null && !string.IsNullOrWhiteSpace(message.Text)),
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip = "Ищет в уже загруженных сообщениях текущего чата"
+        };
         var status = new TextBlock
         {
-            Text = "Введите часть названия чата.",
+            Text = "Введите часть названия чата или текста сообщения.",
             Foreground = Brush("#A7B5C0"),
             FontSize = 10,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -5934,7 +5943,7 @@ public partial class MainWindow : Window
         {
             var normalizedQuery = query.Text.Trim();
             var matchingThreads = FindChatSearchMatches(_threads, normalizedQuery);
-            matches.ItemsSource = matchingThreads.Select(thread =>
+            var titleMatches = matchingThreads.Select(thread =>
             {
                 var projectName = _projects.FirstOrDefault(project => project.Id == thread.ProjectId)?.Name
                     ?? Path.GetFileName(thread.ProjectPath.TrimEnd(Path.DirectorySeparatorChar));
@@ -5943,28 +5952,48 @@ public partial class MainWindow : Window
                 if (thread.WorktreePath is not null) details += " · worktree";
                 return new ChatSearchMatch(thread, thread.Title, details);
             }).ToArray();
+            IReadOnlyList<ChatSearchMatch> messageMatches = searchCurrentMessages.IsChecked == true && _currentThread is { } currentThread
+                ? FindCurrentMessageMatches(currentThread, normalizedQuery)
+                : Array.Empty<ChatSearchMatch>();
+            var results = titleMatches.Concat(messageMatches).ToArray();
+            matches.ItemsSource = results;
 
             if (matches.Items.Count > 0) matches.SelectedIndex = 0;
-            open.IsEnabled = matches.SelectedItem is ChatSearchMatch;
+            UpdateOpenButton();
             status.Text = normalizedQuery.Length == 0
-                ? "Введите часть названия чата."
-                : matchingThreads.Count == 0
+                ? "Введите часть названия чата или текста сообщения."
+                : results.Length == 0
                     ? "Совпадений нет."
-                    : $"Найдено совпадений: {matchingThreads.Count}. Последние чаты сверху.";
+                    : searchCurrentMessages.IsChecked == true
+                        ? $"Найдено совпадений: чаты — {titleMatches.Length}, сообщения — {messageMatches.Count}."
+                        : $"Найдено совпадений: {titleMatches.Length}. Последние чаты сверху.";
+        }
+
+        void UpdateOpenButton()
+        {
+            var selectedMatch = matches.SelectedItem as ChatSearchMatch;
+            open.IsEnabled = selectedMatch is not null;
+            open.Content = selectedMatch?.Message is null ? "Открыть чат" : "Перейти к сообщению";
         }
 
         query.TextChanged += (_, _) => UpdateMatches();
-        matches.SelectionChanged += (_, _) => open.IsEnabled = matches.SelectedItem is ChatSearchMatch;
+        searchCurrentMessages.Checked += (_, _) => UpdateMatches();
+        searchCurrentMessages.Unchecked += (_, _) => UpdateMatches();
+        matches.SelectionChanged += (_, _) => UpdateOpenButton();
         matches.MouseDoubleClick += (_, _) => open.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         open.Click += (_, _) =>
         {
             if (matches.SelectedItem is not ChatSearchMatch searchMatch) return;
             var thread = searchMatch.Thread;
+            var message = searchMatch.Message;
             _showArchivedChats = thread.IsArchived;
             SelectThread(thread);
             dialog.Close();
+            if (message is not null)
+                Dispatcher.BeginInvoke(() => ScrollToSearchMessage(thread, message), DispatcherPriority.Background);
         };
         layout.Children.Add(query);
+        layout.Children.Add(searchCurrentMessages);
         layout.Children.Add(status);
         layout.Children.Add(matches);
         layout.Children.Add(open);
@@ -5982,6 +6011,49 @@ public partial class MainWindow : Window
             .Where(thread => thread.Title.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
             .Reverse()
             .ToArray();
+    }
+
+    private static IReadOnlyList<ChatSearchMatch> FindCurrentMessageMatches(ChatThread thread, string query)
+    {
+        var normalizedQuery = query.Trim();
+        if (normalizedQuery.Length == 0) return [];
+        var matches = new List<ChatSearchMatch>();
+        for (var index = thread.Messages.Count - 1; index >= 0; index--)
+        {
+            var message = thread.Messages[index];
+            if (message.ActivityTitle is not null || string.IsNullOrWhiteSpace(message.Text)) continue;
+            var matchIndex = message.Text.IndexOf(normalizedQuery, StringComparison.OrdinalIgnoreCase);
+            if (matchIndex < 0) continue;
+
+            var details = $"{(message.IsUser ? "Ваше сообщение" : "Ответ Codex")}: {CreateMessageSearchSnippet(message.Text, matchIndex)}";
+            if (thread.IsArchived) details += " · архив";
+            if (thread.WorktreePath is not null) details += " · worktree";
+            matches.Add(new ChatSearchMatch(thread, thread.Title, details, message));
+        }
+        return matches;
+    }
+
+    private static string CreateMessageSearchSnippet(string text, int matchIndex)
+    {
+        var start = Math.Max(0, matchIndex - 45);
+        var end = Math.Min(text.Length, start + 120);
+        var snippet = text[start..end].Replace('\r', ' ').Replace('\n', ' ');
+        return (start > 0 ? "…" : "") + snippet + (end < text.Length ? "…" : "");
+    }
+
+    private void ScrollToSearchMessage(ChatThread thread, ChatMessage message)
+    {
+        if (!ReferenceEquals(_currentThread, thread)
+            || Control<ScrollViewer>("ConversationScroll") is not { } scroll
+            || Control<StackPanel>("Conversation") is not { } stack)
+            return;
+        var element = stack.Children.OfType<FrameworkElement>()
+            .FirstOrDefault(child => ReferenceEquals(child.Tag, message));
+        if (element is null) return;
+        stack.UpdateLayout();
+        var position = element.TransformToAncestor(scroll).Transform(new Point(0, 0));
+        var targetOffset = Math.Clamp(scroll.VerticalOffset + position.Y - 24, 0, scroll.ScrollableHeight);
+        scroll.ScrollToVerticalOffset(targetOffset);
     }
 
     private static DataTemplate CreateChatSearchItemTemplate()
@@ -6063,7 +6135,7 @@ public partial class MainWindow : Window
         public List<ChatMessage> Messages { get; } = [];
     }
 
-    private sealed record ChatSearchMatch(ChatThread Thread, string Title, string Details);
+    private sealed record ChatSearchMatch(ChatThread Thread, string Title, string Details, ChatMessage? Message = null);
 
     private sealed class ProjectEntry
     {
