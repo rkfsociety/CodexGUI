@@ -555,8 +555,22 @@ public partial class MainWindow : Window
     {
         if (Control<StackPanel>("ChatList") is not { } list) return;
         list.Children.Clear();
-        foreach (var thread in _threads.Where(thread =>
-                     thread.ProjectId == _selectedProject?.Id && thread.IsArchived == _showArchivedChats).Reverse())
+        var projectThreads = _threads.Where(thread =>
+            thread.ProjectId == _selectedProject?.Id && thread.IsArchived == _showArchivedChats).Reverse().ToArray();
+
+        void AddSectionHeader(string title)
+        {
+            list.Children.Add(new TextBlock
+            {
+                Text = title,
+                Foreground = Brush("#7F8B9A"),
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(10, 8, 0, 3)
+            });
+        }
+
+        void AddThreadButton(ChatThread thread)
         {
             var button = new Button
             {
@@ -577,6 +591,25 @@ public partial class MainWindow : Window
             };
             list.Children.Add(button);
         }
+
+        if (_showArchivedChats)
+        {
+            foreach (var thread in projectThreads) AddThreadButton(thread);
+            return;
+        }
+
+        var pinned = projectThreads.Where(thread => thread.IsPinned).ToArray();
+        var recent = projectThreads.Where(thread => !thread.IsPinned).ToArray();
+        if (pinned.Length > 0)
+        {
+            AddSectionHeader("ЗАКРЕПЛЁННЫЕ");
+            foreach (var thread in pinned) AddThreadButton(thread);
+        }
+        if (recent.Length > 0)
+        {
+            if (pinned.Length > 0) AddSectionHeader("НЕДАВНИЕ");
+            foreach (var thread in recent) AddThreadButton(thread);
+        }
     }
 
     private void ShowThreadContextMenu(Button target, ChatThread thread)
@@ -591,6 +624,24 @@ public partial class MainWindow : Window
             VerticalOffset = 4
         };
         var actions = new StackPanel();
+        var pin = CreateThreadActionButton(thread.IsPinned ? "Открепить" : "Закрепить",
+            "M12,2 L14,8 L20,9 L15,13 L16,20 L12,16 L8,20 L9,13 L4,9 L10,8 Z",
+            thread.IsPinned ? "#E6BC70" : "#D5D6D9");
+        pin.Click += (_, _) =>
+        {
+            popup.IsOpen = false;
+            thread.IsPinned = !thread.IsPinned;
+            if (!SaveState())
+            {
+                thread.IsPinned = !thread.IsPinned;
+                RenderThreads();
+                SetStatus("Не удалось сохранить закрепление", _startupIssue ?? "Состояние CodexGUI не сохранено.", isError: true);
+                return;
+            }
+            RenderThreads();
+            SetStatus(thread.IsPinned ? "Чат закреплён" : "Чат откреплён",
+                "Порядок закрепления хранится в CodexGUI на этом компьютере.");
+        };
         var archive = CreateThreadActionButton(
             thread.IsArchived ? "Вернуть из архива" : "Архивировать",
             "M3,5 H17 M5,5 V17 H15 V5 M7,5 V3 H13 V5 M7,8 V14 M11,8 V14",
@@ -616,6 +667,7 @@ public partial class MainWindow : Window
             popup.IsOpen = false;
             await DeleteThreadAsync(thread);
         };
+        actions.Children.Add(pin);
         actions.Children.Add(forkButton);
         actions.Children.Add(archive);
         actions.Children.Add(new Border { Height = 1, Background = Brush("#34363B"), Margin = new Thickness(7, 4, 7, 4) });
@@ -4136,6 +4188,7 @@ public partial class MainWindow : Window
                             CodexSessionId = stored.CodexSessionId,
                             ForkFromSessionId = stored.ForkFromSessionId,
                             IsArchived = stored.IsArchived,
+                            IsPinned = stored.IsPinned,
                             UseWorktree = stored.UseWorktree,
                             WorktreeSessionStarted = stored.WorktreeSessionStarted,
                             ContextTokens = stored.ContextTokens,
@@ -4171,7 +4224,7 @@ public partial class MainWindow : Window
         SaveState();
     }
 
-    private void SaveState()
+    private bool SaveState()
     {
         try
         {
@@ -4195,6 +4248,7 @@ public partial class MainWindow : Window
                     CodexSessionId = thread.CodexSessionId,
                     ForkFromSessionId = thread.ForkFromSessionId,
                     IsArchived = thread.IsArchived,
+                    IsPinned = thread.IsPinned,
                     UseWorktree = thread.UseWorktree,
                     WorktreeSessionStarted = thread.WorktreeSessionStarted,
                     ContextTokens = thread.ContextTokens,
@@ -4205,10 +4259,12 @@ public partial class MainWindow : Window
             var temporary = statePath + ".tmp";
             File.WriteAllText(temporary, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temporary, statePath, overwrite: true);
+            return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             _startupIssue = "Не удалось сохранить список проектов: " + error.Message;
+            return false;
         }
     }
 
@@ -4917,6 +4973,7 @@ public partial class MainWindow : Window
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
+        public bool IsPinned { get; set; }
         public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
@@ -4948,6 +5005,7 @@ public partial class MainWindow : Window
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
+        public bool IsPinned { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
         public long? ContextTokens { get; set; }

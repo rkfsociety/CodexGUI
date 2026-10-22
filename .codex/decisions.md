@@ -8,6 +8,14 @@
 - Constraint: verify the package SHA-256 and required files before extraction. Verify protocol requests against the pinned package schema and current official docs.
 - Sources: [OpenAI harness architecture](https://openai.com/index/unlocking-the-codex-harness/), [official Codex package builder](https://github.com/openai/codex/blob/main/scripts/codex_package/README.md), [app-server docs](https://learn.chatgpt.com/docs/app-server).
 
+## Keep chat pins local until App Server pin mutations are stable
+
+- Status: active.
+- Decision: persist pin state in CodexGUI's local `state.json` and group pinned chats above recent chats. Do not send an unsupported App Server mutation for `isPinned`.
+- Reason: the pinned `0.163.0` `ThreadMetadataUpdateParams` schema only exposes `gitInfo`; a later official reference does not change the pinned client's protocol contract.
+- Constraint: pins currently belong to this CodexGUI installation and do not sync with other Codex clients. Revisit when a stable pinned runtime exposes pin mutations.
+- Source: [pinned `ThreadMetadataUpdateParams` schema](https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/codex-rs/app-server-protocol/schema/typescript/v2/ThreadMetadataUpdateParams.ts) and `MainWindow.xaml.cs`.
+
 ## Run local scheduled tasks through the detached worker
 
 - Status: active.
