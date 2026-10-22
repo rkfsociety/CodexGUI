@@ -95,6 +95,7 @@ public partial class MainWindow : Window
     private string _selectedModel = DefaultModel;
     private string _selectedEffort = DefaultEffort;
     private ChatThread? _currentThread;
+    private string? _renderedConversationThreadId;
     private bool HasActiveRuns => _threads.Any(thread => thread.ActiveRun is not null);
     private bool IsCurrentThreadRunning => _currentThread?.ActiveRun is not null;
     private Grid? _activeView;
@@ -1206,6 +1207,11 @@ public partial class MainWindow : Window
     private void RenderConversation()
     {
         if (Control<StackPanel>("Conversation") is not { } stack) return;
+        var scroll = Control<ScrollViewer>("ConversationScroll");
+        var threadChanged = !string.Equals(_renderedConversationThreadId, _currentThread?.Id, StringComparison.Ordinal);
+        var followTail = threadChanged || scroll is null || IsNearConversationBottom(scroll);
+        var previousOffset = scroll?.VerticalOffset ?? 0;
+        _renderedConversationThreadId = _currentThread?.Id;
         _streamingAssistantTextBlock = null;
         stack.Children.Clear();
         UpdateChatQuickOverview();
@@ -1244,9 +1250,18 @@ public partial class MainWindow : Window
         {
             foreach (var message in _currentThread.Messages) stack.Children.Add(CreateMessage(message));
         }
-        if (Control<ScrollViewer>("ConversationScroll") is { } scroll)
-            Dispatcher.BeginInvoke(() => scroll.ScrollToEnd(), DispatcherPriority.Background);
+        if (scroll is not null)
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (followTail && (threadChanged || IsNearConversationBottom(scroll)))
+                    scroll.ScrollToEnd();
+                else if (!followTail)
+                    scroll.ScrollToVerticalOffset(Math.Min(previousOffset, scroll.ScrollableHeight));
+            }, DispatcherPriority.Background);
     }
+
+    private static bool IsNearConversationBottom(ScrollViewer scroll) =>
+        scroll.ScrollableHeight - scroll.VerticalOffset <= 72;
 
     private FrameworkElement CreateSuggestion(string text)
     {
@@ -3204,8 +3219,10 @@ public partial class MainWindow : Window
                 assistantMessage.Text = string.IsNullOrEmpty(text) ? "Думаю…" : text;
                 if (_currentThread == thread && _streamingAssistantTextBlock is { } messageText)
                 {
+                    var scroll = Control<ScrollViewer>("ConversationScroll");
+                    var followTail = scroll is not null && IsNearConversationBottom(scroll);
                     messageText.Text = assistantMessage.Text;
-                    if (Control<ScrollViewer>("ConversationScroll") is { } scroll)
+                    if (followTail && scroll is not null)
                         scroll.ScrollToEnd();
                 }
             }, DispatcherPriority.Background);
