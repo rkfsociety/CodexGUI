@@ -152,30 +152,6 @@
           </StackPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <Border x:Name="ChatOverviewCard" Width="370" Height="62" CornerRadius="14" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="0,0,10,0" Padding="12,8">
-            <Grid>
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <Button x:Name="ChatAttachmentsButton" Grid.Column="0" Padding="3,2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" ToolTip="Показать все вложения текущего чата">
-                <StackPanel>
-                  <DockPanel LastChildFill="True">
-                    <TextBlock x:Name="ChatAttachmentsCount" Text="0" DockPanel.Dock="Right" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Accent}" Margin="8,0,5,0"/>
-                    <TextBlock Text="▧  ВЛОЖЕНИЯ ЧАТА" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
-                  </DockPanel>
-                  <TextBlock x:Name="ChatAttachmentsPreview" Text="Нет прикреплённых файлов" Foreground="{StaticResource TextMain}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,5,3,0"/>
-                </StackPanel>
-              </Button>
-              <Border Grid.Column="1" Background="{StaticResource Line}" Margin="10,2"/>
-              <Button x:Name="ChatDiffButton" Grid.Column="2" Padding="8,2,1,2" ToolTip="Открыть данные Git и изменения файлов">
-                <StackPanel>
-                  <TextBlock Text="ИЗМЕНЕНИЯ GIT" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
-                  <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-                    <TextBlock x:Name="GitAddedLines" Text="+—" Foreground="#89DCAD" FontWeight="SemiBold" FontSize="12" Margin="0,0,10,0"/>
-                    <TextBlock x:Name="GitRemovedLines" Text="−—" Foreground="#E89D9D" FontWeight="SemiBold" FontSize="12"/>
-                  </StackPanel>
-                </StackPanel>
-              </Button>
-            </Grid>
-          </Border>
           <Button x:Name="ContextButton" Padding="9,8" Background="{StaticResource Surface}" Margin="0,0,5,0" ToolTip="Данные чата и репозитория"><StackPanel Orientation="Horizontal"><TextBlock Text="▤" FontSize="14" Margin="0,0,6,0"/><TextBlock Text="Данные" FontSize="11"/></StackPanel></Button>
           <Button x:Name="TerminalButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть терминалы Codex"><TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="13"/></Button>
           <Button x:Name="OpenFolderButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта"><TextBlock Text="↗" FontSize="17"/></Button>
@@ -183,11 +159,35 @@
       </Grid>
     </Border>
     <Grid Grid.Row="1">
-      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <ScrollViewer x:Name="ConversationScroll" Grid.Row="0" Margin="28,0,28,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <Border x:Name="ChatOverviewCard" Grid.Row="0" Width="390" Height="62" HorizontalAlignment="Right" CornerRadius="14" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="18,12,28,7" Padding="12,8">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="1"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Button x:Name="ChatAttachmentsButton" Grid.Column="0" Padding="3,2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" ToolTip="Показать все вложения текущего чата">
+            <StackPanel>
+              <DockPanel LastChildFill="True">
+                <TextBlock x:Name="ChatAttachmentsCount" Text="0" DockPanel.Dock="Right" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Accent}" Margin="8,0,5,0"/>
+                <TextBlock Text="▧  ВЛОЖЕНИЯ ЧАТА" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
+              </DockPanel>
+              <TextBlock x:Name="ChatAttachmentsPreview" Text="Нет прикреплённых файлов" Foreground="{StaticResource TextMain}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,5,3,0"/>
+            </StackPanel>
+          </Button>
+          <Border Grid.Column="1" Background="{StaticResource Line}" Margin="10,2"/>
+          <Button x:Name="ChatDiffButton" Grid.Column="2" Padding="8,2,1,2" ToolTip="Изменения в текущем коде, которые ещё не отправлены в upstream">
+            <StackPanel>
+              <TextBlock Text="НЕ ОТПРАВЛЕНО" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
+              <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                <TextBlock x:Name="GitAddedLines" Text="+—" Foreground="#89DCAD" FontWeight="SemiBold" FontSize="12" Margin="0,0,10,0"/>
+                <TextBlock x:Name="GitRemovedLines" Text="−—" Foreground="#E89D9D" FontWeight="SemiBold" FontSize="12"/>
+              </StackPanel>
+            </StackPanel>
+          </Button>
+        </Grid>
+      </Border>
+      <ScrollViewer x:Name="ConversationScroll" Grid.Row="1" Margin="28,0,28,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="Conversation" MaxWidth="1040" HorizontalAlignment="Stretch" Margin="0,30,0,30"/>
       </ScrollViewer>
-      <StackPanel HorizontalAlignment="Stretch" MaxWidth="1020" Grid.Row="1" Margin="28,0,28,22">
+      <StackPanel HorizontalAlignment="Stretch" MaxWidth="1020" Grid.Row="2" Margin="28,0,28,22">
         <Border x:Name="ComposerBorder" Background="#16212B" BorderBrush="#344654" BorderThickness="1" CornerRadius="18" Padding="20,16,20,14">
           <Border.Effect><DropShadowEffect Color="#000000" BlurRadius="26" ShadowDepth="7" Opacity="0.16" /></Border.Effect>
           <Grid>

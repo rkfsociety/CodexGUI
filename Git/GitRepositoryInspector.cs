@@ -26,8 +26,8 @@ internal sealed record GitRepositorySnapshot(
     IReadOnlyList<RepositoryFileStatus> Changes,
     string? Error)
 {
-    public long AddedLines { get; init; }
-    public long RemovedLines { get; init; }
+    public long? UnpushedAddedLines { get; init; }
+    public long? UnpushedRemovedLines { get; init; }
 }
 
 internal static class GitRepositoryInspector
@@ -57,12 +57,21 @@ internal static class GitRepositoryInspector
             var (branch, upstream, ahead, behind, changes, hasHead) = ParseStatus(status.Output);
             var remoteResult = await remoteTask;
             var remoteUrl = remoteResult.ExitCode == 0 ? SanitizeRemoteUrl(remoteResult.Output.Trim()) : null;
-            var (addedLines, removedLines) = await ReadChangeLineCountsAsync(root, changes, hasHead, cancellationToken);
+            var comparisonBase = await ResolveUnpushedComparisonBaseAsync(root, upstream, hasHead,
+                remoteResult.ExitCode == 0, cancellationToken);
+            long? addedLines = null;
+            long? removedLines = null;
+            if (comparisonBase is not null)
+            {
+                var lineCounts = await ReadUnpushedLineCountsAsync(root, changes, comparisonBase, cancellationToken);
+                addedLines = lineCounts.Added;
+                removedLines = lineCounts.Removed;
+            }
             return new GitRepositorySnapshot(true, root, branch, upstream, ahead, behind, remoteUrl,
                 remoteResult.ExitCode == 0, hasHead, changes, null)
             {
-                AddedLines = addedLines,
-                RemovedLines = removedLines
+                UnpushedAddedLines = addedLines,
+                UnpushedRemovedLines = removedLines
             };
         }
         catch (OperationCanceledException)
@@ -80,14 +89,33 @@ internal static class GitRepositoryInspector
     }
 
 
-    // Diff against HEAD combines staged and unstaged changes without double-counting.
-    // Git numstat excludes untracked files, so count their text lines separately.
-    private static async Task<(long Added, long Removed)> ReadChangeLineCountsAsync(
-        string root, IReadOnlyList<RepositoryFileStatus> changes, bool hasHead, CancellationToken cancellationToken)
+    private static async Task<string?> ResolveUnpushedComparisonBaseAsync(
+        string root, string? upstream, bool hasHead, bool hasOrigin, CancellationToken cancellationToken)
     {
-        var diff = hasHead
-            ? await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", "HEAD")
-            : await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", "--cached");
+        var comparisonRef = upstream;
+        if (string.IsNullOrWhiteSpace(comparisonRef) && hasOrigin)
+        {
+            var remoteHead = await RunGitAsync(root, cancellationToken, "rev-parse", "--verify", "--end-of-options", "refs/remotes/origin/HEAD");
+            if (remoteHead.ExitCode == 0)
+                comparisonRef = remoteHead.Output.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(comparisonRef)) return null;
+
+        var resolved = await RunGitAsync(root, cancellationToken, "rev-parse", "--verify", "--end-of-options", comparisonRef);
+        if (resolved.ExitCode != 0 || !hasHead) return resolved.ExitCode == 0 ? resolved.Output.Trim() : null;
+
+        var mergeBase = await RunGitAsync(root, cancellationToken, "merge-base", resolved.Output.Trim(), "HEAD");
+        return mergeBase.ExitCode == 0 && !string.IsNullOrWhiteSpace(mergeBase.Output)
+            ? mergeBase.Output.Trim()
+            : null;
+    }
+
+    // Compare the complete working tree with the last common remote commit. This includes local
+    // commits and staged/unstaged edits without double-counting; untracked text files are added below.
+    private static async Task<(long Added, long Removed)> ReadUnpushedLineCountsAsync(
+        string root, IReadOnlyList<RepositoryFileStatus> changes, string comparisonBase, CancellationToken cancellationToken)
+    {
+        var diff = await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", comparisonBase);
         long added = 0;
         long removed = 0;
         if (diff.ExitCode == 0)
@@ -98,21 +126,6 @@ internal static class GitRepositoryInspector
                 if (parts.Length < 3) continue; // Binary files have '-' rather than line counts.
                 if (long.TryParse(parts[0], out var insertions)) added += insertions;
                 if (long.TryParse(parts[1], out var deletions)) removed += deletions;
-            }
-        }
-
-        if (!hasHead)
-        {
-            var unstaged = await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat");
-            if (unstaged.ExitCode == 0)
-            {
-                foreach (var line in unstaged.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var parts = line.Split('\t', 3);
-                    if (parts.Length < 3) continue;
-                    if (long.TryParse(parts[0], out var insertions)) added += insertions;
-                    if (long.TryParse(parts[1], out var deletions)) removed += deletions;
-                }
             }
         }
 

@@ -1741,12 +1741,14 @@ public partial class MainWindow : Window
         var snapshot = string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase)
             ? _repositorySnapshot : null;
         if (Control<TextBlock>("GitAddedLines") is { } added)
-            added.Text = snapshot?.IsRepository == true ? $"+{snapshot.AddedLines:N0}" : "+—";
+            added.Text = snapshot?.UnpushedAddedLines is { } unpushedAdded ? $"+{unpushedAdded:N0}" : "+—";
         if (Control<TextBlock>("GitRemovedLines") is { } removed)
-            removed.Text = snapshot?.IsRepository == true ? $"−{snapshot.RemovedLines:N0}" : "−—";
+            removed.Text = snapshot?.UnpushedRemovedLines is { } unpushedRemoved ? $"−{unpushedRemoved:N0}" : "−—";
         if (Control<Button>("ChatDiffButton") is { } changes)
             changes.ToolTip = snapshot?.IsRepository == true
-                ? $"{snapshot.Branch} · {snapshot.Changes.Count} изменённых файлов. Открыть подробности."
+                ? snapshot.UnpushedAddedLines is { } addedLines && snapshot.UnpushedRemovedLines is { } removedLines
+                    ? $"{snapshot.Branch} · +{addedLines:N0} / −{removedLines:N0} строк не отправлено; файлов в рабочем дереве: {snapshot.Changes.Count}. Открыть подробности."
+                    : $"{snapshot.Branch} · не удалось определить upstream для сравнения. Открыть подробности."
                 : "Данные об изменениях Git недоступны";
     }
 
