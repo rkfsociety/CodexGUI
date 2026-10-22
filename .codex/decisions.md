@@ -56,7 +56,7 @@
 ## Keep repository actions in the existing Git inspector
 
 - Status: active.
-- Decision: implement local stage, unstage, restore, commit, and push actions through `GitRepositoryInspector` using argument-list Git calls; never interpolate repository paths or commit text into a shell command. Restore asks for confirmation, commit only records staged changes, and push never uses force.
+- Decision: implement local stage, unstage, restore, commit, and push actions through `GitRepositoryInspector` using argument-list Git calls; never interpolate repository paths or commit text into a shell command. Diff hunks use separate staged/unstaged patches; restore and unstaged-hunk revert ask for confirmation, commit only records staged changes, and push never uses force.
 - Reason: the project already requires Git for status and managed worktrees, so these controls do not need a new dependency or a parallel repository service.
-- Constraint: serialize repository mutations against active Codex runs; use literal Git pathspecs for per-file actions. In an unborn repository, unstage with `git rm --cached` so working files remain intact because `git restore --staged` requires `HEAD`. Keep chunk-level staging and pull-request creation as separate parity gaps until their workflows are implemented and verified.
+- Constraint: serialize repository mutations against active Codex runs; use literal Git pathspecs for per-file actions. In an unborn repository, unstage with `git rm --cached` so working files remain intact because `git restore --staged` requires `HEAD`. Hunk actions are limited to supported text diffs; keep untracked-file deletion and pull-request creation as parity gaps until their workflows are implemented and verified.
 - Source: `GitRepositoryInspector.cs`, `MainWindow.xaml.cs`, and the official local-environments/Git controls guide.

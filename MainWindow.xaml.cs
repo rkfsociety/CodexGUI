@@ -1476,9 +1476,9 @@ public partial class MainWindow : Window
             ? "Нет незакоммиченных изменений"
             : $"Файлов: {snapshot.Changes.Count} · В индексе: {staged.Length} · Изменены: {modified.Length} · Новые: {untracked.Length}";
 
-        AddRepositoryFileGroup(changesPanel, "В ИНДЕКСЕ", staged, snapshot.Root);
-        AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root);
-        AddRepositoryFileGroup(changesPanel, "НЕ ОТСЛЕЖИВАЮТСЯ", untracked, snapshot.Root);
+        AddRepositoryFileGroup(changesPanel, "В ИНДЕКСЕ", staged, snapshot.Root, RepositoryDiffScope.Staged);
+        AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root, RepositoryDiffScope.Unstaged);
+        AddRepositoryFileGroup(changesPanel, "НЕ ОТСЛЕЖИВАЮТСЯ", untracked, snapshot.Root, RepositoryDiffScope.Unstaged);
         reviewButton.Visibility = snapshot.Changes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateGitActionButtons();
         UpdateReviewChangesButton();
@@ -1782,7 +1782,8 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
-    private void AddRepositoryFileGroup(StackPanel panel, string heading, IReadOnlyList<RepositoryFileStatus> files, string repositoryRoot)
+    private void AddRepositoryFileGroup(StackPanel panel, string heading, IReadOnlyList<RepositoryFileStatus> files,
+        string repositoryRoot, RepositoryDiffScope diffScope)
     {
         if (files.Count == 0) return;
         panel.Children.Add(new TextBlock
@@ -1806,7 +1807,7 @@ public partial class MainWindow : Window
                 Foreground = Brush("#AEB0B5"),
                 ToolTip = $"Левый клик — diff; правый клик — Git-действия для {file.Path}"
             };
-            button.Click += async (_, _) => await ShowRepositoryFileDiffAsync(repositoryRoot, file);
+            button.Click += async (_, _) => await ShowRepositoryFileDiffAsync(repositoryRoot, file, diffScope);
             var contextMenu = new ContextMenu();
             if (file.IsUntracked || file.WorktreeStatus != '.')
             {
@@ -1852,18 +1853,19 @@ public partial class MainWindow : Window
             panel.Children.Add(new TextBlock { Text = $"и ещё {files.Count - 8}…", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(2, 2, 0, 0) });
     }
 
-    private async Task ShowRepositoryFileDiffAsync(string repositoryRoot, RepositoryFileStatus file)
+    private async Task ShowRepositoryFileDiffAsync(string repositoryRoot, RepositoryFileStatus file, RepositoryDiffScope diffScope)
     {
         try
         {
-            var diff = await GitRepositoryInspector.ReadFileDiffAsync(repositoryRoot, file, _repositoryRefreshCancellation.Token);
+            var diff = await GitRepositoryInspector.ReadFileDiffAsync(repositoryRoot, file, diffScope,
+                _repositoryRefreshCancellation.Token);
             if (_isClosing) return;
             if (string.IsNullOrWhiteSpace(diff))
             {
                 SetStatus("Изменений в файле нет", file.Path);
                 return;
             }
-            ShowFileDiff(repositoryRoot, file.Path, diff);
+            ShowFileDiff(repositoryRoot, file.Path, diff, diffScope, hunkActionsAvailable: !file.IsUntracked);
         }
         catch (OperationCanceledException) when (_isClosing) { }
         catch (Exception error)
@@ -1872,11 +1874,32 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowFileDiff(string repositoryRoot, string relativePath, string diff)
+    private void ShowFileDiff(string repositoryRoot, string relativePath, string diff, RepositoryDiffScope diffScope,
+        bool hunkActionsAvailable)
     {
-        var dialog = new DiffReviewerWindow(this, repositoryRoot, relativePath, diff,
+        var dialog = new DiffReviewerWindow(this, repositoryRoot, relativePath, diff, diffScope, hunkActionsAvailable,
+            (patch, action) => ApplyDiffHunkAsync(repositoryRoot, relativePath, patch, action),
             threads => AppendDiffCommentThreads(relativePath, threads));
         if (dialog.ShowDialog() == true) Control<TextBox>("PromptInput")?.Focus();
+    }
+
+    private async Task<bool> ApplyDiffHunkAsync(string repositoryRoot, string relativePath, string patch, GitHunkAction action)
+    {
+        if (_repositorySnapshot is not { IsRepository: true } snapshot
+            || !string.Equals(Path.GetFullPath(snapshot.Root), Path.GetFullPath(repositoryRoot), StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("Репозиторий изменился", "Обновите состояние Git и откройте diff заново.", isError: true);
+            return false;
+        }
+
+        var (progress, success) = action switch
+        {
+            GitHunkAction.Stage => ("Добавляю блок изменений в индекс…", "Блок изменений добавлен в индекс."),
+            GitHunkAction.Unstage => ("Убираю блок из индекса…", "Блок убран из индекса; файлы сохранены."),
+            _ => ("Отменяю незастейдженный блок…", "Незастейдженный блок отменён.")
+        };
+        return await RunRepositoryGitCommandAsync(progress, success,
+            (root, token) => GitRepositoryInspector.ApplyDiffHunkAsync(root, relativePath, patch, action, token));
     }
 
     private bool AppendDiffCommentThreads(string relativePath, IReadOnlyList<DiffCommentThread> threads)

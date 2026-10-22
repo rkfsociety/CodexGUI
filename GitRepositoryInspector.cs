@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 namespace CodexGUI;
 
 internal sealed record RepositoryFileStatus(string Path, char IndexStatus, char WorktreeStatus, bool IsUntracked);
+internal enum RepositoryDiffScope { Unstaged, Staged }
+internal enum GitHunkAction { Stage, Unstage, Revert }
+internal sealed record RepositoryDiffHunk(int StartLine, int EndLine, string Patch);
 
 internal sealed record GitRepositorySnapshot(
     bool IsRepository,
@@ -67,17 +70,31 @@ internal static class GitRepositoryInspector
         }
     }
 
-    public static async Task<string> ReadFileDiffAsync(string repositoryRoot, RepositoryFileStatus file, CancellationToken cancellationToken)
+    public static async Task<string> ReadFileDiffAsync(string repositoryRoot, RepositoryFileStatus file,
+        RepositoryDiffScope scope, CancellationToken cancellationToken)
     {
         var root = Path.GetFullPath(repositoryRoot);
         var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
         var rootPrefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Путь файла выходит за пределы репозитория.");
+        var gitPath = ValidateRepositoryRelativePath(root, file.Path);
 
-        var result = file.IsUntracked
-            ? await RunGitAsync(root, cancellationToken, "diff", "--no-index", "--no-ext-diff", "--no-color", "--", "/dev/null", fullPath)
-            : await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", file.Path);
+        GitCommandResult result;
+        if (file.IsUntracked)
+        {
+            if (scope == RepositoryDiffScope.Staged) return "";
+            result = await RunGitAsync(root, cancellationToken,
+                "diff", "--no-index", "--no-ext-diff", "--no-color", "--", "/dev/null", fullPath);
+        }
+        else
+        {
+            var arguments = new List<string> { "diff", "--no-ext-diff", "--no-color" };
+            if (scope == RepositoryDiffScope.Staged) arguments.Add("--cached");
+            arguments.Add("--");
+            arguments.Add(gitPath);
+            result = await RunGitAsync(root, cancellationToken, arguments.ToArray());
+        }
         if (result.ExitCode > 1)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim());
 
@@ -85,6 +102,67 @@ internal static class GitRepositoryInspector
         return result.Output.Length <= maximumDiffCharacters
             ? result.Output
             : result.Output[..maximumDiffCharacters] + "\n\n… Diff сокращён: вывод превышает 500 000 символов.";
+    }
+
+    public static IReadOnlyList<RepositoryDiffHunk> ParseDiffHunks(string diff)
+    {
+        if (string.IsNullOrEmpty(diff)) return [];
+        var lines = diff.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var firstHunk = Array.FindIndex(lines, line => line.StartsWith("@@", StringComparison.Ordinal));
+        if (firstHunk < 0 || !lines.Take(firstHunk).Any(line => line.StartsWith("diff --git ", StringComparison.Ordinal)))
+            return [];
+
+        var header = lines.Take(firstHunk).ToArray();
+        var hunks = new List<RepositoryDiffHunk>();
+        for (var start = firstHunk; start < lines.Length;)
+        {
+            if (!lines[start].StartsWith("@@", StringComparison.Ordinal)) { start++; continue; }
+            var end = start + 1;
+            while (end < lines.Length
+                && !lines[end].StartsWith("@@", StringComparison.Ordinal)
+                && !lines[end].StartsWith("diff --git ", StringComparison.Ordinal)) end++;
+
+            var hasChange = lines.Skip(start + 1).Take(end - start - 1).Any(line =>
+                line.StartsWith('+') || line.StartsWith('-'));
+            if (hasChange)
+            {
+                var patchLines = header.Concat(lines.Skip(start).Take(end - start));
+                var patch = string.Join('\n', patchLines).TrimEnd('\n') + "\n";
+                hunks.Add(new RepositoryDiffHunk(start, end - 1, patch));
+            }
+            start = end;
+        }
+        return hunks;
+    }
+
+    public static async Task ApplyDiffHunkAsync(string repositoryRoot, string relativePath, string patch,
+        GitHunkAction action, CancellationToken cancellationToken)
+    {
+        _ = ValidateRepositoryRelativePath(repositoryRoot, relativePath);
+        if (string.IsNullOrWhiteSpace(patch) || !patch.StartsWith("diff --git ", StringComparison.Ordinal))
+            throw new InvalidDataException("Выбранный diff-hunk не содержит заголовок Git patch.");
+
+        var root = Path.GetFullPath(repositoryRoot);
+        var patchPath = Path.Combine(Path.GetTempPath(), $"CodexGUI-hunk-{Guid.NewGuid():N}.patch");
+        try
+        {
+            await File.WriteAllTextAsync(patchPath, patch, new System.Text.UTF8Encoding(false), cancellationToken);
+            var arguments = action switch
+            {
+                GitHunkAction.Stage => new[] { "apply", "--cached", "--", patchPath },
+                GitHunkAction.Unstage => new[] { "apply", "--cached", "--reverse", "--", patchPath },
+                GitHunkAction.Revert => new[] { "apply", "--reverse", "--", patchPath },
+                _ => throw new ArgumentOutOfRangeException(nameof(action))
+            };
+            var result = await RunGitAsync(root, cancellationToken, arguments);
+            EnsureGitCommandSucceeded(result, "Не удалось применить действие к diff-hunk.");
+        }
+        finally
+        {
+            try { File.Delete(patchPath); }
+            catch (IOException error) { System.Diagnostics.Trace.TraceWarning("Не удалось удалить временный Git patch {0}: {1}", patchPath, error.Message); }
+            catch (UnauthorizedAccessException error) { System.Diagnostics.Trace.TraceWarning("Не удалось удалить временный Git patch {0}: {1}", patchPath, error.Message); }
+        }
     }
 
     public static Task StageFileAsync(string repositoryRoot, string relativePath, CancellationToken cancellationToken) =>

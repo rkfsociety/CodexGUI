@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -28,6 +29,11 @@ internal sealed class DiffReviewerWindow : Window
     };
 
     private readonly string _diff;
+    private readonly string _relativePath;
+    private readonly RepositoryDiffScope _diffScope;
+    private readonly IReadOnlyList<RepositoryDiffHunk> _hunks;
+    private readonly bool _hunkActionsAvailable;
+    private readonly Func<string, GitHunkAction, Task<bool>> _applyGitHunk;
     private readonly Func<IReadOnlyList<DiffCommentThread>, bool> _attachThreads;
     private readonly ListBox _threadList = new()
     {
@@ -40,16 +46,28 @@ internal sealed class DiffReviewerWindow : Window
     private readonly Button _newThreadButton = new() { Content = "Новая ветка" };
     private readonly Button _replyButton = new() { Content = "Ответить" };
     private readonly Button _attachButton = new() { Content = "Добавить ветки в запрос" };
+    private readonly Button _stageHunkButton = new() { Content = "Добавить блок" };
+    private readonly Button _unstageHunkButton = new() { Content = "Снять блок" };
+    private readonly Button _revertHunkButton = new() { Content = "Отменить блок" };
     private readonly List<DiffCommentThread> _threads = [];
     private IReadOnlyList<Paragraph> _diffLines = [];
     private RichTextBox? _diffBox;
     private DiffCommentThread? _selectedThread;
 
     public DiffReviewerWindow(Window owner, string repositoryRoot, string relativePath, string diff,
+        RepositoryDiffScope diffScope, bool hunkActionsAvailable,
+        Func<string, GitHunkAction, Task<bool>> applyGitHunk,
         Func<IReadOnlyList<DiffCommentThread>, bool> attachThreads)
     {
         Owner = owner;
         _diff = diff;
+        _relativePath = relativePath;
+        _diffScope = diffScope;
+        _hunks = GitRepositoryInspector.ParseDiffHunks(diff);
+        _hunkActionsAvailable = hunkActionsAvailable && _hunks.Count > 0
+            && !diff.Contains("Diff сокращён: вывод превышает", StringComparison.Ordinal)
+            && !HasUnsupportedHunkMetadata(diff);
+        _applyGitHunk = applyGitHunk;
         _attachThreads = attachThreads;
         Title = $"Изменения · {System.IO.Path.GetFileName(relativePath)}";
         Width = 1180;
@@ -77,14 +95,38 @@ internal sealed class DiffReviewerWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.Children.Add(new TextBlock
+        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+        var gitActions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+        if (_diffScope == RepositoryDiffScope.Unstaged)
         {
-            Text = System.IO.Path.Combine(repositoryRoot, relativePath),
+            StyleHunkButton(_stageHunkButton, "#223B38", "Выберите строки одного блока и добавьте его в индекс");
+            _stageHunkButton.Click += async (_, _) => await ApplySelectedHunkAsync(GitHunkAction.Stage);
+            gitActions.Children.Add(_stageHunkButton);
+            _revertHunkButton.Margin = new Thickness(6, 0, 0, 0);
+            StyleHunkButton(_revertHunkButton, "#4A2A31", "Выберите строки одного блока и отмените незастейдженные изменения");
+            _revertHunkButton.Click += async (_, _) => await ApplySelectedHunkAsync(GitHunkAction.Revert);
+            gitActions.Children.Add(_revertHunkButton);
+        }
+        else
+        {
+            StyleHunkButton(_unstageHunkButton, "#263344", "Выберите строки одного блока, чтобы снять его с индекса");
+            _unstageHunkButton.Click += async (_, _) => await ApplySelectedHunkAsync(GitHunkAction.Unstage);
+            gitActions.Children.Add(_unstageHunkButton);
+        }
+        foreach (var action in gitActions.Children.OfType<Button>())
+            action.Visibility = _hunkActionsAvailable ? Visibility.Visible : Visibility.Collapsed;
+        DockPanel.SetDock(gitActions, Dock.Right);
+        header.Children.Add(gitActions);
+        header.Children.Add(new TextBlock
+        {
+            Text = $"{System.IO.Path.Combine(repositoryRoot, relativePath)} · {(_diffScope == RepositoryDiffScope.Staged ? "В ИНДЕКСЕ" : "НЕ В ИНДЕКСЕ")}",
             Foreground = Brush("#A4B1C2"),
             FontSize = 11,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 0, 12)
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = System.IO.Path.Combine(repositoryRoot, relativePath)
         });
+        root.Children.Add(header);
 
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
@@ -102,7 +144,10 @@ internal sealed class DiffReviewerWindow : Window
             Background = Brush("#18212C"),
             Foreground = Brush("#D2D9E3"),
             BorderBrush = Brush("#2B3746"),
-            BorderThickness = new Thickness(1)
+            BorderThickness = new Thickness(1),
+            ToolTip = _hunkActionsAvailable
+                ? "Выделите строки одного diff-блока для stage, unstage или отмены"
+                : "Блочные действия недоступны для этого типа diff; используйте Git-действия файла"
         };
         _diffBox.SelectionChanged += (_, _) => UpdateActionState();
         var diffBorder = Card(_diffBox);
@@ -290,7 +335,57 @@ internal sealed class DiffReviewerWindow : Window
         _newThreadButton.IsEnabled = _diffBox is not null && !_diffBox.Selection.IsEmpty && !string.IsNullOrWhiteSpace(_draft.Text);
         _replyButton.IsEnabled = _selectedThread is not null && !string.IsNullOrWhiteSpace(_draft.Text);
         _attachButton.IsEnabled = _threads.Count > 0;
+        var hasSelectedHunk = _hunkActionsAvailable && SelectedHunk() is not null;
+        _stageHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Unstaged;
+        _revertHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Unstaged;
+        _unstageHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Staged;
     }
+
+    private RepositoryDiffHunk? SelectedHunk()
+    {
+        if (_diffBox is null || _diffBox.Selection.IsEmpty) return null;
+        var selectedLines = GetSelectedDiffLineIndexes(_diffBox, _diffLines);
+        var matchingHunks = _hunks.Where(hunk =>
+            selectedLines.Any(line => line >= hunk.StartLine && line <= hunk.EndLine)).Take(2).ToArray();
+        return matchingHunks.Length == 1 ? matchingHunks[0] : null;
+    }
+
+    private async Task ApplySelectedHunkAsync(GitHunkAction action)
+    {
+        if (SelectedHunk() is not { } hunk) return;
+        if (action == GitHunkAction.Revert)
+        {
+            var answer = MessageBox.Show(this,
+                $"Отменить незастейдженные изменения в блоке файла «{_relativePath}»? Изменения этого блока будут удалены.",
+                "Отменить изменения блока", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+
+        _stageHunkButton.IsEnabled = false;
+        _unstageHunkButton.IsEnabled = false;
+        _revertHunkButton.IsEnabled = false;
+        if (!await _applyGitHunk(hunk.Patch, action)) { UpdateActionState(); return; }
+        Close();
+    }
+
+    private static void StyleHunkButton(Button button, string background, string tooltip)
+    {
+        button.Padding = new Thickness(9, 5, 9, 5);
+        button.Background = Brush(background);
+        button.Foreground = Brush("#E2E8F0");
+        button.BorderBrush = Brush("#34465A");
+        button.BorderThickness = new Thickness(1);
+        button.ToolTip = tooltip;
+    }
+
+    private static bool HasUnsupportedHunkMetadata(string diff) =>
+        diff.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Any(line =>
+            line.StartsWith("rename from ", StringComparison.Ordinal)
+            || line.StartsWith("rename to ", StringComparison.Ordinal)
+            || line.StartsWith("new file mode ", StringComparison.Ordinal)
+            || line.StartsWith("deleted file mode ", StringComparison.Ordinal)
+            || line.StartsWith("old mode ", StringComparison.Ordinal)
+            || line.StartsWith("new mode ", StringComparison.Ordinal));
 
     private FlowDocument BuildHighlightedDiff(string diff, out IReadOnlyList<Paragraph> lines)
     {
