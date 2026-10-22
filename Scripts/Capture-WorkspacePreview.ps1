@@ -355,6 +355,16 @@ elseif ($View -eq 'Actions') {
         throw 'The Actions window preview constructor was not found in the built assembly.'
     }
     $window = $constructor.Invoke([object[]]@($items, $projectItems, $save, $saveProject, $true, $insert))
+    $actionList = $windowType.GetField('_list', $flags).GetValue($window)
+    for ($index = 0; $index -lt $actionList.Items.Count; $index++) {
+        $actionList.SelectedIndex = $index
+        foreach ($buttonName in @('_editButton', '_deleteButton', '_insertButton')) {
+            if (-not $windowType.GetField($buttonName, $flags).GetValue($window).IsEnabled) {
+                throw "Selecting action $index did not enable $buttonName."
+            }
+        }
+    }
+    $actionList.SelectedIndex = -1
     $window.Width = $Width
     $window.Height = $Height
     $windowContent = $window.Content

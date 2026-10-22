@@ -180,7 +180,7 @@ internal sealed class CodexActionsWindow : Window
             var item = new ListBoxItem
             {
                 Content = content,
-                Tag = action,
+                Tag = entry,
                 Padding = new Thickness(12, 9, 12, 9),
                 Margin = new Thickness(0, 0, 0, 7),
                 Background = Brush("#16212B"),
