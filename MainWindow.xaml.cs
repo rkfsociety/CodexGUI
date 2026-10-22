@@ -466,6 +466,7 @@ public partial class MainWindow : Window
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
         Click("PluginsButton", (_, _) => ShowExtensions(showSkills: false));
         Click("AutomationsButton", async (_, _) => await ShowAutomationsAsync());
+        Click("AgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
 
@@ -1146,11 +1147,16 @@ public partial class MainWindow : Window
             expander.Collapsed += (_, _) => message.IsExpanded = false;
             var activityContent = new StackPanel();
             activityContent.Children.Add(expander);
-            if (message.RelatedThreadId is { Length: > 0 } subagentId)
+            var subagents = message.Subagents.Count > 0
+                ? message.Subagents
+                : message.RelatedThreadId is { Length: > 0 } legacyId
+                    ? [new CodexSubagentInfo(legacyId, "spawn_agent", null, "running", null)]
+                    : [];
+            foreach (var subagent in subagents)
             {
                 var openSubagent = new Button
                 {
-                    Content = "Открыть субагента",
+                    Content = subagents.Count > 1 ? $"Открыть · {SubagentStatusName(subagent.Status)}" : "Открыть субагента",
                     HorizontalAlignment = HorizontalAlignment.Left,
                     Padding = new Thickness(9, 5, 9, 5),
                     Margin = new Thickness(0, 7, 0, 0),
@@ -1158,7 +1164,8 @@ public partial class MainWindow : Window
                     Foreground = Brush("#C8D4E2"),
                     FontSize = 10
                 };
-                openSubagent.Click += async (_, _) => await OpenSubagentThreadAsync(subagentId);
+                openSubagent.ToolTip = $"{SubagentStatusName(subagent.Status)} · {subagent.ThreadId}";
+                openSubagent.Click += async (_, _) => await OpenSubagentThreadAsync(subagent.ThreadId);
                 activityContent.Children.Add(openSubagent);
             }
             return new Border
@@ -1210,6 +1217,7 @@ public partial class MainWindow : Window
             existing.ActivityTitle = message.ActivityTitle;
             existing.IsError = message.IsError;
             existing.RelatedThreadId = message.RelatedThreadId;
+            existing.Subagents = message.Subagents;
             return;
         }
         var index = messages.IndexOf(anchor);
@@ -1236,25 +1244,80 @@ public partial class MainWindow : Window
         if (title is null) return null;
         var failed = type == "error" || GetString(item, "status") is "failed" or "declined" ||
             (item.TryGetProperty("exit_code", out var exit) && exit.TryGetInt32(out var code) && code != 0);
+        var isCollab = type == "collabToolCall";
         var parts = new List<string>();
-        foreach (var key in new[]
-                 {
-                     "command", "text", "query", "server", "tool", "aggregated_output", "aggregatedOutput",
-                     "prompt", "senderThreadId", "receiverThreadId", "newThreadId", "agentStatus"
-                 })
+        foreach (var key in isCollab
+                 ? new[] { "prompt" }
+                 : new[] { "command", "text", "query", "server", "tool", "aggregated_output", "aggregatedOutput" })
             if (GetString(item, key) is { Length: > 0 } value) parts.Add(value);
+        if (isCollab)
+        {
+            var tool = GetString(item, "tool") ?? "";
+            if (tool.Length > 0) parts.Insert(0, "Операция: " + tool);
+            if (item.TryGetProperty("agentsStates", out var states) && states.ValueKind == JsonValueKind.Object)
+                foreach (var state in states.EnumerateObject())
+                {
+                    var status = GetString(state.Value, "status");
+                    var detail = GetString(state.Value, "message");
+                    parts.Add($"Агент {state.Name}: {status ?? "состояние неизвестно"}" +
+                        (string.IsNullOrWhiteSpace(detail) ? "" : " · " + detail));
+                }
+        }
         foreach (var key in new[] { "summary", "content", "changes", "items", "arguments", "result", "error" })
             if (item.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null)
                 parts.Add(value.ToString());
+        var subagents = isCollab ? ParseSubagentReferences(item) : [];
+        var agentError = subagents.Any(agent => agent.Status is "errored" or "notFound");
         return new ChatMessage(false, string.Join(Environment.NewLine + Environment.NewLine, parts))
         {
             ActivityTitle = $"{(failed ? "✕" : completed ? "✓" : "●")}  {title} · {(failed ? "ошибка" : completed ? "завершено" : "выполняется")}",
-            IsError = failed,
-            RelatedThreadId = type == "collabToolCall"
-                ? GetString(item, "newThreadId") ?? GetString(item, "receiverThreadId")
-                : null
+            IsError = failed || agentError,
+            RelatedThreadId = subagents.FirstOrDefault()?.ThreadId,
+            Subagents = subagents
         };
     }
+
+    private static List<CodexSubagentInfo> ParseSubagentReferences(JsonElement item)
+    {
+        var threadIds = new List<string>();
+        if (item.TryGetProperty("receiverThreadIds", out var receivers) && receivers.ValueKind == JsonValueKind.Array)
+            threadIds.AddRange(receivers.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.String)
+                .Select(value => value.GetString()).Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!));
+        if (threadIds.Count == 0)
+        {
+            var legacyId = GetString(item, "newThreadId") ?? GetString(item, "receiverThreadId");
+            if (!string.IsNullOrWhiteSpace(legacyId)) threadIds.Add(legacyId);
+        }
+
+        var prompt = GetString(item, "prompt");
+        var tool = GetString(item, "tool") ?? "";
+        var itemStatus = GetString(item, "status") ?? "running";
+        var states = item.TryGetProperty("agentsStates", out var statesValue) && statesValue.ValueKind == JsonValueKind.Object
+            ? statesValue
+            : default;
+        return threadIds.Distinct(StringComparer.Ordinal).Select(threadId =>
+        {
+            var state = states.ValueKind == JsonValueKind.Object && states.TryGetProperty(threadId, out var found) ? found : default;
+            return new CodexSubagentInfo(
+                threadId,
+                tool,
+                prompt,
+                state.ValueKind == JsonValueKind.Object ? GetString(state, "status") ?? itemStatus : itemStatus,
+                state.ValueKind == JsonValueKind.Object ? GetString(state, "message") : null);
+        }).ToList();
+    }
+
+    private static string SubagentStatusName(string status) => status switch
+    {
+        "pendingInit" => "запускается",
+        "running" or "inProgress" => "работает",
+        "interrupted" => "прерван",
+        "completed" => "завершён",
+        "errored" or "failed" => "ошибка",
+        "shutdown" => "остановлен",
+        "notFound" => "не найден",
+        _ => status
+    };
 
     private async Task OpenSubagentThreadAsync(string sessionId)
     {
@@ -3755,6 +3818,26 @@ public partial class MainWindow : Window
         _automationWindow.ShowDialog();
     }
 
+    private async Task ShowSubagentsAsync()
+    {
+        if (_currentThread is not { } parent)
+        {
+            MessageBox.Show(this, "Сначала откройте чат.", "Субагенты", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (parent.ActiveRun is null && parent.CodexSessionId is { Length: > 0 } && !parent.HistoryLoaded)
+            await RestoreThreadHistoryAsync(parent);
+
+        IReadOnlyList<CodexSubagentInfo> ReadCurrentSubagents() => parent.Messages
+            .SelectMany(message => message.Subagents)
+            .GroupBy(agent => agent.ThreadId, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToArray();
+
+        var dialog = new CodexSubagentsWindow(parent.Title, ReadCurrentSubagents, OpenSubagentThreadAsync) { Owner = this };
+        dialog.ShowDialog();
+    }
+
     private void PersistAutomationDefinitions()
     {
         CodexAutomationStore.SaveDefinitions(_automationDefinitions);
@@ -4406,6 +4489,7 @@ public partial class MainWindow : Window
         public string Text { get; set; } = text;
         public string? ActivityTitle { get; set; }
         public string? RelatedThreadId { get; set; }
+        public List<CodexSubagentInfo> Subagents { get; set; } = [];
         public bool IsError { get; set; }
         public bool IsExpanded { get; set; }
         public bool HasCompletedMessages { get; set; }

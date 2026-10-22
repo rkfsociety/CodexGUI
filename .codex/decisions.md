@@ -29,3 +29,10 @@
 - Decision: render syntax-colored diff lines and let users draft separate line-anchored comment threads and replies in the reviewer. Add the collected context to the chat composer only when requested; keep these drafts in memory until attached.
 - Reason: the pinned App Server exposes `review/start` but no production comment-thread RPC; the existing workflow sends selected diff context through the normal chat turn.
 - Source: `DiffReviewerWindow.cs`, `MainWindow.xaml.cs`, and `README.md`.
+
+## Preserve all child threads from multi-agent events
+
+- Status: active.
+- Decision: treat each App Server `collabToolCall` item as a state update that can reference multiple child threads. Aggregate the latest status by child thread ID, expose a current-chat agent list, and open each child through the existing thread-history flow.
+- Reason: the pinned `0.163.0` payload contains `receiverThreadIds` and `agentsStates`; legacy `newThreadId` may identify only one receiver.
+- Source: pinned `rust-v0.163.0` `CollabToolCallItem` schema and `CreateActivityMessage` / `CodexSubagentsWindow.cs`.
