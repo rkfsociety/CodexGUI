@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _updateCheckTimer;
     private readonly DispatcherTimer _repositoryRefreshTimer;
     private readonly DispatcherTimer _automationTimer;
+    private readonly InputLanguageManager _inputLanguageManager;
     private readonly CancellationTokenSource _updateCheckCancellation = new();
     private readonly CancellationTokenSource _repositoryRefreshCancellation = new();
     private bool _isRefreshingUsage;
@@ -105,6 +106,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _inputLanguageManager = InputLanguageManager.Current;
+        _inputLanguageManager.InputLanguageChanged += PromptInputLanguageChanged;
         _reloadDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(320) };
         _reloadDebounce.Tick += (_, _) =>
         {
@@ -569,8 +572,10 @@ public partial class MainWindow : Window
 
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
+            prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
             prompt.GotKeyboardFocus += (_, _) =>
             {
+                prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
                 if (prompt.Text == PromptPlaceholder) prompt.Clear();
             };
             prompt.LostKeyboardFocus += (_, _) =>
@@ -584,6 +589,12 @@ public partial class MainWindow : Window
     private void Click(string name, RoutedEventHandler handler)
     {
         if (Control<Button>(name) is { } button) button.Click += handler;
+    }
+
+    private void PromptInputLanguageChanged(object? sender, InputLanguageEventArgs e)
+    {
+        if (Control<TextBox>("PromptInput") is { IsKeyboardFocusWithin: true } prompt)
+            prompt.Language = XmlLanguage.GetLanguage(e.NewLanguage.IetfLanguageTag);
     }
 
     private void RefreshView()
@@ -5480,6 +5491,7 @@ public partial class MainWindow : Window
 
     private void CleanupWindowResources()
     {
+        _inputLanguageManager.InputLanguageChanged -= PromptInputLanguageChanged;
         _viewWatcher?.Dispose();
         _trayIcon?.Dispose();
         _trayImage?.Dispose();
