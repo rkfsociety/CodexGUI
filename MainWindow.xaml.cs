@@ -535,9 +535,6 @@ public partial class MainWindow : Window
 
     private void BindEvents()
     {
-        Click("NewChatButton", (_, _) => NewChat());
-        Click("SearchButton", (_, _) => ShowSearch());
-        Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
         Click("RailNewChatButton", (_, _) => NewChat());
         Click("RailSearchButton", (_, _) => ShowSearch());
@@ -548,7 +545,6 @@ public partial class MainWindow : Window
         Click("RailMcpServersButton", (_, _) => ShowMcpServers());
         Click("RailContextButton", (_, _) => ToggleContext());
         Click("RailActionsButton", (_, _) => ShowActionsWindow());
-        Click("ContextButton", (_, _) => ToggleContext());
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
         Click("ChatDiffButton", (_, _) => ToggleContext(true));
         Click("CloseContextButton", (_, _) => ToggleContext(false));
