@@ -397,6 +397,9 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     }
 
     public Task ReaderTask { get; }
+    public ValueTask<bool> WaitForIncomingAsync(CancellationToken cancellationToken) =>
+        _incoming.Reader.WaitToReadAsync(cancellationToken);
+
     public static Task<CodexAppServerConnection> StartAsync(string executablePath)
     {
         var startInfo = new ProcessStartInfo(executablePath)

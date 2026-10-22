@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace CodexGUI;
@@ -120,7 +121,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested && !connection.ReaderTask.IsCompleted)
+            while (await connection.WaitForIncomingAsync(cancellationToken))
             {
                 while (connection.TryReadIncoming(out var message))
                 {
@@ -141,10 +142,10 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                         System.Diagnostics.Trace.TraceWarning("Некорректный terminal output chunk: {0}", error.Message);
                     }
                 }
-                await Task.Delay(25, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ChannelClosedException error) when (error.InnerException is null) { }
         catch (Exception error)
         {
             System.Diagnostics.Trace.TraceWarning("Поток терминалов App Server завершился: {0}", error.Message);
