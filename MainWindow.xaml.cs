@@ -23,7 +23,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using System.Xml;
 using Path = System.IO.Path;
 using System.Runtime.InteropServices;
@@ -381,7 +380,9 @@ public partial class MainWindow : Window
         {
             BackColor = DrawingColor.FromArgb(22, 33, 43),
             ForeColor = DrawingColor.FromArgb(236, 242, 245),
-            ShowImageMargin = false
+            ShowImageMargin = false,
+            RenderMode = Forms.ToolStripRenderMode.Professional,
+            Renderer = new Forms.ToolStripProfessionalRenderer(new CodexTrayColorTable())
         };
         var showItem = new Forms.ToolStripMenuItem("Открыть Codex");
         showItem.Click += (_, _) => Dispatcher.BeginInvoke(ShowFromTray);
@@ -4595,16 +4596,11 @@ public partial class MainWindow : Window
             }
 
             var currentScript = WorktreeSetupConfiguration.ReadScriptPath(project.Path);
-            var picker = new OpenFileDialog
-            {
-                Title = "Выберите setup-сценарий для worktree",
-                Filter = "PowerShell (*.ps1)|*.ps1",
-                InitialDirectory = project.Path,
-                FileName = currentScript ?? ""
-            };
-            if (picker.ShowDialog(this) != true) return;
+            var scriptPath = CodexFilePickerWindow.OpenFile(this,
+                "Выберите setup-сценарий для worktree", project.Path, [".ps1"], currentScript);
+            if (scriptPath is null) return;
 
-            var relativePath = WorktreeSetupConfiguration.SaveScriptPath(project.Path, picker.FileName);
+            var relativePath = WorktreeSetupConfiguration.SaveScriptPath(project.Path, scriptPath);
             CodexMessageDialog.Show(this,
                 $"Сценарий «{relativePath}» записан в .codex/codexgui-worktree.json. Добавьте в Git файл настройки и сам сценарий. Перед запуском в каждом новом worktree CodexGUI запросит подтверждение.",
                 "Подготовка worktree настроена", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -4981,12 +4977,9 @@ public partial class MainWindow : Window
 
     private void CreateProject()
     {
-        var picker = new OpenFolderDialog
-        {
-            Title = "Где создать папку проекта?",
-            InitialDirectory = Directory.Exists(_projectPath) ? _projectPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-        };
-        if (picker.ShowDialog(this) != true) return;
+        var parentDirectory = CodexFilePickerWindow.ChooseFolder(this, "Где создать папку проекта?",
+            Directory.Exists(_projectPath) ? _projectPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (parentDirectory is null) return;
 
         var name = AskForProjectName();
         if (string.IsNullOrWhiteSpace(name)) return;
@@ -4997,7 +4990,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var path = Path.Combine(picker.FolderName, name);
+        var path = Path.Combine(parentDirectory, name);
         if (Directory.Exists(path) || File.Exists(path))
         {
             CodexMessageDialog.Show(this, "Папка или файл с таким именем уже существует. Выберите другое имя.", "Новый проект", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -5207,9 +5200,10 @@ public partial class MainWindow : Window
 
     private void ChooseProjectFolder()
     {
-        var dialog = new OpenFolderDialog { Title = "Добавить существующую папку как проект", InitialDirectory = Directory.Exists(_projectPath) ? _projectPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) };
-        if (dialog.ShowDialog(this) != true) return;
-        AddProjectPath(dialog.FolderName);
+        var folder = CodexFilePickerWindow.ChooseFolder(this, "Добавить существующую папку как проект",
+            Directory.Exists(_projectPath) ? _projectPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (folder is null) return;
+        AddProjectPath(folder);
     }
 
     private void OpenProjectFolder()
@@ -5220,9 +5214,10 @@ public partial class MainWindow : Window
 
     private void AddFileContext()
     {
-        var dialog = new OpenFileDialog { Title = "Добавить файл в контекст", InitialDirectory = Directory.Exists(_projectPath) ? _projectPath : null, Multiselect = false };
-        if (dialog.ShowDialog(this) != true || Control<TextBox>("PromptInput") is not { } input) return;
-        AddComposerAttachments([dialog.FileName]);
+        var file = CodexFilePickerWindow.OpenFile(this, "Добавить файл в контекст",
+            Directory.Exists(_projectPath) ? _projectPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), []);
+        if (file is null || Control<TextBox>("PromptInput") is not { } input) return;
+        AddComposerAttachments([file]);
         input.Focus();
     }
 
@@ -5766,16 +5761,10 @@ public partial class MainWindow : Window
         if (selector.ShowDialog() != Forms.DialogResult.OK || selector.SelectionBounds.Width < 2 || selector.SelectionBounds.Height < 2)
             return;
 
-        var dialog = new SaveFileDialog
-        {
-            Title = "Сохранить скриншот",
-            Filter = "PNG image (*.png)|*.png",
-            DefaultExt = ".png",
-            AddExtension = true,
-            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-            FileName = $"CodexGUI-{DateTime.Now:yyyyMMdd-HHmmss}.png"
-        };
-        if (dialog.ShowDialog(this) != true) return;
+        var savePath = CodexFilePickerWindow.SaveFile(this, "Сохранить скриншот",
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            $"CodexGUI-{DateTime.Now:yyyyMMdd-HHmmss}.png", ".png");
+        if (savePath is null) return;
 
         try
         {
@@ -5784,14 +5773,14 @@ public partial class MainWindow : Window
             using var bitmap = new System.Drawing.Bitmap(bounds.Width, bounds.Height);
             using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
                 graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size, System.Drawing.CopyPixelOperation.SourceCopy);
-            bitmap.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
+            bitmap.Save(savePath, System.Drawing.Imaging.ImageFormat.Png);
 
             if (Control<TextBox>("PromptInput") is { } input)
             {
-                AddComposerAttachments([dialog.FileName]);
+                AddComposerAttachments([savePath]);
                 input.Focus();
             }
-            SetStatus("Скриншот готов", $"Сохранен и добавлен в контекст: {Path.GetFileName(dialog.FileName)}");
+            SetStatus("Скриншот готов", $"Сохранен и добавлен в контекст: {Path.GetFileName(savePath)}");
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or ExternalException)
         {
@@ -6041,6 +6030,21 @@ public partial class MainWindow : Window
 
     private sealed record UsageSnapshot(IReadOnlyList<UsageWindow> Windows);
     private sealed record UsageWindow(long? DurationMinutes, int UsedPercent, long? ResetsAt);
+
+    private sealed class CodexTrayColorTable : Forms.ProfessionalColorTable
+    {
+        public CodexTrayColorTable() => UseSystemColors = false;
+
+        public override DrawingColor ToolStripDropDownBackground => DrawingColor.FromArgb(22, 33, 43);
+        public override DrawingColor MenuBorder => DrawingColor.FromArgb(42, 57, 70);
+        public override DrawingColor MenuItemBorder => DrawingColor.FromArgb(54, 92, 83);
+        public override DrawingColor MenuItemSelectedGradientBegin => DrawingColor.FromArgb(32, 58, 52);
+        public override DrawingColor MenuItemSelectedGradientEnd => DrawingColor.FromArgb(32, 58, 52);
+        public override DrawingColor MenuItemPressedGradientBegin => DrawingColor.FromArgb(32, 58, 52);
+        public override DrawingColor MenuItemPressedGradientEnd => DrawingColor.FromArgb(32, 58, 52);
+        public override DrawingColor SeparatorDark => DrawingColor.FromArgb(42, 57, 70);
+        public override DrawingColor SeparatorLight => DrawingColor.FromArgb(42, 57, 70);
+    }
 
     private sealed class ChatMessage(bool isUser, string text)
     {

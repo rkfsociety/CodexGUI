@@ -4,9 +4,9 @@ Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
 Loads App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
-the built-in Activity and Actions windows, the automation editor and its calendar, the worktree
-setup window, or the Pull Request editor with local preview data in a standalone STA PowerShell
-process. It never starts CodexGUI or the App Server.
+the built-in Activity and Actions windows, the dark file, folder, or save picker, the automation
+editor and its calendar, the worktree setup window, or the Pull Request editor with local preview
+data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
 
 .EXAMPLE
 dotnet build --no-restore
@@ -41,10 +41,22 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Automation
 
 .EXAMPLE
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Calendar -OutputPath .\preview\calendar.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View FilePicker -OutputPath .\preview\file-picker.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View FolderPicker -OutputPath .\preview\folder-picker.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View SavePicker -OutputPath .\preview\save-picker.png
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar')]
+    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -65,8 +77,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -419,6 +431,48 @@ elseif ($View -eq 'Calendar') {
     $calendar.SelectedDate = [DateTime]::Today
     $calendar.IsTodayHighlighted = $true
     [void]$visual.Children.Add($calendar)
+}
+elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the file picker.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $windowType = $assembly.GetType('CodexGUI.CodexFilePickerWindow', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 6 } | Select-Object -First 1
+    if ($null -eq $constructor) {
+        throw 'The file picker preview constructor was not found in the built assembly.'
+    }
+    $mode = if ($View -eq 'FolderPicker') { 'folder' } elseif ($View -eq 'SavePicker') { 'save' } else { 'open' }
+    $title = if ($View -eq 'FolderPicker') { 'Выберите папку' } elseif ($View -eq 'SavePicker') { 'Сохранить скриншот' } else { 'Выберите файл' }
+    $defaultExtension = if ($View -eq 'SavePicker') { '.png' } else { '' }
+    $fileName = if ($View -eq 'SavePicker') { 'CodexGUI-preview.png' } else { '' }
+    $pickerArguments = [Array]::CreateInstance([object], 6)
+    $pickerArguments.SetValue($title, 0)
+    $pickerArguments.SetValue($projectRoot, 1)
+    $pickerArguments.SetValue([string[]]@(), 2)
+    $pickerArguments.SetValue($defaultExtension, 3)
+    $pickerArguments.SetValue($fileName, 4)
+    $pickerArguments.SetValue($mode, 5)
+    $window = $constructor.Invoke($pickerArguments)
+    $window.Width = $Width
+    $window.Height = $Height
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The file picker has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
 }
 else {
     $assemblyCandidates = @(
