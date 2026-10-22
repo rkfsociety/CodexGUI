@@ -219,7 +219,7 @@
                 <WrapPanel x:Name="ComposerAttachmentsPanel" Orientation="Horizontal" />
               </ScrollViewer>
             </Border>
-            <TextBox x:Name="PromptInput" Grid.Row="2" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="76" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,9,4,12" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="True" Text="Спросите Codex о задаче или попросите изменить проект…" />
+            <TextBox x:Name="PromptInput" Grid.Row="2" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="76" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,9,4,12" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Спросите Codex о задаче или попросите изменить проект…" />
             <Grid Grid.Row="3" Margin="0,10,0,0" MinHeight="42">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

@@ -237,6 +237,11 @@ if ($View -in @('Workspace', 'Welcome')) {
         $goalLabel -isnot [System.Windows.Controls.TextBlock]) {
         throw 'The current thread goal control could not be found in WorkspaceView.xaml.'
     }
+    $promptInput = $workspace.FindName('PromptInput')
+    if ($promptInput -isnot [System.Windows.Controls.TextBox] -or
+        [System.Windows.Controls.SpellCheck]::GetIsEnabled($promptInput)) {
+        throw 'The composer placeholder must not be spellchecked.'
+    }
     $conversation.Children.Clear()
     if ($View -eq 'Workspace') {
         $goalButton.IsEnabled = $true

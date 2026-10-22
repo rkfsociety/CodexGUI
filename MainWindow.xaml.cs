@@ -590,6 +590,8 @@ public partial class MainWindow : Window
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
             prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
+            UpdatePromptSpellCheck(prompt);
+            prompt.TextChanged += (_, _) => UpdatePromptSpellCheck(prompt);
             prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8494A2" : "#ECF2F5");
             prompt.GotKeyboardFocus += (_, _) =>
             {
@@ -621,6 +623,13 @@ public partial class MainWindow : Window
     {
         if (Control<TextBox>("PromptInput") is { IsKeyboardFocusWithin: true } prompt)
             prompt.Language = XmlLanguage.GetLanguage(e.NewLanguage.IetfLanguageTag);
+    }
+
+    private static void UpdatePromptSpellCheck(TextBox prompt)
+    {
+        var enabled = prompt.Text != PromptPlaceholder;
+        if (SpellCheck.GetIsEnabled(prompt) != enabled)
+            SpellCheck.SetIsEnabled(prompt, enabled);
     }
 
     private void RefreshView()
