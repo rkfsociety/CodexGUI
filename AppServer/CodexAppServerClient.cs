@@ -77,6 +77,39 @@ internal sealed class CodexAppServerClient(string executablePath)
         return SendRequestAsync("marketplace/remove", new { marketplaceName = marketplaceName.Trim() });
     }
 
+    public async Task<IReadOnlyList<JsonElement>> ListMcpServerStatusesAsync()
+    {
+        var statuses = new List<JsonElement>();
+        var seenCursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        var pageCount = 0;
+        do
+        {
+            if (++pageCount > 100)
+                throw new InvalidDataException("Список MCP-серверов превысил допустимое число страниц.");
+            var response = await SendRequestAsync("mcpServerStatus/list", new
+            {
+                cursor,
+                detail = "toolsAndAuthOnly",
+                limit = 100
+            });
+            if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Codex App Server вернул некорректный список MCP-серверов.");
+            foreach (var status in data.EnumerateArray())
+            {
+                if (status.ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException("Список MCP-серверов содержит некорректную запись.");
+                statuses.Add(status.Clone());
+            }
+
+            cursor = ReadCursor(response);
+            if (cursor is not null && !seenCursors.Add(cursor))
+                throw new InvalidDataException("Codex App Server повторил курсор списка MCP-серверов.");
+        } while (cursor is not null);
+
+        return statuses;
+    }
+
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>

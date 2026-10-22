@@ -577,6 +577,7 @@ public partial class MainWindow : Window
         Click("AddContextButton", (_, _) => AddFileContext());
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
         Click("PluginsButton", (_, _) => ShowExtensions(showSkills: false));
+        Click("McpServersButton", (_, _) => ShowMcpServers());
         Click("AutomationsButton", async (_, _) => await ShowAutomationsAsync());
         Click("AgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
@@ -5799,6 +5800,21 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             SetStatus("Не удалось открыть плагины и скиллы", error.Message, isError: true);
+        }
+    }
+
+    private void ShowMcpServers()
+    {
+        try
+        {
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var dialog = new CodexMcpServerStatusWindow(() => CodexMcpServerStatusCatalog.LoadAsync(client)) { Owner = this };
+            dialog.ShowDialog();
+            Control<TextBox>("PromptInput")?.Focus();
+        }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось открыть MCP-серверы", error.Message, isError: true);
         }
     }
 
