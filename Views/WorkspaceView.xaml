@@ -307,6 +307,7 @@
             </DockPanel>
           </StackPanel>
           <Button x:Name="PushBranchButton" Content="Отправить ветку" HorizontalAlignment="Left" Padding="8,5" Margin="0,5,0,0" Visibility="Collapsed" ToolTip="Отправить текущую ветку в настроенный upstream без force-push" />
+          <Button x:Name="CreatePullRequestButton" Content="Создать Pull Request" HorizontalAlignment="Left" Padding="8,5" Margin="0,4,0,0" Visibility="Collapsed" ToolTip="Создать Pull Request для уже отправленной GitHub-ветки через GitHub CLI" />
           <ScrollViewer MaxHeight="145" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="RepositoryChangesPanel" />
           </ScrollViewer>

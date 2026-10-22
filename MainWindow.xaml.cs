@@ -558,6 +558,7 @@ public partial class MainWindow : Window
             (root, token) => GitRepositoryInspector.UnstageAllAsync(root, token)));
         Click("CommitStagedButton", async (_, _) => await CommitStagedChangesAsync());
         Click("PushBranchButton", async (_, _) => await PushCurrentBranchAsync());
+        Click("CreatePullRequestButton", async (_, _) => await CreatePullRequestAsync());
         if (Control<TextBox>("CommitMessageInput") is { } commitMessageInput)
             commitMessageInput.TextChanged += (_, _) => UpdateGitActionButtons();
         Click("OpenFolderButton", (_, _) => OpenProjectFolder());
@@ -2318,6 +2319,21 @@ public partial class MainWindow : Window
                 ? "Опубликовать текущую ветку в origin и настроить upstream"
                 : "Отправить текущую ветку в настроенный upstream без force-push";
         }
+        if (Control<Button>("CreatePullRequestButton") is { } createPullRequest)
+        {
+            var isGitHubRepository = GitHubPullRequestService.TryGetRepositorySlug(snapshot?.RemoteUrl, out _);
+            var branchPublished = isRepository && snapshot!.HasHead && snapshot.Branch != "(detached)"
+                && snapshot.Upstream?.StartsWith("origin/", StringComparison.Ordinal) == true
+                && snapshot.Ahead == 0;
+            createPullRequest.Visibility = isGitHubRepository && isRepository && snapshot!.HasHead
+                && snapshot.Branch != "(detached)" ? Visibility.Visible : Visibility.Collapsed;
+            createPullRequest.IsEnabled = canMutate && branchPublished && snapshot!.Changes.Count == 0;
+            createPullRequest.ToolTip = !branchPublished
+                ? "Сначала опубликуйте текущую ветку в origin"
+                : snapshot!.Changes.Count > 0
+                    ? "Перед созданием PR закоммитьте или отмените незакоммиченные изменения"
+                    : "Создать Pull Request для отправленной ветки; GitHub CLI должен быть установлен и авторизован";
+        }
         if (Control<TextBox>("CommitMessageInput") is { } message)
             message.IsEnabled = canMutate && stagedCount > 0;
         if (Control<Button>("CommitStagedButton") is { } commit)
@@ -2366,6 +2382,34 @@ public partial class MainWindow : Window
         var committed = await RunRepositoryGitCommandAsync("Создаю коммит…", "Коммит создан.",
             async (root, token) => { _ = await GitRepositoryInspector.CommitStagedAsync(root, message, token); });
         if (committed && input is not null) input.Clear();
+    }
+
+    private async Task CreatePullRequestAsync()
+    {
+        if (_repositorySnapshot is not { IsRepository: true } snapshot
+            || !GitHubPullRequestService.TryGetRepositorySlug(snapshot.RemoteUrl, out var repositorySlug)
+            || snapshot.Upstream is null || !snapshot.Upstream.StartsWith("origin/", StringComparison.Ordinal)
+            || snapshot.Ahead > 0 || snapshot.Changes.Count > 0 || snapshot.Branch == "(detached)") return;
+
+        var editor = new CodexPullRequestWindow(snapshot.Branch) { Owner = this };
+        if (editor.ShowDialog() != true || editor.Result is not { } draft) return;
+
+        string? pullRequestUrl = null;
+        var created = await RunRepositoryGitCommandAsync("Создаю Pull Request…", "Pull Request создан.", async (root, token) =>
+        {
+            pullRequestUrl = await GitHubPullRequestService.CreateAsync(root, repositorySlug,
+                snapshot.Branch, draft.Title, draft.Body, draft.IsDraft, token);
+        });
+        if (!created || pullRequestUrl is null || _isClosing) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(pullRequestUrl) { UseShellExecute = true });
+        }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            SetStatus("Pull Request создан", $"Не удалось открыть браузер: {error.Message} · {pullRequestUrl}");
+        }
     }
 
     private async Task PushCurrentBranchAsync()
