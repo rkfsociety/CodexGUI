@@ -176,14 +176,14 @@ if ($View -eq 'Workspace') {
     $conversation.Children.Clear()
     [void]$conversation.Children.Add((New-PreviewMessage -IsUser $true -Text 'Проверь экран чата и предложи, как сделать его удобнее для долгой работы.'))
     $previewResponse = @'
-Проверил структуру проекта.
+Готово — подробности в [документации проекта](https://learn.chatgpt.com/docs/developers).
 
-### Что изменил
-- Упростил обработку сообщений.
-- Добавил обработку ошибок.
+| Элемент | Результат |
+| --- | --- |
+| Таблица | Отформатирована |
 
 ```csharp
-await SaveAsync();
+var ready = true;
 ```
 '@
     [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text $previewResponse))
