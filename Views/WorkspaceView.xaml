@@ -1,18 +1,18 @@
 <Grid x:Name="Root"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      TextElement.Foreground="{StaticResource TextMain}" Background="#11151B" UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+      TextElement.Foreground="{StaticResource TextMain}" Background="#0E151D" UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
   <Grid.Resources>
-    <SolidColorBrush x:Key="Canvas" Color="#11151B" />
-    <SolidColorBrush x:Key="Sidebar" Color="#151B23" />
-    <SolidColorBrush x:Key="Surface" Color="#1C2430" />
-    <SolidColorBrush x:Key="SurfaceHover" Color="#263344" />
-    <SolidColorBrush x:Key="Line" Color="#263344" />
-    <SolidColorBrush x:Key="TextMain" Color="#EEF3F8" />
-    <SolidColorBrush x:Key="TextMuted" Color="#A4B1C2" />
-    <SolidColorBrush x:Key="TextFaint" Color="#8090A5" />
-    <SolidColorBrush x:Key="Green" Color="#A8E6CF" />
-    <SolidColorBrush x:Key="AccentSoft" Color="#223B38" />
+    <SolidColorBrush x:Key="Canvas" Color="#0E151D" />
+    <SolidColorBrush x:Key="Sidebar" Color="#121D27" />
+    <SolidColorBrush x:Key="Surface" Color="#1B2935" />
+    <SolidColorBrush x:Key="SurfaceHover" Color="#294050" />
+    <SolidColorBrush x:Key="Line" Color="#294050" />
+    <SolidColorBrush x:Key="TextMain" Color="#EAF3F6" />
+    <SolidColorBrush x:Key="TextMuted" Color="#9FB2C3" />
+    <SolidColorBrush x:Key="TextFaint" Color="#7F95AA" />
+    <SolidColorBrush x:Key="Green" Color="#92E5C7" />
+    <SolidColorBrush x:Key="AccentSoft" Color="#204139" />
     <Style TargetType="ScrollBar">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#55585F" />
@@ -71,39 +71,80 @@
     </Style>
   </Grid.Resources>
   <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="260" />
+      <ColumnDefinition Width="250" />
     <ColumnDefinition Width="*" />
     <ColumnDefinition Width="0" />
   </Grid.ColumnDefinitions>
 
   <Border Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
-    <Grid Margin="14,18,14,14">
+    <Grid Margin="16,20,16,16">
       <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="52"/><RowDefinition Height="44"/><RowDefinition Height="40"/><RowDefinition Height="*" MaxHeight="132"/><RowDefinition Height="38"/><RowDefinition Height="3*" MinHeight="60"/><RowDefinition Height="Auto"/><RowDefinition Height="50"/></Grid.RowDefinitions>
       <DockPanel Grid.Row="0" LastChildFill="True">
         <Button x:Name="CollapseButton" DockPanel.Dock="Right" Width="34" Padding="0" Content="‹" FontSize="19" Foreground="{StaticResource TextMuted}" ToolTip="Свернуть боковую панель" />
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="25" Height="25" CornerRadius="8" Background="#A8E6CF" Margin="0,0,9,0"><TextBlock Text="✳" Foreground="#151B23" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Codex" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="8,1,0,0" VerticalAlignment="Center"/></StackPanel>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="29" Height="29" CornerRadius="9" Background="#92E5C7" Margin="0,0,9,0"><TextBlock Text="✳" Foreground="#121D27" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Codex" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="8,1,0,0" VerticalAlignment="Center"/></StackPanel>
       </DockPanel>
-      <Button x:Name="NewChatButton" Grid.Row="1" Margin="0,8,0,0" Background="#223B38" Foreground="{StaticResource Accent}" HorizontalContentAlignment="Stretch" Padding="12,8"><DockPanel><TextBlock Text="Ctrl K" DockPanel.Dock="Right" Foreground="{StaticResource TextMuted}" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="＋" FontSize="18" Margin="0,0,10,0"/><TextBlock Text="Новый чат" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel></Button>
+      <Button x:Name="NewChatButton" Grid.Row="1" Margin="0,8,0,0" Background="#204139" Foreground="{StaticResource Accent}" HorizontalContentAlignment="Stretch" Padding="12,8"><DockPanel><TextBlock Text="Ctrl K" DockPanel.Dock="Right" Foreground="{StaticResource TextMuted}" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="＋" FontSize="18" Margin="0,0,10,0"/><TextBlock Text="Новый чат" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel></Button>
       <Button x:Name="SearchButton" Grid.Row="2" Margin="0,3,0,0" HorizontalContentAlignment="Stretch" Foreground="{StaticResource TextMuted}"><DockPanel><TextBlock Text="Ctrl F" DockPanel.Dock="Right" Foreground="{StaticResource TextFaint}" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="⌕" FontSize="20" Margin="1,0,10,0"/><TextBlock Text="Поиск чатов" VerticalAlignment="Center"/></DockPanel></Button>
-      <Grid Grid.Row="3" Margin="10,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="ПРОЕКТЫ" Foreground="{StaticResource TextFaint}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="AddProjectButton" Grid.Column="1" Width="24" Height="24" Padding="0" Content="＋" FontSize="15" Foreground="{StaticResource TextMuted}" ToolTip="Создать проект или добавить папку"/></Grid>
+      <Grid Grid.Row="3" Margin="10,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="ВАШИ ПРОЕКТЫ" Foreground="{StaticResource TextFaint}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="AddProjectButton" Grid.Column="1" Width="24" Height="24" Padding="0" Content="＋" FontSize="15" Foreground="{StaticResource TextMuted}" ToolTip="Создать проект или добавить папку"/></Grid>
       <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" Margin="0,2,0,4"><StackPanel x:Name="ProjectList" /></ScrollViewer>
-      <Grid Grid.Row="5" Margin="10,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ChatSectionLabel" Text="ЧАТЫ" Foreground="{StaticResource TextFaint}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="ArchivedChatsButton" Grid.Column="1" Padding="5,2" Content="Архив" FontSize="10" Foreground="{StaticResource TextMuted}" ToolTip="Открыть архив чатов"/></Grid>
+      <Grid Grid.Row="5" Margin="10,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ChatSectionLabel" Text="ИСТОРИЯ ЧАТОВ" Foreground="{StaticResource TextFaint}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="ArchivedChatsButton" Grid.Column="1" Padding="5,2" Content="Архив" FontSize="10" Foreground="{StaticResource TextMuted}" ToolTip="Открыть архив чатов"/></Grid>
       <ScrollViewer Grid.Row="6" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0"><StackPanel x:Name="ChatList" /></ScrollViewer>
-      <StackPanel Grid.Row="7"><Button x:Name="AutomationsButton" Content="Расписания и результаты" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,4,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Локальные расписания Codex и очередь результатов на проверку"/><Button x:Name="AgentsButton" Content="Субагенты текущего чата" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Список вызванных субагентов, их состояние и переход к полной истории"/><Button x:Name="PluginsButton" Content="Плагины и скиллы" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,7" Foreground="{StaticResource TextMuted}" ToolTip="Плагины Codex, imagegen, computer-use и все доступные скиллы"/><Border Background="#1C2430" BorderBrush="#2B3746" BorderThickness="1" CornerRadius="10" Padding="13" Margin="0,4,0,11"><StackPanel><StackPanel Orientation="Horizontal" Margin="0,0,0,7"><Ellipse Width="7" Height="7" Fill="{StaticResource Green}" Margin="0,0,8,0"/><TextBlock x:Name="ConnectionStatus" Text="Codex готов" FontSize="11" FontWeight="SemiBold" /></StackPanel><TextBlock x:Name="ConnectionDetail" Text="Запросы выполняются в выбранной папке." FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" LineHeight="16" /></StackPanel></Border></StackPanel>
+      <StackPanel Grid.Row="7"><Button x:Name="AutomationsButton" Content="Расписания и результаты" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,4,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Локальные расписания Codex и очередь результатов на проверку"/><Button x:Name="AgentsButton" Content="Субагенты текущего чата" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Список вызванных субагентов, их состояние и переход к полной истории"/><Button x:Name="PluginsButton" Content="Плагины и скиллы" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,7" Foreground="{StaticResource TextMuted}" ToolTip="Плагины Codex, imagegen, computer-use и все доступные скиллы"/><Border Background="#1B2935" BorderBrush="#314454" BorderThickness="1" CornerRadius="10" Padding="13" Margin="0,4,0,11"><StackPanel><StackPanel Orientation="Horizontal" Margin="0,0,0,7"><Ellipse Width="7" Height="7" Fill="{StaticResource Green}" Margin="0,0,8,0"/><TextBlock x:Name="ConnectionStatus" Text="Codex готов" FontSize="11" FontWeight="SemiBold" /></StackPanel><TextBlock x:Name="ConnectionDetail" Text="Запросы выполняются в выбранной папке." FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" LineHeight="16" /></StackPanel></Border></StackPanel>
       <Grid Grid.Row="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ProjectButton" HorizontalContentAlignment="Left"><StackPanel Orientation="Horizontal"><Border Width="27" Height="27" CornerRadius="14" Background="#34363C" Margin="0,0,9,0"><TextBlock Text="⌘" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><StackPanel VerticalAlignment="Center"><TextBlock Text="Текущий проект" FontSize="11"/><TextBlock x:Name="ProjectPathShort" Text="Локальный проект" FontSize="10" Foreground="{StaticResource TextMuted}" Margin="0,2,0,0"/></StackPanel><TextBlock Text="···" FontSize="16" Foreground="{StaticResource TextMuted}" Margin="35,0,0,0" VerticalAlignment="Center"/></StackPanel></Button><Button x:Name="UpdateButton" Grid.Column="1" Width="32" Height="32" Padding="0" Margin="4,0,0,0" Background="#244633" Foreground="#B9F4CE" Visibility="Collapsed" ToolTip="Установить скачанное обновление" AutomationProperties.Name="Установить обновление"><TextBlock Text="⟳" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center"/></Button></Grid>
     </Grid>
   </Border>
 
   <Grid Grid.Column="1">
-    <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Border Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Background="{StaticResource Canvas}"><Grid Margin="24,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid VerticalAlignment="Center" Margin="0,0,12,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="HeaderTitle" Text="Новая задача" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="11" Margin="8,1,0,0" VerticalAlignment="Center"/><Border Grid.Column="2" Background="#1C2430" BorderBrush="#2B3746" BorderThickness="1" CornerRadius="8" Padding="8,4" Margin="14,0,0,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border></Grid><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="ContextButton" Padding="10,7" Foreground="{StaticResource TextMuted}" ToolTip="Данные чата, репозитория и файлы"><StackPanel Orientation="Horizontal"><TextBlock Text="▤" Margin="0,0,7,0"/><TextBlock Text="Данные" FontSize="11"/></StackPanel></Button><Button x:Name="TerminalButton" Padding="10,7" Foreground="{StaticResource TextMuted}" ToolTip="Открыть терминалы Codex"><StackPanel Orientation="Horizontal"><TextBlock Text="&gt;_" FontFamily="Consolas" Margin="0,0,7,0"/><TextBlock Text="Терминал" FontSize="11"/></StackPanel></Button><Button x:Name="OpenFolderButton" Padding="9,6" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта"><TextBlock Text="↗" FontSize="16"/></Button></StackPanel></Grid></Border>
+    <Grid.RowDefinitions><RowDefinition Height="80"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Border Grid.Row="0" Background="{StaticResource Canvas}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+      <Grid Margin="25,0,23,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+          <TextBlock Text="РАБОЧЕЕ ПРОСТРАНСТВО  /  ЧАТ" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" FontSize="9" Margin="0,0,0,5"/>
+          <TextBlock x:Name="HeaderTitle" Text="Новая задача" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+            <Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="{StaticResource Green}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="10" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Border x:Name="ChatOverviewCard" Width="350" Height="60" CornerRadius="12" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="0,0,10,0" Padding="11,7">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <Button x:Name="ChatAttachmentsButton" Grid.Column="0" Padding="3,2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" ToolTip="Показать все вложения текущего чата">
+                <StackPanel>
+                  <DockPanel LastChildFill="True">
+                    <TextBlock x:Name="ChatAttachmentsCount" Text="0" DockPanel.Dock="Right" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Accent}" Margin="8,0,5,0"/>
+                    <TextBlock Text="▧  ВЛОЖЕНИЯ ЧАТА" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
+                  </DockPanel>
+                  <TextBlock x:Name="ChatAttachmentsPreview" Text="Нет прикреплённых файлов" Foreground="{StaticResource TextMain}" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,5,3,0"/>
+                </StackPanel>
+              </Button>
+              <Border Grid.Column="1" Background="{StaticResource Line}" Margin="10,2"/>
+              <Button x:Name="ChatDiffButton" Grid.Column="2" Padding="8,2,1,2" ToolTip="Открыть данные Git и изменения файлов">
+                <StackPanel>
+                  <TextBlock Text="ИЗМЕНЕНИЯ GIT" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                    <TextBlock x:Name="GitAddedLines" Text="+—" Foreground="#89DCAD" FontWeight="SemiBold" FontSize="12" Margin="0,0,10,0"/>
+                    <TextBlock x:Name="GitRemovedLines" Text="−—" Foreground="#E89D9D" FontWeight="SemiBold" FontSize="12"/>
+                  </StackPanel>
+                </StackPanel>
+              </Button>
+            </Grid>
+          </Border>
+          <Button x:Name="ContextButton" Padding="9,8" Background="{StaticResource Surface}" Margin="0,0,5,0" ToolTip="Данные чата и репозитория"><StackPanel Orientation="Horizontal"><TextBlock Text="▤" FontSize="14" Margin="0,0,6,0"/><TextBlock Text="Данные" FontSize="11"/></StackPanel></Button>
+          <Button x:Name="TerminalButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть терминалы Codex"><TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="13"/></Button>
+          <Button x:Name="OpenFolderButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта"><TextBlock Text="↗" FontSize="17"/></Button>
+        </StackPanel>
+      </Grid>
+    </Border>
     <Grid Grid.Row="1">
       <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <ScrollViewer x:Name="ConversationScroll" Grid.Row="0" Margin="24,0,24,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel x:Name="Conversation" MaxWidth="860" HorizontalAlignment="Stretch" Margin="0,28,0,24"/>
+        <StackPanel x:Name="Conversation" MaxWidth="850" HorizontalAlignment="Stretch" Margin="0,25,0,26"/>
       </ScrollViewer>
-      <StackPanel HorizontalAlignment="Stretch" MaxWidth="900" Grid.Row="1" Margin="24,0,24,18">
-        <Border x:Name="ComposerBorder" Background="#1C2430" BorderBrush="#34465A" BorderThickness="1" CornerRadius="18" Padding="16,14,16,12">
+      <StackPanel HorizontalAlignment="Stretch" MaxWidth="920" Grid.Row="1" Margin="26,0,26,20">
+        <Border x:Name="ComposerBorder" Background="#1B2935" BorderBrush="#405869" BorderThickness="1" CornerRadius="16" Padding="17,13,17,12">
           <Grid>
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
@@ -111,39 +152,39 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#222E3D" CornerRadius="9" Padding="9,7" Margin="0,0,0,7" Visibility="Collapsed">
+            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#213341" CornerRadius="9" Padding="9,7" Margin="0,0,0,7" Visibility="Collapsed">
               <StackPanel>
                 <DockPanel Margin="0,0,0,4"><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="4,1" FontSize="9" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="В ОЧЕРЕДИ" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextFaint}" VerticalAlignment="Center"/></DockPanel>
                 <ScrollViewer MaxHeight="88" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
               </StackPanel>
             </Border>
-            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="66" MaxHeight="150" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#EEF3F8" Text="Спросите Codex о задаче или попросите изменить проект…" />
+            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="58" MaxHeight="160" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#EAF3F6" Text="Спросите Codex о задаче или попросите изменить проект…" />
             <Grid Grid.Row="2" Margin="0,7,0,0" MinHeight="36">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <StackPanel Grid.Column="0"><WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="AddContextButton" Width="32" Height="32" Padding="0" Background="#263344" Foreground="{StaticResource TextMuted}" ToolTip="Добавить файл в контекст"><TextBlock Text="＋" FontSize="18" /></Button>
-                <Button x:Name="ScreenshotButton" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#222E3D" Foreground="#C8D4E2" ToolTip="Выбрать область экрана и добавить снимок в контекст"><StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="13" Margin="0,0,6,0"/><TextBlock Text="Скриншот" FontSize="11"/></StackPanel></Button>
-                <Button x:Name="SkillsButton" Content="Скиллы" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#222E3D" Foreground="#C8D4E2" FontSize="11" ToolTip="Добавить скилл в запрос: imagegen, computer-use и другие"/><Button x:Name="ThreadGoalButton" Content="Цель" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#222E3D" Foreground="#C8D4E2" FontSize="11" IsEnabled="False" ToolTip="Управлять сохранённой целью текущего чата"/>
+                <Button x:Name="AddContextButton" Width="32" Height="32" Padding="0" Background="#294050" Foreground="{StaticResource TextMuted}" ToolTip="Добавить файл в контекст"><TextBlock Text="＋" FontSize="18" /></Button>
+                <Button x:Name="ScreenshotButton" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать область экрана и добавить снимок в контекст"><StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="13" Margin="0,0,6,0"/><TextBlock Text="Скриншот" FontSize="11"/></StackPanel></Button>
+                <Button x:Name="SkillsButton" Content="Скиллы" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" FontSize="11" ToolTip="Добавить скилл в запрос: imagegen, computer-use и другие"/><Button x:Name="ThreadGoalButton" Content="Цель" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" FontSize="11" IsEnabled="False" ToolTip="Управлять сохранённой целью текущего чата"/>
               </WrapPanel><WrapPanel Margin="0,10,0,0">
-                <Button x:Name="ModelButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#222E3D" Foreground="#C8D4E2" ToolTip="Выбрать модель"><StackPanel Orientation="Horizontal"><TextBlock Text="Модель" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="ModelLabel" Text="gpt-6-luna" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
-                <Button x:Name="EffortButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#222E3D" Foreground="#C8D4E2" ToolTip="Выбрать уровень усилий"><StackPanel Orientation="Horizontal"><TextBlock Text="Усилия" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="EffortLabel" Text="Высокие" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
-                <Button x:Name="WorktreeButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#222E3D" Foreground="#C8D4E2" ToolTip="Вести этот чат в отдельном Git worktree через Codex CLI"><StackPanel Orientation="Horizontal"><TextBlock Text="⑂" FontSize="15" Margin="0,0,6,0"/><TextBlock x:Name="WorktreeLabel" Text="Рабочая копия" FontSize="10"/></StackPanel></Button>
-                <Button x:Name="ModeButton" Height="32" Padding="9,0" Margin="0,0,0,5" Background="#222E3D" Foreground="#C8D4E2" ToolTip="Настроить доступ и подтверждения"><StackPanel Orientation="Horizontal"><Path Width="13" Height="15" Margin="0,0,7,0" Stroke="#A4B1C2" StrokeThickness="1.2" Fill="Transparent" Data="M6.5,0.5 L12,2.5 V7.1 C12,10.2 9.7,12.7 6.5,14.5 C3.3,12.7 1,10.2 1,7.1 V2.5 Z"/><TextBlock x:Name="AccessModeLabel" Text="Попросить подтверждение" FontSize="10"/><TextBlock Text="⌄" Margin="7,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
+                <Button x:Name="ModelButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать модель"><StackPanel Orientation="Horizontal"><TextBlock Text="Модель" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="ModelLabel" Text="gpt-6-luna" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
+                <Button x:Name="EffortButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать уровень усилий"><StackPanel Orientation="Horizontal"><TextBlock Text="Усилия" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="EffortLabel" Text="Высокие" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
+                <Button x:Name="WorktreeButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Вести этот чат в отдельном Git worktree через Codex CLI"><StackPanel Orientation="Horizontal"><TextBlock Text="⑂" FontSize="15" Margin="0,0,6,0"/><TextBlock x:Name="WorktreeLabel" Text="Рабочая копия" FontSize="10"/></StackPanel></Button>
+                <Button x:Name="ModeButton" Height="32" Padding="9,0" Margin="0,0,0,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Настроить доступ и подтверждения"><StackPanel Orientation="Horizontal"><Path Width="13" Height="15" Margin="0,0,7,0" Stroke="#9FB2C3" StrokeThickness="1.2" Fill="Transparent" Data="M6.5,0.5 L12,2.5 V7.1 C12,10.2 9.7,12.7 6.5,14.5 C3.3,12.7 1,10.2 1,7.1 V2.5 Z"/><TextBlock x:Name="AccessModeLabel" Text="Попросить подтверждение" FontSize="10"/><TextBlock Text="⌄" Margin="7,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
               </WrapPanel></StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
-                <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата"><Ellipse Stroke="#34465A" StrokeThickness="2.6"/><Path x:Name="ContextUsageArc" Stroke="#A8E6CF" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><TextBlock x:Name="ContextPercent" Text="—" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
-                <Border Background="#222E3D" CornerRadius="6" Padding="8,5" Margin="0,0,9,0" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock Text="Codex" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border>
+                <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата"><Ellipse Stroke="#435D6D" StrokeThickness="2.6"/><Path x:Name="ContextUsageArc" Stroke="#92E5C7" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><TextBlock x:Name="ContextPercent" Text="—" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
+                <Border Background="#213341" CornerRadius="6" Padding="8,5" Margin="0,0,9,0" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Fill="{StaticResource Green}" Margin="0,0,6,0"/><TextBlock Text="Codex" FontSize="10" Foreground="{StaticResource TextMuted}"/></StackPanel></Border>
                 <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
-                  <Button x:Name="FollowUpModeButton" Height="30" Padding="8,0" Margin="0,0,0,4" Background="#222E3D" Foreground="#C8D4E2" FontSize="10" Visibility="Collapsed" ToolTip="Выбрать, отправлять ли сообщение в текущий ход или поставить в очередь"/>
+                  <Button x:Name="FollowUpModeButton" Height="30" Padding="8,0" Margin="0,0,0,4" Background="#213341" Foreground="#C8D4E2" FontSize="10" Visibility="Collapsed" ToolTip="Выбрать, отправлять ли сообщение в текущий ход или поставить в очередь"/>
                   <Button x:Name="StopButton" Content="Остановить" Height="30" Padding="8,0" Background="#4A2A31" Foreground="#F2C5C8" FontSize="10" Visibility="Collapsed" ToolTip="Прервать текущий ход Codex"/>
                 </StackPanel>
-                <Button x:Name="SendButton" Width="36" Height="36" Padding="0" Background="#A8E6CF" Foreground="#151B23" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
+                <Button x:Name="SendButton" Width="38" Height="38" Padding="0" Background="#92E5C7" Foreground="#121D27" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="3" BorderBrush="#2B3746" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
+            <Border Grid.Row="3" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
@@ -200,7 +241,7 @@
             <TextBlock Text="СООБЩЕНИЕ КОММИТА" FontSize="9" Foreground="{StaticResource TextFaint}" Margin="0,3,0,4" />
             <DockPanel>
               <Button x:Name="CommitStagedButton" DockPanel.Dock="Right" Content="Коммит" Padding="8,5" Margin="5,0,0,0" ToolTip="Зафиксировать только staged-изменения" />
-              <TextBox x:Name="CommitMessageInput" Height="30" Padding="7,4" Background="#1C2430" Foreground="#EEF3F8" BorderBrush="#34465A" ToolTip="Сообщение коммита" />
+              <TextBox x:Name="CommitMessageInput" Height="30" Padding="7,4" Background="#1B2935" Foreground="#EAF3F6" BorderBrush="#435D6D" ToolTip="Сообщение коммита" />
             </DockPanel>
           </StackPanel>
           <Button x:Name="PushBranchButton" Content="Отправить ветку" HorizontalAlignment="Left" Padding="8,5" Margin="0,5,0,0" Visibility="Collapsed" ToolTip="Отправить текущую ветку в настроенный upstream без force-push" />

@@ -60,6 +60,7 @@ public partial class MainWindow : Window
     private bool _stateSaveBlocked;
     private PreparedAppUpdate? _preparedUpdate;
     private GitRepositorySnapshot? _repositorySnapshot;
+    private string? _snapshotProjectPath;
     private bool _isRefreshingRepository;
     private bool _repositoryRefreshPending;
     private bool _isReviewingChanges;
@@ -135,6 +136,8 @@ public partial class MainWindow : Window
             _updateCheckTimer.Start();
             _ = CheckForUpdatesAsync();
             _automationTimer.Start();
+            _repositoryRefreshTimer.Start();
+            _ = RefreshRepositoryInfoAsync();
             RenderPromptQueue();
             _ = ResumePendingWorkAsync();
             _ = ProcessAutomationsAsync();
@@ -419,6 +422,8 @@ public partial class MainWindow : Window
         Click("SearchButton", (_, _) => ShowSearch());
         Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ContextButton", (_, _) => ToggleContext());
+        Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
+        Click("ChatDiffButton", (_, _) => ToggleContext(true));
         Click("CloseContextButton", (_, _) => ToggleContext(false));
         Click("TerminalButton", (_, _) => ShowTerminalWindow());
         Click("RefreshRepositoryButton", (_, _) =>
@@ -481,6 +486,8 @@ public partial class MainWindow : Window
 
     private void RefreshView()
     {
+        if (!string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase))
+            _repositorySnapshot = null;
         if (Control<TextBlock>("ProjectPathShort") is { } shortPath)
         {
             var projectName = _selectedProject?.Name
@@ -513,11 +520,8 @@ public partial class MainWindow : Window
         RenderThreads();
         RenderProjects();
         RenderConversation();
-        if (_contextOpen)
-        {
-            RefreshFileTree();
-            _ = RefreshRepositoryInfoAsync();
-        }
+        if (_contextOpen) RefreshFileTree();
+        _ = RefreshRepositoryInfoAsync();
         SetStatus(HasActiveRuns ? "Codex работает…" : "Codex готов",
             _startupIssue ?? (HasActiveRuns ? "Есть выполняющиеся запросы." : "Запросы выполняются в выбранной папке."),
             isError: _startupIssue is not null);
@@ -548,10 +552,12 @@ public partial class MainWindow : Window
             {
                 Content = thread.ActiveRun is null ? thread.Title : "●  " + thread.Title,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(10, 8, 7, 8),
-                Margin = new Thickness(0, 1, 0, 1),
-                Background = thread == _currentThread ? Brush("#263344") : Brushes.Transparent,
-                Foreground = Brush(thread == _currentThread ? "#F0F0F1" : "#A4A5AA"),
+                Padding = new Thickness(12, 10, 7, 10),
+                Margin = new Thickness(0, 2, 0, 2),
+                Background = thread == _currentThread ? Brush("#29453F") : Brushes.Transparent,
+                BorderBrush = thread == _currentThread ? Brush("#3E6C5A") : Brushes.Transparent,
+                BorderThickness = new Thickness(1),
+                Foreground = Brush(thread == _currentThread ? "#F1FBF7" : "#A5B5C3"),
                 FontSize = 12,
                 ToolTip = thread.ActiveRun is null ? thread.Title : "Выполняется… " + thread.Title
             };
@@ -1022,6 +1028,8 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         RenderThreads();
         RenderConversation();
+        UpdateChatInfoPanel();
+        _ = RefreshRepositoryInfoAsync();
         if (_currentThread is not null)
         {
             _ = RestoreThreadContextUsageAsync(_currentThread);
@@ -1100,6 +1108,7 @@ public partial class MainWindow : Window
         if (Control<StackPanel>("Conversation") is not { } stack) return;
         _streamingAssistantTextBlock = null;
         stack.Children.Clear();
+        UpdateChatQuickOverview();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
             var welcome = new StackPanel { Margin = new Thickness(0, 48, 0, 0), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center };
@@ -1212,19 +1221,20 @@ public partial class MainWindow : Window
             }
             return new Border
             {
-                Background = Brush("#18212C"), BorderBrush = Brush(message.IsError ? "#78434A" : "#394355"),
-                BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(12, 9, 12, 9),
-                Margin = new Thickness(4, 4, 4, 10), Child = activityContent
+                Background = Brush("#182733"), BorderBrush = Brush(message.IsError ? "#8E5357" : "#304657"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(13, 11, 13, 11), MaxWidth = 760,
+                Margin = new Thickness(5, 4, 5, 11), Child = activityContent
             };
         }
         var outer = new StackPanel
         {
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            MaxWidth = 700,
-            Margin = new Thickness(0, 18, 0, 22)
+            MaxWidth = 745,
+            Margin = new Thickness(0, 14, 0, 16)
         };
         if (!message.IsUser)
-            outer.Children.Add(new TextBlock { Text = "✳  Codex", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brush("#C4C5C9"), Margin = new Thickness(1, 0, 0, 8) });
+            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(3, 0, 0, 9) });
 
         var text = new TextBlock
         {
@@ -1238,14 +1248,14 @@ public partial class MainWindow : Window
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
-            var bubble = new Border { Background = Brush("#223B38"), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 10, 14, 10), Child = text };
+            var bubble = new Border { Background = Brush("#25453E"), BorderBrush = Brush("#376A58"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(16, 12, 16, 12), Child = text };
             outer.Children.Add(bubble);
         }
         else outer.Children.Add(new Border
         {
-            Background = Brush("#18212C"), BorderBrush = Brush("#2B3746"),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(16, 13, 16, 13), Child = text
+            Background = Brush("#1A2833"), BorderBrush = Brush("#2D4050"),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(19, 16, 19, 16), Child = text
         });
         return outer;
     }
@@ -1414,6 +1424,88 @@ public partial class MainWindow : Window
     }
 
     private void RefreshFileTree() => RenderFileTree();
+
+    private string[] GetChatAttachments()
+    {
+        const string prefix = "Файл для контекста: ";
+        return _currentThread?.Messages.Where(message => message.IsUser)
+            .SelectMany(message => message.Text.Split('\n'))
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(line => line[prefix.Length..].Trim().Trim('"'))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+    }
+
+    private void UpdateChatQuickOverview()
+    {
+        var attachments = GetChatAttachments();
+        if (Control<TextBlock>("ChatAttachmentsCount") is { } count)
+            count.Text = attachments.Length.ToString(CultureInfo.CurrentCulture);
+        if (Control<TextBlock>("ChatAttachmentsPreview") is { } preview)
+        {
+            preview.Text = attachments.Length switch
+            {
+                0 => "Нет прикреплённых файлов",
+                1 => Path.GetFileName(attachments[0]),
+                _ => Path.GetFileName(attachments[^1]) + $"  и ещё {attachments.Length - 1}"
+            };
+            preview.ToolTip = attachments.Length == 0 ? null : string.Join("\n", attachments);
+        }
+        var snapshot = string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase)
+            ? _repositorySnapshot : null;
+        if (Control<TextBlock>("GitAddedLines") is { } added)
+            added.Text = snapshot?.IsRepository == true ? $"+{snapshot.AddedLines:N0}" : "+—";
+        if (Control<TextBlock>("GitRemovedLines") is { } removed)
+            removed.Text = snapshot?.IsRepository == true ? $"−{snapshot.RemovedLines:N0}" : "−—";
+        if (Control<Button>("ChatDiffButton") is { } changes)
+            changes.ToolTip = snapshot?.IsRepository == true
+                ? $"{snapshot.Branch} · {snapshot.Changes.Count} изменённых файлов. Открыть подробности."
+                : "Данные об изменениях Git недоступны";
+    }
+
+    private void ShowChatAttachments()
+    {
+        if (Control<Button>("ChatAttachmentsButton") is not { } anchor) return;
+        var attachments = GetChatAttachments();
+        var popup = new ContextMenu
+        {
+            PlacementTarget = anchor,
+            Placement = PlacementMode.Bottom,
+            Background = Brush("#1B2935"),
+            Foreground = Brush("#EAF3F6"),
+            BorderBrush = Brush("#435D6D"),
+            BorderThickness = new Thickness(1),
+            MinWidth = 260,
+            MaxWidth = 480
+        };
+        if (attachments.Length == 0)
+            popup.Items.Add(new MenuItem { Header = "В этом чате пока нет вложений", IsEnabled = false });
+        foreach (var path in attachments)
+        {
+            var item = new MenuItem { Header = Path.GetFileName(path), ToolTip = path, FontSize = 12 };
+            item.Click += (_, _) =>
+            {
+                if (!File.Exists(path))
+                {
+                    SetStatus("Вложение недоступно", $"Не найден файл: {path}", isError: true);
+                    return;
+                }
+                try
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+                }
+                catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    SetStatus("Не удалось открыть вложение", error.Message, isError: true);
+                }
+            };
+            popup.Items.Add(item);
+        }
+        anchor.ContextMenu = popup;
+        popup.IsOpen = true;
+    }
 
     private void UpdateChatInfoPanel()
     {
@@ -1626,7 +1718,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshRepositoryInfoAsync()
     {
-        if (!_contextOpen || _isClosing) return;
+        if (_isClosing) return;
         if (_isRefreshingRepository)
         {
             _repositoryRefreshPending = true;
@@ -1641,7 +1733,7 @@ public partial class MainWindow : Window
                 _repositoryRefreshPending = false;
                 var projectPath = _projectPath;
                 var snapshot = await GitRepositoryInspector.ReadAsync(projectPath, _repositoryRefreshCancellation.Token);
-                if (_isClosing || !_contextOpen) return;
+                if (_isClosing) return;
                 if (!string.Equals(projectPath, _projectPath, StringComparison.OrdinalIgnoreCase))
                 {
                     _repositoryRefreshPending = true;
@@ -1649,15 +1741,17 @@ public partial class MainWindow : Window
                 }
 
                 _repositorySnapshot = snapshot;
+                _snapshotProjectPath = projectPath;
                 RenderRepositoryInfo(snapshot);
+                UpdateChatQuickOverview();
             }
-            while (_repositoryRefreshPending && !_isClosing && _contextOpen);
+            while (_repositoryRefreshPending && !_isClosing);
         }
         catch (OperationCanceledException) when (_isClosing) { }
         finally
         {
             _isRefreshingRepository = false;
-            if (_repositoryRefreshPending && !_isClosing && _contextOpen)
+            if (_repositoryRefreshPending && !_isClosing)
                 _ = RefreshRepositoryInfoAsync();
         }
     }
@@ -3588,6 +3682,7 @@ public partial class MainWindow : Window
         RenderThreads();
         RenderConversation();
         UpdateContextIndicator();
+        UpdateChatInfoPanel();
         Control<TextBox>("PromptInput")?.Focus();
     }
 
@@ -3709,7 +3804,9 @@ public partial class MainWindow : Window
         if (_activeView is not { ColumnDefinitions.Count: 3 } view) return;
         // Keep the conversation usable when repository details are open in a narrow window.
         var hideSidebar = _sidebarCollapsed || (_contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120);
-        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 0 : 260);
+        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 0 : 250);
+        if (Control<Border>("ChatOverviewCard") is { } overview)
+            overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 260 : 350;
         view.ColumnDefinitions[2].Width = new GridLength(_contextOpen ? 310 : 0);
     }
 
@@ -3729,11 +3826,6 @@ public partial class MainWindow : Window
             RefreshFileTree();
             UpdateChatInfoPanel();
             _ = RefreshRepositoryInfoAsync();
-            _repositoryRefreshTimer.Start();
-        }
-        else
-        {
-            _repositoryRefreshTimer.Stop();
         }
     }
 
