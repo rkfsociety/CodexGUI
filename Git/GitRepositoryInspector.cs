@@ -230,17 +230,17 @@ internal static class GitRepositoryInspector
     public static async Task PushCurrentBranchAsync(string repositoryRoot, bool setUpstream, CancellationToken cancellationToken)
     {
         var root = Path.GetFullPath(repositoryRoot);
+        var branchResult = await RunGitAsync(root, cancellationToken, "symbolic-ref", "--quiet", "--short", "HEAD");
+        var branch = branchResult.Output.Trim();
+        if (branchResult.ExitCode != 0 || branch.Length == 0)
+            throw new InvalidOperationException("Нельзя отправить detached HEAD: переключитесь на ветку.");
+
         GitCommandResult result;
         if (setUpstream)
             result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(5),
                 "push", "--set-upstream", "origin", "HEAD");
         else
         {
-            var branchResult = await RunGitAsync(root, cancellationToken, "symbolic-ref", "--quiet", "--short", "HEAD");
-            var branch = branchResult.Output.Trim();
-            if (branchResult.ExitCode != 0 || branch.Length == 0)
-                throw new InvalidOperationException("Нельзя отправить detached HEAD: переключитесь на ветку.");
-
             var remoteResult = await RunGitAsync(root, cancellationToken, "config", "--get", $"branch.{branch}.remote");
             var mergeResult = await RunGitAsync(root, cancellationToken, "config", "--get", $"branch.{branch}.merge");
             var remote = remoteResult.Output.Trim();
@@ -381,18 +381,23 @@ internal static class GitRepositoryInspector
         }
         catch (TimeoutException)
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
+            await TerminateGitProcessAsync(process);
             throw new TimeoutException($"Git не ответил за {timeout.TotalSeconds:0} секунд.");
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
+            await TerminateGitProcessAsync(process);
             throw;
         }
 
         return new GitCommandResult(process.ExitCode, await outputTask, await errorTask);
+    }
+
+    private static async Task TerminateGitProcessAsync(Process process)
+    {
+        try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+        catch (InvalidOperationException) { }
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     private static (string Branch, string? Upstream, int Ahead, int Behind,

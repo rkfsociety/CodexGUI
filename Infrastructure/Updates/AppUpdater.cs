@@ -22,12 +22,15 @@ internal static class AppUpdater
     private const string ArchiveName = "CodexGUI-win-x64.zip";
     private const string ChecksumName = ArchiveName + ".sha256";
     private const string SignatureName = ArchiveName + ".sig";
+    private const long MaximumArchiveBytes = 512L * 1024 * 1024;
+    private const long MaximumMetadataBytes = 4096;
     private const string ReleasePublicKey = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjKDFJz59PcWpOLTJqcxFN3FsM+Ah\nvbzdlyTJhKnLZ93rxwqsrOGJOigTcx6Ntn1DlNg5vVA6AihvsTZOXq+rDQ==\n-----END PUBLIC KEY-----";
     private static readonly HttpClient Client = CreateClient();
 
     public static string CurrentVersion =>
         Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
-        ?? "0.0.001";
+        ?? Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)
+        ?? throw new InvalidOperationException("Не удалось определить версию CodexGUI.");
 
     public static async Task<AppUpdate?> FindUpdateAsync(CancellationToken cancellationToken = default)
     {
@@ -67,9 +70,9 @@ internal static class AppUpdater
 
         try
         {
-            await DownloadFileAsync(update.ArchiveUri, archivePath, cancellationToken);
-            await DownloadFileAsync(update.ChecksumUri, checksumPath, cancellationToken);
-            await DownloadFileAsync(update.SignatureUri, signaturePath, cancellationToken);
+            await DownloadFileAsync(update.ArchiveUri, archivePath, MaximumArchiveBytes, cancellationToken);
+            await DownloadFileAsync(update.ChecksumUri, checksumPath, MaximumMetadataBytes, cancellationToken);
+            await DownloadFileAsync(update.SignatureUri, signaturePath, MaximumMetadataBytes, cancellationToken);
             var expectedHash = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             if (expectedHash is null || expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
                 throw new InvalidDataException("Файл контрольной суммы релиза повреждён.");
@@ -177,13 +180,15 @@ internal static class AppUpdater
         return 0;
     }
 
-    private static async Task DownloadFileAsync(Uri uri, string path, CancellationToken cancellationToken)
+    private static async Task DownloadFileAsync(Uri uri, string path, long maximumBytes, CancellationToken cancellationToken)
     {
         using var response = await GetResponseAsync(Client, uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is { } contentLength && contentLength > maximumBytes)
+            throw new InvalidDataException("Размер файла обновления превышает допустимый предел.");
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var destination = File.Create(path);
-        await CopyDownloadAsync(source, destination, TimeSpan.FromSeconds(30), cancellationToken);
+        await CopyDownloadAsync(source, destination, TimeSpan.FromSeconds(30), cancellationToken, maximumBytes);
     }
 
     internal static async Task<HttpResponseMessage> GetResponseAsync(HttpClient client, Uri uri,
@@ -206,9 +211,10 @@ internal static class AppUpdater
     }
 
     internal static async Task CopyDownloadAsync(Stream source, Stream destination, TimeSpan idleTimeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, long maximumBytes = long.MaxValue)
     {
         var buffer = new byte[81920];
+        long transferred = 0;
         using var idleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         while (true)
         {
@@ -229,6 +235,9 @@ internal static class AppUpdater
             }
 
             if (count == 0) return;
+            if (count > maximumBytes - transferred)
+                throw new InvalidDataException("Размер файла обновления превышает допустимый предел.");
+            transferred += count;
             await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
         }
     }

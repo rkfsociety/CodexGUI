@@ -57,6 +57,7 @@ public partial class MainWindow : Window
     private bool _isCheckingUpdates;
     private bool _isInstallingUpdate;
     private bool _isClosing;
+    private bool _stateSaveBlocked;
     private PreparedAppUpdate? _preparedUpdate;
     private GitRepositorySnapshot? _repositorySnapshot;
     private bool _isRefreshingRepository;
@@ -4167,7 +4168,14 @@ public partial class MainWindow : Window
         {
             try
             {
-                var state = JsonSerializer.Deserialize<StoredState>(File.ReadAllText(statePath));
+                var state = JsonSerializer.Deserialize<StoredState>(File.ReadAllText(statePath))
+                    ?? throw new InvalidDataException("Файл состояния пуст.");
+                if (state.Projects is null || state.RemovedProjects is null || state.Threads is null
+                    || state.QueuedPrompts is null || state.Projects.Any(project => project is null)
+                    || state.RemovedProjects.Any(project => project is null)
+                    || state.Threads.Any(thread => thread is null)
+                    || state.QueuedPrompts.Any(prompt => prompt is null))
+                    throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
                 if (state is not null)
                 {
                     _projects.AddRange(state.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Id) && !string.IsNullOrWhiteSpace(project.Path)));
@@ -4206,9 +4214,18 @@ public partial class MainWindow : Window
                     _selectedEffort = string.IsNullOrWhiteSpace(state.SelectedEffort) ? DefaultEffort : state.SelectedEffort;
                 }
             }
-            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
             {
-                _startupIssue = "Не удалось прочитать список проектов: " + error.Message;
+                try
+                {
+                    var backup = AtomicJsonFile.BackupUnreadable(statePath);
+                    _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}";
+                }
+                catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
+                {
+                    _stateSaveBlocked = true;
+                    _startupIssue = $"Не удалось прочитать состояние ({error.Message}) и сохранить его копию ({backupError.Message}). Запись state.json заблокирована.";
+                }
             }
         }
 
@@ -4226,6 +4243,7 @@ public partial class MainWindow : Window
 
     private bool SaveState()
     {
+        if (_stateSaveBlocked) return false;
         try
         {
             var statePath = GetStatePath();
@@ -4256,9 +4274,7 @@ public partial class MainWindow : Window
                     ActiveRun = thread.ActiveRun
                 }).ToList()
             };
-            var temporary = statePath + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(temporary, statePath, overwrite: true);
+            AtomicJsonFile.Write(statePath, state, new JsonSerializerOptions { WriteIndented = true });
             return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)

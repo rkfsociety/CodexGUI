@@ -64,6 +64,7 @@ internal sealed class CodexAutomationRun
 internal static class CodexAutomationStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static bool _definitionsSaveBlocked;
     public static string Root => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "automations");
     public static string RunsDirectory => Path.Combine(Root, "runs");
@@ -73,14 +74,33 @@ internal static class CodexAutomationStore
     public static List<CodexAutomationDefinition> LoadDefinitions()
     {
         if (!File.Exists(DefinitionsPath)) return [];
-        var definitions = JsonSerializer.Deserialize<List<CodexAutomationDefinition>>(File.ReadAllText(DefinitionsPath)) ?? [];
-        foreach (var definition in definitions)
+        try
         {
-            NormalizeDefinition(definition);
-            if (definition.NextRunAtUtc == default && !definition.RecurrenceExhausted)
-                CalculateNextOccurrence(definition, DateTimeOffset.UtcNow);
+            var definitions = JsonSerializer.Deserialize<List<CodexAutomationDefinition>>(File.ReadAllText(DefinitionsPath))
+                ?? throw new InvalidDataException("Файл расписаний пуст.");
+            if (definitions.Any(definition => definition is null))
+                throw new InvalidDataException("Файл расписаний содержит пустые записи.");
+            foreach (var definition in definitions)
+            {
+                NormalizeDefinition(definition);
+                if (definition.NextRunAtUtc == default && !definition.RecurrenceExhausted)
+                    CalculateNextOccurrence(definition, DateTimeOffset.UtcNow);
+            }
+            return definitions;
         }
-        return definitions;
+        catch (Exception error) when (error is JsonException or InvalidDataException)
+        {
+            try
+            {
+                var backup = AtomicJsonFile.BackupUnreadable(DefinitionsPath);
+                throw new InvalidDataException($"Расписания повреждены. Резервная копия: {backup}", error);
+            }
+            catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
+            {
+                _definitionsSaveBlocked = true;
+                throw new InvalidDataException("Расписания повреждены, резервную копию создать не удалось. Сохранение заблокировано.", backupError);
+            }
+        }
     }
 
     internal static void NormalizeDefinition(CodexAutomationDefinition definition)
@@ -138,7 +158,9 @@ internal static class CodexAutomationStore
     public static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions)
     {
         Directory.CreateDirectory(Root);
-        WriteJsonAtomically(DefinitionsPath, definitions);
+        if (_definitionsSaveBlocked)
+            throw new InvalidDataException("Сохранение расписаний заблокировано до восстановления исходного файла.");
+        AtomicJsonFile.Write(DefinitionsPath, definitions, JsonOptions);
     }
 
     public static List<CodexAutomationRun> LoadRuns()
@@ -149,8 +171,11 @@ internal static class CodexAutomationStore
         {
             try
             {
-                if (JsonSerializer.Deserialize<CodexAutomationRun>(File.ReadAllText(path)) is { } run)
+                if (JsonSerializer.Deserialize<CodexAutomationRun>(File.ReadAllText(path)) is { } run
+                    && Guid.TryParseExact(run.Id, "N", out _))
                     runs.Add(run);
+                else
+                    System.Diagnostics.Trace.TraceWarning("Пропущен результат автоматизации с некорректным идентификатором: {0}", path);
             }
             catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -163,7 +188,9 @@ internal static class CodexAutomationStore
     public static void SaveRun(CodexAutomationRun run)
     {
         Directory.CreateDirectory(RunsDirectory);
-        WriteJsonAtomically(Path.Combine(RunsDirectory, run.Id + ".json"), run);
+        if (!Guid.TryParseExact(run.Id, "N", out _))
+            throw new InvalidDataException("Недопустимый идентификатор запуска автоматизации.");
+        AtomicJsonFile.Write(Path.Combine(RunsDirectory, run.Id + ".json"), run, JsonOptions);
     }
 
     public static void MarkRunReviewed(CodexAutomationRun run)
@@ -230,19 +257,4 @@ internal static class CodexAutomationStore
         return new DateTimeOffset(candidate).ToUniversalTime();
     }
 
-    private static void WriteJsonAtomically(string path, object value)
-    {
-        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(value, JsonOptions));
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            try { File.Delete(temporaryPath); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
 }

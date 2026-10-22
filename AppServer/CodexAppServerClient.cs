@@ -195,11 +195,17 @@ internal sealed class CodexAppServerClient(string executablePath)
         }
         finally
         {
-            process.StandardInput.Close();
+            try { process.StandardInput.Close(); }
+            catch (IOException) { }
             if (!process.HasExited)
             {
                 try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-                catch (TimeoutException) { process.Kill(entireProcessTree: true); }
+                catch (TimeoutException)
+                {
+                    try { process.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) { }
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
             }
             await errorsTask;
         }
