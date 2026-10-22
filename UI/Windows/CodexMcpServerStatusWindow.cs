@@ -298,9 +298,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
     private void RefreshList(string? preferredName = null)
     {
         var query = _search.Text.Trim();
-        var visibleItems = _items.Where(status => query.Length == 0 ||
-            $"{status.Name} {status.ServerTitle} {status.ServerVersion} {status.StateLabel} {status.AuthenticationLabel} {status.HttpOrigin} {status.ToolsError} {string.Join(" ", status.ToolNames)}"
-                .Contains(query, StringComparison.OrdinalIgnoreCase))
+        var visibleItems = _items.Where(status => MatchesSearch(status, query))
             .ToArray();
         _servers.ItemsSource = visibleItems;
         _empty.Text = _loadFailed
@@ -331,6 +329,25 @@ internal sealed class CodexMcpServerStatusWindow : Window
                 ? "В общем профиле Codex нет настроенных MCP-серверов."
                 : "Нет серверов, соответствующих фильтру.";
     }
+
+    private static bool MatchesSearch(CodexMcpServerStatus status, string query)
+    {
+        if (query.Length == 0) return true;
+        if (Contains(status.Name, query)
+            || Contains(status.ServerTitle, query)
+            || Contains(status.ServerVersion, query)
+            || Contains(status.StateLabel, query)
+            || Contains(status.AuthenticationLabel, query)
+            || Contains(status.HttpOrigin, query)
+            || Contains(status.ToolsError, query))
+            return true;
+        foreach (var toolName in status.ToolNames)
+            if (Contains(toolName, query)) return true;
+        return false;
+    }
+
+    private static bool Contains(string? value, string query)
+        => value?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
 
     private void ShowSelectedDetails()
     {
