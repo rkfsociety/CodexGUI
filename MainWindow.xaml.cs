@@ -1456,7 +1456,39 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 14, 0, 18)
         };
         if (!message.IsUser)
-            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(4, 0, 0, 7) });
+        {
+            var header = new DockPanel { Margin = new Thickness(4, 0, 0, 7) };
+            var copyButton = new Button
+            {
+                Content = "⧉",
+                ToolTip = "Копировать ответ",
+                Padding = new Thickness(6, 2, 6, 2),
+                Foreground = Brush("#8799A7"),
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            copyButton.Click += async (_, _) =>
+            {
+                try
+                {
+                    Clipboard.SetText(message.Text);
+                    copyButton.Content = "✓";
+                    copyButton.ToolTip = "Ответ скопирован";
+                    await Task.Delay(1100);
+                    if (!copyButton.IsLoaded) return;
+                    copyButton.Content = "⧉";
+                    copyButton.ToolTip = "Копировать ответ";
+                }
+                catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+                {
+                    SetStatus("Не удалось скопировать ответ", error.Message, isError: true);
+                }
+            };
+            DockPanel.SetDock(copyButton, Dock.Right);
+            header.Children.Add(copyButton);
+            header.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
+            outer.Children.Add(header);
+        }
 
         var text = new TextBlock
         {

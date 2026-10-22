@@ -79,13 +79,25 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     $row.Margin = [System.Windows.Thickness]::new(0, 14, 0, 18)
 
     if (-not $IsUser) {
+        $header = [System.Windows.Controls.DockPanel]::new()
+        $header.Margin = [System.Windows.Thickness]::new(4, 0, 0, 7)
+        $copyButton = [System.Windows.Controls.Button]::new()
+        $copyButton.Content = '⧉'
+        $copyButton.ToolTip = 'Копировать ответ'
+        $copyButton.Padding = [System.Windows.Thickness]::new(6, 2, 6, 2)
+        $copyButton.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#8799A7')
+        $copyButton.FontSize = 13
+        $copyButton.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+        [System.Windows.Controls.DockPanel]::SetDock($copyButton, [System.Windows.Controls.Dock]::Right)
+        [void]$header.Children.Add($copyButton)
         $label = [System.Windows.Controls.TextBlock]::new()
         $label.Text = '✳   CODEX'
         $label.FontSize = 11
         $label.FontWeight = [System.Windows.FontWeights]::SemiBold
         $label.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#92E5C7')
-        $label.Margin = [System.Windows.Thickness]::new(4, 0, 0, 7)
-        [void]$row.Children.Add($label)
+        $label.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+        [void]$header.Children.Add($label)
+        [void]$row.Children.Add($header)
     }
 
     $body = [System.Windows.Controls.TextBlock]::new()
