@@ -15,6 +15,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Markup;
+using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
@@ -41,6 +42,7 @@ public partial class MainWindow : Window
     private readonly List<ProjectEntry> _projects = [];
     private readonly List<ProjectEntry> _removedProjects = [];
     private readonly List<QueuedPrompt> _promptQueue = [];
+    private readonly List<string> _composerAttachments = [];
     private readonly Dictionary<string, CodexThreadGoal?> _threadGoalCache = new(StringComparer.Ordinal);
     private IReadOnlyList<ModelOption> _availableModels = [];
     private Task<IReadOnlyList<ModelOption>>? _modelCatalogTask;
@@ -582,6 +584,7 @@ public partial class MainWindow : Window
 
     private void RefreshView()
     {
+        RenderComposerAttachments();
         if (!string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase))
             _repositorySnapshot = null;
         if (Control<TextBlock>("ProjectPathShort") is { } shortPath)
@@ -1533,6 +1536,85 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? [];
     }
+
+    private static string FormatPromptWithAttachments(string text, IReadOnlyCollection<string> attachments)
+    {
+        const string prefix = "Файл для контекста: ";
+        var attachmentText = string.Join(Environment.NewLine, attachments.Select(path => prefix + path));
+        if (string.IsNullOrWhiteSpace(text)) return attachmentText;
+        return attachmentText.Length == 0 ? text : text + Environment.NewLine + attachmentText;
+    }
+
+    private void AddComposerAttachments(IEnumerable<string> paths)
+    {
+        var changed = false;
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+            var fullPath = Path.GetFullPath(path);
+            if (_composerAttachments.Contains(fullPath, StringComparer.OrdinalIgnoreCase)) continue;
+            _composerAttachments.Add(fullPath);
+            changed = true;
+        }
+        if (!changed) return;
+        if (Control<TextBox>("PromptInput") is { Text: PromptPlaceholder } input) input.Clear();
+        RenderComposerAttachments();
+    }
+
+    private void RemoveComposerAttachment(string path)
+    {
+        if (_composerAttachments.RemoveAll(item => string.Equals(item, path, StringComparison.OrdinalIgnoreCase)) == 0) return;
+        RenderComposerAttachments();
+    }
+
+    private void ClearComposerAttachments()
+    {
+        if (_composerAttachments.Count == 0) return;
+        _composerAttachments.Clear();
+        RenderComposerAttachments();
+    }
+
+    private void RenderComposerAttachments()
+    {
+        if (Control<Border>("ComposerAttachmentsBorder") is not { } border ||
+            Control<WrapPanel>("ComposerAttachmentsPanel") is not { } panel) return;
+
+        panel.Children.Clear();
+        border.Visibility = _composerAttachments.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var path in _composerAttachments)
+        {
+            var label = Path.GetFileName(path);
+            var chip = new Button
+            {
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Children =
+                    {
+                        new TextBlock { Text = IsImageAttachment(path) ? "▧" : "▤", Margin = new Thickness(0, 0, 5, 0) },
+                        new TextBlock { Text = label, MaxWidth = 185, TextTrimming = TextTrimming.CharacterEllipsis },
+                        new TextBlock { Text = "×", FontSize = 14, Margin = new Thickness(6, -2, 0, 0), Foreground = Brush("#9FB2C3") }
+                    }
+                },
+                Height = 28,
+                MaxWidth = 240,
+                Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(2),
+                Background = Brush("#263A49"),
+                Foreground = Brush("#DCE7ED"),
+                BorderBrush = Brush("#405869"),
+                BorderThickness = new Thickness(1),
+                ToolTip = path,
+                Tag = path
+            };
+            AutomationProperties.SetName(chip, $"Вложение: {label}. Удалить");
+            chip.Click += (_, _) => RemoveComposerAttachment((string)chip.Tag);
+            panel.Children.Add(chip);
+        }
+    }
+
+    private static bool IsImageAttachment(string path) => Path.GetExtension(path).ToLowerInvariant() is
+        ".apng" or ".bmp" or ".gif" or ".jpeg" or ".jpg" or ".png" or ".tif" or ".tiff" or ".webp";
 
     private void UpdateChatQuickOverview()
     {
@@ -2640,16 +2722,18 @@ public partial class MainWindow : Window
     private async Task SendPromptAsync()
     {
         if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
-        var prompt = input.Text.Trim();
+        var promptText = input.Text == PromptPlaceholder ? "" : input.Text.Trim();
+        var attachments = _composerAttachments.ToArray();
+        var prompt = FormatPromptWithAttachments(promptText, attachments);
         if (string.IsNullOrWhiteSpace(prompt) || prompt == PromptPlaceholder) return;
-        if (prompt.Equals("/goal", StringComparison.OrdinalIgnoreCase)
-            || prompt.StartsWith("/goal ", StringComparison.OrdinalIgnoreCase))
+        if (attachments.Length == 0 && (prompt.Equals("/goal", StringComparison.OrdinalIgnoreCase)
+            || prompt.StartsWith("/goal ", StringComparison.OrdinalIgnoreCase)))
         {
             input.Clear();
             await HandleThreadGoalCommandAsync(prompt.Length > 5 ? prompt[5..].Trim() : "");
             return;
         }
-        if (prompt is "/plugins" or "/skills")
+        if (attachments.Length == 0 && (prompt is "/plugins" or "/skills"))
         {
             input.Clear();
             ShowExtensions(showSkills: prompt == "/skills");
@@ -2678,11 +2762,15 @@ public partial class MainWindow : Window
                 return;
             }
             input.Clear();
+            ClearComposerAttachments();
             return;
         }
         if (thread.Messages.Count == 0 && thread.ActiveRun is null && !_promptQueue.Any(item => item.ThreadId == thread.Id))
         {
-            thread.Title = TrimTitle(prompt);
+            var title = string.IsNullOrWhiteSpace(promptText)
+                ? string.Join(", ", attachments.Select(Path.GetFileName))
+                : promptText;
+            thread.Title = TrimTitle(title);
             RenderThreads();
         }
         var project = _projects.FirstOrDefault(item => item.Id == thread.ProjectId);
@@ -2696,6 +2784,7 @@ public partial class MainWindow : Window
         });
         SaveState();
         input.Clear();
+        ClearComposerAttachments();
         RenderPromptQueue();
         await ProcessQueuedPromptsAsync();
     }
@@ -4462,10 +4551,8 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFileDialog { Title = "Добавить файл в контекст", InitialDirectory = Directory.Exists(_projectPath) ? _projectPath : null, Multiselect = false };
         if (dialog.ShowDialog(this) != true || Control<TextBox>("PromptInput") is not { } input) return;
-        if (input.Text == PromptPlaceholder) input.Clear();
-        input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n") + $"Файл для контекста: {dialog.FileName}";
+        AddComposerAttachments([dialog.FileName]);
         input.Focus();
-        input.CaretIndex = input.Text.Length;
     }
 
     private async Task ShowAutomationsAsync()
@@ -5012,10 +5099,8 @@ public partial class MainWindow : Window
 
             if (Control<TextBox>("PromptInput") is { } input)
             {
-                if (input.Text == PromptPlaceholder) input.Clear();
-                input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n") + $"Файл для контекста: {dialog.FileName}";
+                AddComposerAttachments([dialog.FileName]);
                 input.Focus();
-                input.CaretIndex = input.Text.Length;
             }
             SetStatus("Скриншот готов", $"Сохранен и добавлен в контекст: {Path.GetFileName(dialog.FileName)}");
         }
@@ -5050,10 +5135,7 @@ public partial class MainWindow : Window
             }
 
             if (paths.Count == 0) return false;
-            if (input.Text == PromptPlaceholder) input.Clear();
-            input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n")
-                + string.Join("\n", paths.Select(path => $"Файл для контекста: {path}"));
-            input.CaretIndex = input.Text.Length;
+            AddComposerAttachments(paths);
             return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or ExternalException or NotSupportedException)

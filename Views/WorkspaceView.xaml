@@ -167,6 +167,7 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#213341" CornerRadius="9" Padding="9,7" Margin="0,0,0,7" Visibility="Collapsed">
               <StackPanel>
@@ -174,8 +175,13 @@
                 <ScrollViewer MaxHeight="88" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
               </StackPanel>
             </Border>
-            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="58" MaxHeight="160" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#EAF3F6" Text="Спросите Codex о задаче или попросите изменить проект…" />
-            <Grid Grid.Row="2" Margin="0,7,0,0" MinHeight="36">
+            <Border x:Name="ComposerAttachmentsBorder" Grid.Row="1" Background="#172530" CornerRadius="8" Padding="5" Margin="0,0,0,7" Visibility="Collapsed">
+              <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <WrapPanel x:Name="ComposerAttachmentsPanel" Orientation="Horizontal" />
+              </ScrollViewer>
+            </Border>
+            <TextBox x:Name="PromptInput" Grid.Row="2" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="58" MaxHeight="160" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="3,5,3,9" FontSize="14" Foreground="#EAF3F6" Text="Спросите Codex о задаче или попросите изменить проект…" />
+            <Grid Grid.Row="3" Margin="0,7,0,0" MinHeight="36">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -200,7 +206,7 @@
                 <Button x:Name="SendButton" Width="38" Height="38" Padding="0" Background="#92E5C7" Foreground="#121D27" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="3" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
+            <Border Grid.Row="4" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
