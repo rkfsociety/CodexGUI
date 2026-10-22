@@ -77,7 +77,8 @@ internal sealed class CodexAppServerClient(string executablePath)
         return SendRequestAsync("marketplace/remove", new { marketplaceName = marketplaceName.Trim() });
     }
 
-    public async Task<IReadOnlyList<JsonElement>> ListMcpServerStatusesAsync()
+    public Task<IReadOnlyList<JsonElement>> ListMcpServerStatusesAsync()
+        => RunWithSessionAsync<IReadOnlyList<JsonElement>>(async send =>
     {
         var statuses = new List<JsonElement>();
         var seenCursors = new HashSet<string>(StringComparer.Ordinal);
@@ -87,7 +88,7 @@ internal sealed class CodexAppServerClient(string executablePath)
         {
             if (++pageCount > 100)
                 throw new InvalidDataException("Список MCP-серверов превысил допустимое число страниц.");
-            var response = await SendRequestAsync("mcpServerStatus/list", new
+            var response = await send("mcpServerStatus/list", new
             {
                 cursor,
                 detail = "toolsAndAuthOnly",
@@ -108,7 +109,7 @@ internal sealed class CodexAppServerClient(string executablePath)
         } while (cursor is not null);
 
         return statuses;
-    }
+    });
 
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
