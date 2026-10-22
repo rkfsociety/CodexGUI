@@ -15,6 +15,7 @@ internal sealed class CodexTerminalWindow : Window
 {
     private readonly string _workingDirectory;
     private readonly bool _fullAccess;
+    private readonly string? _initialCommand;
     private readonly CodexAppServerTerminalHost _host = new();
     private readonly Dictionary<string, TerminalTab> _sessions = new(StringComparer.Ordinal);
     private readonly TabControl _tabs = new();
@@ -23,11 +24,12 @@ internal sealed class CodexTerminalWindow : Window
     private bool _isClosing;
     private bool? _terminalAllowed;
 
-    public CodexTerminalWindow(string workingDirectory, bool fullAccess)
+    public CodexTerminalWindow(string workingDirectory, bool fullAccess, string? initialCommand = null, string? windowTitle = null)
     {
         _workingDirectory = workingDirectory;
         _fullAccess = fullAccess;
-        Title = "Терминалы Codex";
+        _initialCommand = initialCommand;
+        Title = string.IsNullOrWhiteSpace(windowTitle) ? "Терминалы Codex" : windowTitle;
         Width = 1050;
         Height = 720;
         MinWidth = 760;
@@ -37,7 +39,7 @@ internal sealed class CodexTerminalWindow : Window
         Content = BuildLayout();
         _host.OutputReceived += OnOutputReceived;
         _host.SessionExited += OnSessionExited;
-        Loaded += async (_, _) => await CreateTerminalAsync();
+        Loaded += async (_, _) => await CreateTerminalAsync(_initialCommand);
         Closed += (_, _) =>
         {
             _isClosing = true;
@@ -85,7 +87,7 @@ internal sealed class CodexTerminalWindow : Window
         return root;
     }
 
-    private async Task CreateTerminalAsync()
+    private async Task CreateTerminalAsync(string? initialCommand = null)
     {
         if (_isClosing || !Directory.Exists(_workingDirectory)) return;
         if (!await EnsureTerminalConsentAsync()) return;
@@ -103,6 +105,8 @@ internal sealed class CodexTerminalWindow : Window
             await _host.StartSessionAsync(processId, _workingDirectory, _fullAccess || _terminalAllowed == true);
             tab.IsRunning = true;
             _status.Text = "PowerShell · команда отправляется по Enter";
+            if (!string.IsNullOrEmpty(initialCommand))
+                await SendInputAsync(tab, initialCommand + "\r");
             tab.Input.Focus();
         }
         catch (Exception error)

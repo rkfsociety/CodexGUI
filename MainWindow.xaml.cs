@@ -5106,7 +5106,7 @@ public partial class MainWindow : Window
                     _actions.AddRange(state.Actions
                         .Where(action => !string.IsNullOrWhiteSpace(action.Id)
                             && !string.IsNullOrWhiteSpace(action.Name)
-                            && !string.IsNullOrWhiteSpace(action.Prompt))
+                            && action.HasValidPayload)
                         .DistinctBy(action => action.Id, StringComparer.Ordinal));
                     foreach (var stored in state.Threads)
                     {
@@ -5242,6 +5242,8 @@ public partial class MainWindow : Window
     private void ShowActionsWindow()
     {
         var projectPath = _selectedProject?.Path;
+        var actionWorkingDirectory = _currentThread?.WorktreePath ?? projectPath ?? _projectPath;
+        var actionHasFullAccess = IsFullAccess;
         var projectActionsAvailable = !string.IsNullOrWhiteSpace(projectPath) && Directory.Exists(projectPath);
         List<CodexActionDefinition> projectActions = [];
         string? projectActionsRevision = null;
@@ -5271,9 +5273,29 @@ public partial class MainWindow : Window
                 return true;
             },
             projectActionsAvailable,
-            InsertActionPrompt)
+            InsertActionPrompt,
+            (name, command) => RunActionCommand(name, command, actionWorkingDirectory, actionHasFullAccess))
         { Owner = this };
         window.ShowDialog();
+    }
+
+    private void RunActionCommand(string name, string command, string? workingDirectory, bool fullAccess)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
+            {
+                CodexMessageDialog.Show(this, "Сначала выберите доступную папку проекта или рабочую копию.",
+                    "Команда PowerShell", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var window = new CodexTerminalWindow(workingDirectory, fullAccess, command, $"Действие: {name}")
+            {
+                Owner = this
+            };
+            window.Show();
+        }), DispatcherPriority.Background);
     }
 
     private void InsertActionPrompt(string prompt)

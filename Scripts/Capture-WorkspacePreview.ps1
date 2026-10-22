@@ -4,7 +4,7 @@ Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
 Loads App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
-the built-in Activity and Actions windows, the dark file, folder, or save picker, the automation
+the built-in Activity and Actions windows and action editor, the dark file, folder, or save picker, the automation
 editor and its calendar, the marketplace-add dialog and source manager, the MCP server status and OAuth login windows,
 or the Pull Request editor with local preview data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
 
@@ -26,6 +26,10 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Activity -
 .EXAMPLE
 dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Actions -OutputPath .\preview\actions.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View ActionEditor -OutputPath .\preview\action-editor.png
 
 .EXAMPLE
 dotnet build --no-restore
@@ -72,7 +76,7 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View SavePicker
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'MarketplaceAdd', 'MarketplaceManager', 'McpServers', 'McpOAuthLogin', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
+    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'ActionEditor', 'MarketplaceAdd', 'MarketplaceManager', 'McpServers', 'McpOAuthLogin', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -93,8 +97,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'McpServers') { 840 } elseif ($View -eq 'McpOAuthLogin') { 520 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'MarketplaceManager') { 520 } elseif ($View -eq 'McpServers') { 600 } elseif ($View -eq 'McpOAuthLogin') { 360 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'ActionEditor') { 620 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'McpServers') { 840 } elseif ($View -eq 'McpOAuthLogin') { 520 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'ActionEditor') { 570 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'MarketplaceManager') { 520 } elseif ($View -eq 'McpServers') { 600 } elseif ($View -eq 'McpOAuthLogin') { 360 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -361,23 +365,43 @@ elseif ($View -eq 'Actions') {
     }
     $projectAction = [Activator]::CreateInstance($itemType)
     $itemType.GetProperty('Name').SetValue($projectAction, 'Обновить документацию')
-    $itemType.GetProperty('Prompt').SetValue($projectAction, 'Проверь документацию проекта и обнови её для текущего изменения.')
+    $itemType.GetProperty('Command').SetValue($projectAction, 'dotnet build --no-restore')
+    if (-not $projectAction.HasValidPayload) {
+        throw 'A PowerShell command action was not accepted as a valid payload.'
+    }
     $itemListType.GetMethod('Add').Invoke($projectItems, [object[]]@($projectAction)) | Out-Null
+    $legacyAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Prompt').SetValue($legacyAction, 'Existing prompt action')
+    if (-not $legacyAction.HasValidPayload -or $legacyAction.Command -ne '') {
+        throw 'A legacy prompt action without a Command field was not kept compatible.'
+    }
+    $emptyAction = [Activator]::CreateInstance($itemType)
+    $ambiguousAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Prompt').SetValue($ambiguousAction, 'Prompt')
+    $itemType.GetProperty('Command').SetValue($ambiguousAction, 'Write-Output smoke')
+    if ($emptyAction.HasValidPayload -or $ambiguousAction.HasValidPayload) {
+        throw 'Empty and mixed prompt/command actions must be rejected.'
+    }
     $save = [Func[bool]]{ $true }
     $saveProject = [Func[bool]]{ $true }
     $insert = [System.Action[string]]{ param([string]$prompt) }
-    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 6 } | Select-Object -First 1
+    $runCommand = [System.Action[string, string]]{ param([string]$name, [string]$command) }
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 7 } | Select-Object -First 1
     if ($null -eq $constructor) {
         throw 'The Actions window preview constructor was not found in the built assembly.'
     }
-    $window = $constructor.Invoke([object[]]@($items, $projectItems, $save, $saveProject, $true, $insert))
+    $window = $constructor.Invoke([object[]]@($items, $projectItems, $save, $saveProject, $true, $insert, $runCommand))
     $actionList = $windowType.GetField('_list', $flags).GetValue($window)
     for ($index = 0; $index -lt $actionList.Items.Count; $index++) {
         $actionList.SelectedIndex = $index
-        foreach ($buttonName in @('_editButton', '_deleteButton', '_insertButton', '_copyButton')) {
+        foreach ($buttonName in @('_editButton', '_deleteButton', '_actionButton', '_copyButton')) {
             if (-not $windowType.GetField($buttonName, $flags).GetValue($window).IsEnabled) {
                 throw "Selecting action $index did not enable $buttonName."
             }
+        }
+        if ($actionList.SelectedItem.Tag.Action.IsCommand -and
+            $windowType.GetField('_actionButton', $flags).GetValue($window).Content -ne 'Запустить в PowerShell') {
+            throw 'Selecting a PowerShell action did not label the action button for execution.'
         }
     }
     $actionList.SelectedIndex = -1
@@ -389,6 +413,10 @@ elseif ($View -eq 'Actions') {
     $searchBox.Text = 'связи с остальным'
     if ($actionList.Items.Count -ne 1) {
         throw 'Filtering actions by prompt text did not return the matching item.'
+    }
+    $searchBox.Text = '--no-restore'
+    if ($actionList.Items.Count -ne 1) {
+        throw 'Filtering actions by PowerShell command did not return the matching item.'
     }
     $searchBox.Text = ''
     if ($actionList.Items.Count -ne 3) {
@@ -404,7 +432,8 @@ elseif ($View -eq 'Actions') {
     $itemType.GetProperty('Name').SetValue($testLocalAction, 'Personal smoke action')
     $itemType.GetProperty('Prompt').SetValue($testLocalAction, 'Verify a local action can be copied to a project.')
     $itemListType.GetMethod('Add').Invoke($testLocalItems, [object[]]@($testLocalAction)) | Out-Null
-    $testWindow = $constructor.Invoke([object[]]@($testLocalItems, $testProjectItems, $testSave, $testSave, $true, $testInsert))
+    $testRunCommand = [System.Action[string, string]]{ param([string]$name, [string]$command) }
+    $testWindow = $constructor.Invoke([object[]]@($testLocalItems, $testProjectItems, $testSave, $testSave, $true, $testInsert, $testRunCommand))
     $testList = $windowType.GetField('_list', $flags).GetValue($testWindow)
     $testList.SelectedIndex = 0
     $copyButton = $windowType.GetField('_copyButton', $flags).GetValue($testWindow)
@@ -424,9 +453,9 @@ elseif ($View -eq 'Actions') {
     $reverseProjectItems = [Activator]::CreateInstance($itemListType)
     $testProjectAction = [Activator]::CreateInstance($itemType)
     $itemType.GetProperty('Name').SetValue($testProjectAction, 'Project smoke action')
-    $itemType.GetProperty('Prompt').SetValue($testProjectAction, 'Verify a project action can be copied to personal.')
+    $itemType.GetProperty('Command').SetValue($testProjectAction, 'Write-Output "smoke"')
     $itemListType.GetMethod('Add').Invoke($reverseProjectItems, [object[]]@($testProjectAction)) | Out-Null
-    $reverseWindow = $constructor.Invoke([object[]]@($reverseLocalItems, $reverseProjectItems, $testSave, $testSave, $true, $testInsert))
+    $reverseWindow = $constructor.Invoke([object[]]@($reverseLocalItems, $reverseProjectItems, $testSave, $testSave, $true, $testInsert, $testRunCommand))
     $reverseList = $windowType.GetField('_list', $flags).GetValue($reverseWindow)
     $reverseList.SelectedIndex = 0
     $reverseCopyButton = $windowType.GetField('_copyButton', $flags).GetValue($reverseWindow)
@@ -438,7 +467,7 @@ elseif ($View -eq 'Actions') {
         $reverseLocalItems.Count -ne 1 -or
         $reverseLocalItems[0].Id -eq $testProjectAction.Id -or
         $reverseLocalItems[0].Name -ne $testProjectAction.Name -or
-        $reverseLocalItems[0].Prompt -ne $testProjectAction.Prompt) {
+        $reverseLocalItems[0].Command -ne $testProjectAction.Command) {
         throw 'Copying a project action to the personal library did not preserve both independent entries.'
     }
 
@@ -448,7 +477,7 @@ elseif ($View -eq 'Actions') {
     $itemType.GetProperty('Name').SetValue($filteredAction, 'Existing action')
     $itemType.GetProperty('Prompt').SetValue($filteredAction, 'Searchable phrase')
     $itemListType.GetMethod('Add').Invoke($filterLocalItems, [object[]]@($filteredAction)) | Out-Null
-    $filterWindow = $constructor.Invoke([object[]]@($filterLocalItems, $filterProjectItems, $testSave, $testSave, $true, $testInsert))
+    $filterWindow = $constructor.Invoke([object[]]@($filterLocalItems, $filterProjectItems, $testSave, $testSave, $true, $testInsert, $testRunCommand))
     $filterBox = $windowType.GetField('_search', $flags).GetValue($filterWindow)
     $filterBox.Text = 'Searchable phrase'
     $filterList = $windowType.GetField('_list', $flags).GetValue($filterWindow)
@@ -470,6 +499,49 @@ elseif ($View -eq 'Actions') {
     $windowContent = $window.Content
     if ($null -eq $windowContent) {
         throw "The Actions window has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
+}
+elseif ($View -eq 'ActionEditor') {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the action editor.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $windowType = $assembly.GetType('CodexGUI.CodexActionEditorWindow', $true)
+    $itemType = $assembly.GetType('CodexGUI.CodexActionDefinition', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $source = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($source, 'Собрать приложение')
+    $itemType.GetProperty('Command').SetValue($source, 'dotnet build --no-restore')
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 1 } | Select-Object -First 1
+    if ($null -eq $constructor) {
+        throw 'The action editor preview constructor was not found in the built assembly.'
+    }
+    $window = $constructor.Invoke([object[]]@($source))
+    $selector = $windowType.GetField('_type', $flags).GetValue($window)
+    $promptEditor = $windowType.GetField('_prompt', $flags).GetValue($window)
+    $commandEditor = $windowType.GetField('_command', $flags).GetValue($window)
+    if ($selector.SelectedIndex -ne 1 -or
+        $promptEditor.Visibility -ne [System.Windows.Visibility]::Collapsed -or
+        $commandEditor.Visibility -ne [System.Windows.Visibility]::Visible) {
+        throw 'The command editor did not select and display the PowerShell command field.'
+    }
+    $window.Width = $Width
+    $window.Height = $Height
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The action editor has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
     }
     $window.Content = $null
     $visual = [System.Windows.Controls.Grid]::new()

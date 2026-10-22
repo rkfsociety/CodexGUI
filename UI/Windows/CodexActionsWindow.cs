@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -17,6 +18,24 @@ internal sealed class CodexActionDefinition
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public string Prompt { get; set; } = "";
+    public string Command { get; set; } = "";
+
+    [JsonIgnore]
+    public bool IsCommand => !string.IsNullOrWhiteSpace(Command);
+
+    [JsonIgnore]
+    public bool HasValidPayload
+    {
+        get
+        {
+            var prompt = !string.IsNullOrWhiteSpace(Prompt);
+            var command = !string.IsNullOrWhiteSpace(Command);
+            var contentLength = prompt ? Prompt?.Length ?? 0 : Command?.Length ?? 0;
+            return prompt != command
+                && contentLength <= 12000
+                && (prompt ? Command == "" : Prompt == "");
+        }
+    }
 }
 
 internal sealed class CodexActionsWindow : Window
@@ -26,6 +45,7 @@ internal sealed class CodexActionsWindow : Window
     private readonly Func<bool> _saveActions;
     private readonly Func<bool> _saveProjectActions;
     private readonly Action<string> _insertPrompt;
+    private readonly Action<string, string> _runCommand;
     private readonly bool _projectActionsAvailable;
     private readonly TextBox _search = new();
     private readonly ListBox _list = new()
@@ -36,7 +56,7 @@ internal sealed class CodexActionsWindow : Window
     };
     private readonly Button _editButton = new() { Content = "Изменить", IsEnabled = false };
     private readonly Button _deleteButton = new() { Content = "Удалить", IsEnabled = false };
-    private readonly Button _insertButton = new() { Content = "Вставить в черновик", IsEnabled = false };
+    private readonly Button _actionButton = new() { Content = "Вставить в черновик", IsEnabled = false };
     private readonly Button _copyButton = MakeButton("Копировать");
     private readonly Button _addLocalButton = MakeButton("＋  Личное");
     private readonly Button _addProjectButton = MakeButton("＋  Проект");
@@ -55,7 +75,8 @@ internal sealed class CodexActionsWindow : Window
         Func<bool> saveActions,
         Func<bool> saveProjectActions,
         bool projectActionsAvailable,
-        Action<string> insertPrompt)
+        Action<string> insertPrompt,
+        Action<string, string> runCommand)
     {
         _actions = actions;
         _projectActions = projectActions;
@@ -63,7 +84,8 @@ internal sealed class CodexActionsWindow : Window
         _saveProjectActions = saveProjectActions;
         _projectActionsAvailable = projectActionsAvailable;
         _insertPrompt = insertPrompt;
-        Title = "Действия для композера";
+        _runCommand = runCommand;
+        Title = "Действия CodexGUI";
         Width = 760;
         Height = 560;
         MinWidth = 600;
@@ -73,7 +95,7 @@ internal sealed class CodexActionsWindow : Window
         _list.ItemContainerStyle = CreateActionItemStyle();
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateButtons();
-        _list.MouseDoubleClick += (_, _) => InsertSelected();
+        _list.MouseDoubleClick += (_, _) => InvokeSelected();
         _search.TextChanged += (_, _) => RefreshList();
         RefreshList();
     }
@@ -94,7 +116,7 @@ internal sealed class CodexActionsWindow : Window
         });
         var note = new TextBlock
         {
-            Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавьте этот файл в Git, чтобы передать шаблоны коллегам. Копирование создаёт действие в другой библиотеке, сохраняя оригинал; выбор вставляет текст в черновик.",
+            Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавляйте команды в Git только после проверки их содержимого. Prompt-действия вставляют текст в черновик. Команды PowerShell запускаются только по явному выбору и открывают терминал.",
             FontSize = 11,
             Foreground = Brush("#A7B5C0"),
             TextWrapping = TextWrapping.Wrap,
@@ -137,14 +159,14 @@ internal sealed class CodexActionsWindow : Window
         close.IsCancel = true;
         DockPanel.SetDock(close, Dock.Right);
         buttons.Children.Add(close);
-        _insertButton.Background = Brush("#204139");
-        _insertButton.Foreground = Brush("#92E5C7");
-        _insertButton.BorderBrush = Brush("#365C53");
-        _insertButton.BorderThickness = new Thickness(1);
-        _insertButton.Margin = new Thickness(0, 0, 8, 0);
-        _insertButton.Click += (_, _) => InsertSelected();
-        DockPanel.SetDock(_insertButton, Dock.Right);
-        buttons.Children.Add(_insertButton);
+        _actionButton.Background = Brush("#204139");
+        _actionButton.Foreground = Brush("#92E5C7");
+        _actionButton.BorderBrush = Brush("#365C53");
+        _actionButton.BorderThickness = new Thickness(1);
+        _actionButton.Margin = new Thickness(0, 0, 8, 0);
+        _actionButton.Click += (_, _) => InvokeSelected();
+        DockPanel.SetDock(_actionButton, Dock.Right);
+        buttons.Children.Add(_actionButton);
         _deleteButton.Margin = new Thickness(8, 0, 0, 0);
         _deleteButton.Click += (_, _) => DeleteSelected();
         buttons.Children.Add(_deleteButton);
@@ -204,7 +226,7 @@ internal sealed class CodexActionsWindow : Window
             content.Children.Add(title);
             content.Children.Add(new TextBlock
             {
-                Text = action.Prompt,
+                Text = action.IsCommand ? "PowerShell: " + action.Command : action.Prompt,
                 FontSize = 11,
                 Foreground = Brush("#A7B5C0"),
                 TextWrapping = TextWrapping.Wrap,
@@ -235,6 +257,7 @@ internal sealed class CodexActionsWindow : Window
         => query.Length == 0
             || entry.Action.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)
             || entry.Action.Prompt.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || entry.Action.Command.Contains(query, StringComparison.CurrentCultureIgnoreCase)
             || (entry.IsProject ? "проект" : "личное").Contains(query, StringComparison.CurrentCultureIgnoreCase);
 
     private void AddAction(bool isProject)
@@ -242,7 +265,7 @@ internal sealed class CodexActionsWindow : Window
         var editor = new CodexActionEditorWindow(null) { Owner = this };
         if (editor.ShowDialog() != true || editor.Result is not { } result) return;
         if (NameExists(result.Name, isProject, null)) return;
-        var action = new CodexActionDefinition { Name = result.Name, Prompt = result.Prompt };
+        var action = new CodexActionDefinition { Name = result.Name, Prompt = result.Prompt, Command = result.Command };
         var actions = isProject ? _projectActions : _actions;
         actions.Add(action);
         if (!SaveActions(isProject))
@@ -263,12 +286,15 @@ internal sealed class CodexActionsWindow : Window
         if (NameExists(result.Name, entry.IsProject, action)) return;
         var oldName = action.Name;
         var oldPrompt = action.Prompt;
+        var oldCommand = action.Command;
         action.Name = result.Name;
         action.Prompt = result.Prompt;
+        action.Command = result.Command;
         if (!SaveActions(entry.IsProject))
         {
             action.Name = oldName;
             action.Prompt = oldPrompt;
+            action.Command = oldCommand;
             return;
         }
         ClearSearchFilter();
@@ -300,7 +326,12 @@ internal sealed class CodexActionsWindow : Window
         if (NameExists(entry.Action.Name, targetIsProject, exceptAction: null)) return;
 
         var targetActions = targetIsProject ? _projectActions : _actions;
-        var copy = new CodexActionDefinition { Name = entry.Action.Name, Prompt = entry.Action.Prompt };
+        var copy = new CodexActionDefinition
+        {
+            Name = entry.Action.Name,
+            Prompt = entry.Action.Prompt,
+            Command = entry.Action.Command
+        };
         targetActions.Add(copy);
         if (!SaveActions(targetIsProject))
         {
@@ -322,9 +353,16 @@ internal sealed class CodexActionsWindow : Window
         return true;
     }
 
-    private void InsertSelected()
+    private void InvokeSelected()
     {
         if (SelectedEntry() is not { } entry) return;
+        if (entry.Action.IsCommand)
+        {
+            var action = entry.Action;
+            Close();
+            _runCommand(action.Name, action.Command);
+            return;
+        }
         _insertPrompt(entry.Action.Prompt);
         Close();
     }
@@ -362,7 +400,11 @@ internal sealed class CodexActionsWindow : Window
         var hasSelection = selected is not null;
         _editButton.IsEnabled = hasSelection;
         _deleteButton.IsEnabled = hasSelection;
-        _insertButton.IsEnabled = hasSelection;
+        _actionButton.IsEnabled = hasSelection;
+        _actionButton.Content = selected?.Action.IsCommand == true ? "Запустить в PowerShell" : "Вставить в черновик";
+        _actionButton.ToolTip = selected?.Action.IsCommand == true
+            ? "Запустить команду в терминале текущего проекта или worktree"
+            : "Вставить prompt в черновик без отправки запроса";
         _copyButton.Content = selected is { IsProject: true }
             ? "Копия в личные"
             : selected is not null ? "Копия в проект" : "Копировать";
@@ -425,21 +467,26 @@ internal sealed class CodexActionEditorWindow : Window
 {
     private readonly CodexActionDefinition? _source;
     private readonly TextBox _name = new();
+    private readonly ComboBox _type = new();
+    private readonly TextBlock _payloadLabel = new();
     private readonly TextBox _prompt = new();
+    private readonly TextBox _command = new();
+    private readonly TextBlock _payloadHelp = new();
 
-    public (string Name, string Prompt)? Result { get; private set; }
+    public (string Name, string Prompt, string Command)? Result { get; private set; }
 
     public CodexActionEditorWindow(CodexActionDefinition? source)
     {
         _source = source;
         Title = source is null ? "Новое действие" : "Изменить действие";
         Width = 620;
-        Height = 510;
+        Height = 570;
         MinWidth = 500;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        _type.SelectionChanged += (_, _) => UpdatePayloadEditor();
         LoadValues();
     }
 
@@ -471,22 +518,56 @@ internal sealed class CodexActionEditorWindow : Window
         _name.Height = 38;
         _name.MaxLength = 80;
         _name.Padding = new Thickness(10, 7, 10, 5);
+        _name.Background = Brush("#25272C");
+        _name.Foreground = Brush("#ECF2F5");
+        _name.BorderBrush = Brush("#2A3946");
+        _name.BorderThickness = new Thickness(1);
         form.Children.Add(_name);
-        AddLabel(form, "Текст для композера", new Thickness(0, 15, 0, 6));
+        AddLabel(form, "Тип действия", new Thickness(0, 15, 0, 6));
+        _type.Items.Add("Текст для композера");
+        _type.Items.Add("Команда PowerShell");
+        _type.SelectedIndex = 0;
+        _type.Height = 36;
+        AutomationProperties.SetName(_type, "Тип действия");
+        form.Children.Add(_type);
+        _payloadLabel.Text = "Текст для композера";
+        _payloadLabel.FontSize = 11;
+        _payloadLabel.FontWeight = FontWeights.SemiBold;
+        _payloadLabel.Foreground = Brush("#A7B5C0");
+        _payloadLabel.Margin = new Thickness(0, 15, 0, 6);
+        form.Children.Add(_payloadLabel);
         _prompt.AcceptsReturn = true;
         _prompt.TextWrapping = TextWrapping.Wrap;
         _prompt.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _prompt.MaxLength = 12000;
         _prompt.MinHeight = 210;
         _prompt.Padding = new Thickness(10, 8, 10, 8);
+        _prompt.Background = Brush("#25272C");
+        _prompt.Foreground = Brush("#ECF2F5");
+        _prompt.BorderBrush = Brush("#2A3946");
+        _prompt.BorderThickness = new Thickness(1);
+        AutomationProperties.SetName(_prompt, "Текст prompt-действия");
         form.Children.Add(_prompt);
-        form.Children.Add(new TextBlock
-        {
-            Text = "Шаблон только вставляется в черновик; перед отправкой его можно изменить.",
-            Foreground = Brush("#A7B5C0"),
-            FontSize = 10,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 0)
-        });
+        _command.AcceptsReturn = true;
+        _command.TextWrapping = TextWrapping.Wrap;
+        _command.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _command.MaxLength = 12000;
+        _command.MinHeight = 210;
+        _command.Padding = new Thickness(10, 8, 10, 8);
+        _command.FontFamily = new System.Windows.Media.FontFamily("Consolas");
+        _command.Background = Brush("#25272C");
+        _command.Foreground = Brush("#ECF2F5");
+        _command.BorderBrush = Brush("#2A3946");
+        _command.BorderThickness = new Thickness(1);
+        _command.Visibility = Visibility.Collapsed;
+        AutomationProperties.SetName(_command, "Команда PowerShell");
+        form.Children.Add(_command);
+        _payloadHelp.Foreground = Brush("#A7B5C0");
+        _payloadHelp.FontSize = 10;
+        _payloadHelp.TextWrapping = TextWrapping.Wrap;
+        _payloadHelp.Margin = new Thickness(0, 8, 0, 0);
+        form.Children.Add(_payloadHelp);
+        UpdatePayloadEditor();
         return root;
     }
 
@@ -494,26 +575,43 @@ internal sealed class CodexActionEditorWindow : Window
     {
         _name.Text = _source?.Name ?? "";
         _prompt.Text = _source?.Prompt ?? "";
+        _command.Text = _source?.Command ?? "";
+        _type.SelectedIndex = _source?.IsCommand == true ? 1 : 0;
+        UpdatePayloadEditor();
     }
 
     private void Save()
     {
         var name = _name.Text.Trim();
-        var prompt = _prompt.Text.Trim();
-        if (name.Length == 0 || prompt.Length == 0)
+        var isCommand = _type.SelectedIndex == 1;
+        var prompt = isCommand ? "" : _prompt.Text.Trim();
+        var command = isCommand ? _command.Text : "";
+        var payload = isCommand ? command : prompt;
+        if (name.Length == 0 || string.IsNullOrWhiteSpace(payload))
         {
-            CodexMessageDialog.Show(this, "Заполните название и текст действия.", "Проверьте действие",
+            CodexMessageDialog.Show(this, "Заполните название и содержимое действия.", "Проверьте действие",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        if (prompt.Length > 12000)
+        if (payload.Length > 12000)
         {
-            CodexMessageDialog.Show(this, "Текст действия не должен превышать 12 000 символов.", "Слишком длинный текст",
+            CodexMessageDialog.Show(this, "Содержимое действия не должно превышать 12 000 символов.", "Слишком длинное действие",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        Result = (name, prompt);
+        Result = (name, prompt, command);
         DialogResult = true;
+    }
+
+    private void UpdatePayloadEditor()
+    {
+        var isCommand = _type.SelectedIndex == 1;
+        _payloadLabel.Text = isCommand ? "Команда PowerShell" : "Текст для композера";
+        _prompt.Visibility = isCommand ? Visibility.Collapsed : Visibility.Visible;
+        _command.Visibility = isCommand ? Visibility.Visible : Visibility.Collapsed;
+        _payloadHelp.Text = isCommand
+            ? "Запуск возможен только по явному выбору действия. Терминал покажет вывод и запросит разрешение, если оно требуется режимом доступа проекта."
+            : "Шаблон вставляется в черновик; перед отправкой его можно изменить.";
     }
 
     private static void AddLabel(Panel parent, string text, Thickness? margin = null)

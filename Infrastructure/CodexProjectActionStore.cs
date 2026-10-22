@@ -70,9 +70,8 @@ internal static class CodexProjectActionStore
                 || string.IsNullOrWhiteSpace(action.Id)
                 || string.IsNullOrWhiteSpace(action.Name)
                 || action.Name.Length > 80
-                || string.IsNullOrWhiteSpace(action.Prompt)
-                || action.Prompt.Length > 12000)
-                throw new InvalidDataException("Файл действий проекта содержит пустое или слишком длинное действие.");
+                || !action.HasValidPayload)
+                throw new InvalidDataException("Каждое действие проекта должно содержать ровно один prompt или PowerShell-команду длиной не более 12 000 символов.");
             if (!ids.Add(action.Id) || !names.Add(action.Name))
                 throw new InvalidDataException("Файл действий проекта содержит повторяющиеся идентификаторы или названия.");
         }
