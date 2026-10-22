@@ -3158,64 +3158,90 @@ public partial class MainWindow : Window
         list.Children.Clear();
         border.Visibility = _promptQueue.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (Control<TextBlock>("PromptQueueLabel") is { } heading)
-            heading.Text = $"В ОЧЕРЕДИ · {_promptQueue.Count}";
+            heading.Text = $"Очередь сообщений · {_promptQueue.Count}";
         if (Control<Button>("ClearPromptQueueButton") is { } clearButton)
             clearButton.IsEnabled = _promptQueue.Count > 0;
 
+        var position = 0;
         foreach (var queued in _promptQueue)
         {
             var threadTitle = _threads.FirstOrDefault(thread => thread.Id == queued.ThreadId)?.Title;
             var (messageText, attachments) = SplitPromptWithAttachments(queued.Text);
-            var text = messageText.ReplaceLineEndings(" ").Trim();
-            if (attachments.Length > 0)
-            {
-                var attachmentSummary = string.Join(", ", attachments.Select(Path.GetFileName));
-                text = text.Length == 0 ? attachmentSummary : $"{text} · {attachmentSummary}";
-            }
-            if (text.Length > 100) text = text[..97] + "…";
-            if (_currentThread?.Id != queued.ThreadId && !string.IsNullOrWhiteSpace(threadTitle))
-                text = $"{threadTitle}: {text}";
-
-            var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock
+            row.Children.Add(new Border
             {
-                Text = text,
-                FontSize = 10,
-                Foreground = Brush("#C7C8CC"),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = queued.Text
+                Background = Brush("#29453F"),
+                CornerRadius = new CornerRadius(6),
+                MinWidth = 24,
+                Height = 24,
+                Margin = new Thickness(0, 0, 10, 0),
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = new TextBlock
+                {
+                    Text = (++position).ToString(),
+                    FontSize = 10,
+                    Foreground = Brush("#92E5C7"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
             });
-            var edit = new Button
+            var details = new StackPanel { Margin = new Thickness(0, 2, 8, 0) };
+            details.Children.Add(new TextBlock
             {
-                Content = "✎",
-                Width = 24,
-                Height = 22,
-                Padding = new Thickness(0),
-                Margin = new Thickness(4, 0, 0, 0),
-                Foreground = Brush("#AFC5D3"),
-                ToolTip = "Редактировать сообщение"
-            };
+                Text = threadTitle ?? "Чат",
+                FontSize = 10,
+                Foreground = Brush(_currentThread?.Id == queued.ThreadId ? "#92E5C7" : "#8494A2"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 0, 4),
+                ToolTip = threadTitle
+            });
+            if (!string.IsNullOrWhiteSpace(messageText))
+                details.Children.Add(new TextBlock
+                {
+                    Text = messageText.Trim(),
+                    FontSize = 12,
+                    LineHeight = 18,
+                    MaxHeight = 54,
+                    Foreground = Brush("#ECF2F5"),
+                    TextWrapping = TextWrapping.Wrap,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = messageText
+                });
+            if (attachments.Length > 0)
+                details.Children.Add(new TextBlock
+                {
+                    Text = $"Вложения · {attachments.Length}   {string.Join(", ", attachments.Select(Path.GetFileName))}",
+                    FontSize = 10,
+                    Foreground = Brush("#A7B5C0"),
+                    Margin = new Thickness(0, 5, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = string.Join(Environment.NewLine, attachments)
+                });
+            Grid.SetColumn(details, 1);
+            row.Children.Add(details);
+            var edit = CreateThreadIconButton("Редактировать сообщение",
+                "M3,17 L3,21 L7,21 L20,8 L16,4 Z M13,7 L17,11", "#AFC5D3");
+            edit.VerticalAlignment = VerticalAlignment.Top;
             edit.Click += (_, _) => EditQueuedPrompt(queued);
-            Grid.SetColumn(edit, 1);
+            Grid.SetColumn(edit, 2);
             row.Children.Add(edit);
-            var remove = new Button
-            {
-                Content = "×",
-                Width = 22,
-                Height = 22,
-                Padding = new Thickness(0),
-                Margin = new Thickness(4, 0, 0, 0),
-                Foreground = Brush("#9A9BA1"),
-                ToolTip = "Убрать из очереди"
-            };
+            var remove = CreateThreadIconButton("Убрать из очереди", "M5,5 L19,19 M19,5 L5,19", "#A7B5C0");
+            remove.VerticalAlignment = VerticalAlignment.Top;
             remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
-            Grid.SetColumn(remove, 2);
+            Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
-            list.Children.Add(row);
+            list.Children.Add(new Border
+            {
+                Background = Brush("#1B2935"),
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(10),
+                Margin = new Thickness(0, 0, 0, 6),
+                Child = row
+            });
         }
 
         UpdateSendButtonState();

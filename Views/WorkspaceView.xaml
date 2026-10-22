@@ -276,10 +276,11 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#1B2935" CornerRadius="11" Padding="11,8" Margin="0,0,0,9" Visibility="Collapsed">
+            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#111B24" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,0,9" Visibility="Collapsed">
               <StackPanel>
-                <DockPanel Margin="0,0,0,5"><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="6,3" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="В ОЧЕРЕДИ" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/></DockPanel>
-                <ScrollViewer MaxHeight="88" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
+                <DockPanel Margin="0,0,0,3"><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="8,4" FontSize="11" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="Очередь сообщений" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" VerticalAlignment="Center"/></DockPanel>
+                <TextBlock Text="Сообщения отправятся, когда их чат освободится" FontSize="10" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,0,0,9"/>
+                <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
               </StackPanel>
             </Border>
             <Border x:Name="ComposerAttachmentsBorder" Grid.Row="1" Background="#111B24" CornerRadius="10" Padding="7" Margin="0,0,0,9" Visibility="Collapsed">
