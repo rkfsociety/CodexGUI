@@ -365,6 +365,19 @@ elseif ($View -eq 'Actions') {
         }
     }
     $actionList.SelectedIndex = -1
+    $searchBox = $windowType.GetField('_search', $flags).GetValue($window)
+    $searchBox.Text = 'Объяснить файл'
+    if ($actionList.Items.Count -ne 1) {
+        throw 'Filtering actions by name did not return the matching item.'
+    }
+    $searchBox.Text = 'связи с остальным'
+    if ($actionList.Items.Count -ne 1) {
+        throw 'Filtering actions by prompt text did not return the matching item.'
+    }
+    $searchBox.Text = ''
+    if ($actionList.Items.Count -ne 3) {
+        throw 'Clearing the Actions filter did not restore all items.'
+    }
 
     $copyMethod = $windowType.GetMethod('CopySelected', $flags)
     $testSave = [Func[bool]]{ $true }

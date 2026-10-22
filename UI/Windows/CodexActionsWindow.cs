@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
@@ -26,6 +27,7 @@ internal sealed class CodexActionsWindow : Window
     private readonly Func<bool> _saveProjectActions;
     private readonly Action<string> _insertPrompt;
     private readonly bool _projectActionsAvailable;
+    private readonly TextBox _search = new();
     private readonly ListBox _list = new()
     {
         Background = Brush("#16212B"),
@@ -72,12 +74,14 @@ internal sealed class CodexActionsWindow : Window
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateButtons();
         _list.MouseDoubleClick += (_, _) => InsertSelected();
+        _search.TextChanged += (_, _) => RefreshList();
         RefreshList();
     }
 
     private UIElement BuildLayout()
     {
         var root = new Grid { Margin = new Thickness(20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -99,10 +103,33 @@ internal sealed class CodexActionsWindow : Window
         Grid.SetRow(note, 1);
         root.Children.Add(note);
 
+        var filter = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        filter.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        filter.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        filter.Children.Add(new TextBlock
+        {
+            Text = "Поиск",
+            Foreground = Brush("#A7B5C0"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0)
+        });
+        _search.Height = 36;
+        _search.Padding = new Thickness(10, 8, 10, 5);
+        _search.Background = Brush("#25272C");
+        _search.Foreground = Brush("#ECF2F5");
+        _search.BorderBrush = Brush("#2A3946");
+        _search.ToolTip = "Фильтр по названию, тексту и области действия";
+        AutomationProperties.SetName(_search, "Фильтр действий по названию, тексту и области");
+        Grid.SetColumn(_search, 1);
+        filter.Children.Add(_search);
+        Grid.SetRow(filter, 2);
+        root.Children.Add(filter);
+
         var listArea = new Grid();
         listArea.Children.Add(_list);
         listArea.Children.Add(_empty);
-        Grid.SetRow(listArea, 2);
+        Grid.SetRow(listArea, 3);
         root.Children.Add(listArea);
 
         var buttons = new DockPanel { Margin = new Thickness(0, 15, 0, 0), LastChildFill = false };
@@ -136,7 +163,7 @@ internal sealed class CodexActionsWindow : Window
         _addLocalButton.ToolTip = "Сохранить действие в личной библиотеке CodexGUI";
         _addLocalButton.Click += (_, _) => AddAction(isProject: false);
         buttons.Children.Add(_addLocalButton);
-        Grid.SetRow(buttons, 3);
+        Grid.SetRow(buttons, 4);
         root.Children.Add(buttons);
         return root;
     }
@@ -144,7 +171,9 @@ internal sealed class CodexActionsWindow : Window
     private void RefreshList(string? selectId = null, bool selectProjectAction = false)
     {
         _list.Items.Clear();
+        var query = _search.Text.Trim();
         foreach (var entry in GetActionEntries()
+                     .Where(entry => MatchesSearch(entry, query))
                      .OrderBy(item => item.Action.Name, StringComparer.CurrentCultureIgnoreCase)
                      .ThenBy(item => item.IsProject))
         {
@@ -195,9 +224,18 @@ internal sealed class CodexActionsWindow : Window
             _list.Items.Add(item);
             if (action.Id == selectId && entry.IsProject == selectProjectAction) _list.SelectedItem = item;
         }
-        _empty.Visibility = _actions.Count + _projectActions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _empty.Text = _actions.Count + _projectActions.Count == 0
+            ? "Пока нет сохранённых личных или проектных действий."
+            : "Ничего не найдено. Измените запрос поиска.";
+        _empty.Visibility = _list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateButtons();
     }
+
+    private static bool MatchesSearch(ActionEntry entry, string query)
+        => query.Length == 0
+            || entry.Action.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || entry.Action.Prompt.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+            || (entry.IsProject ? "проект" : "личное").Contains(query, StringComparison.CurrentCultureIgnoreCase);
 
     private void AddAction(bool isProject)
     {
