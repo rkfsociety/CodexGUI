@@ -196,6 +196,26 @@ internal static class GitRepositoryInspector
         EnsureGitCommandSucceeded(result, "Не удалось убрать изменения из индекса.");
     }
 
+    public static async Task<string> PreviewUntrackedRemovalAsync(string repositoryRoot, string relativePath,
+        CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var path = ValidateRepositoryRelativePath(root, relativePath);
+        var result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(2),
+            "clean", "--dry-run", "-d", "-f", "--", path);
+        EnsureGitCommandSucceeded(result, "Не удалось проверить неотслеживаемые файлы.");
+        return result.Output.Trim();
+    }
+
+    public static async Task RemoveUntrackedPathAsync(string repositoryRoot, string relativePath, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var path = ValidateRepositoryRelativePath(root, relativePath);
+        var result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(5),
+            "clean", "--quiet", "-d", "-f", "--", path);
+        EnsureGitCommandSucceeded(result, "Не удалось удалить неотслеживаемые файлы.");
+    }
+
     public static async Task<string> CommitStagedAsync(string repositoryRoot, string message, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(message))

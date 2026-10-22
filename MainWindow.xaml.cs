@@ -1817,6 +1817,12 @@ public partial class MainWindow : Window
                     (root, token) => GitRepositoryInspector.StageFileAsync(root, file.Path, token));
                 contextMenu.Items.Add(stage);
             }
+            if (file.IsUntracked)
+            {
+                var removeUntracked = new MenuItem { Header = "Удалить неотслеживаемые файлы…" };
+                removeUntracked.Click += async (_, _) => await PreviewAndRemoveUntrackedPathAsync(repositoryRoot, file.Path);
+                contextMenu.Items.Add(removeUntracked);
+            }
             if (!file.IsUntracked && file.IndexStatus != '.')
             {
                 var unstage = new MenuItem { Header = "Убрать из индекса" };
@@ -1851,6 +1857,71 @@ public partial class MainWindow : Window
 
         if (files.Count > 8)
             panel.Children.Add(new TextBlock { Text = $"и ещё {files.Count - 8}…", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(2, 2, 0, 0) });
+    }
+
+    private async Task PreviewAndRemoveUntrackedPathAsync(string repositoryRoot, string relativePath)
+    {
+        if (_isGitCommandRunning || _isReviewingChanges || HasActiveRuns
+            || _repositorySnapshot is not { IsRepository: true } snapshot
+            || !string.Equals(Path.GetFullPath(snapshot.Root), Path.GetFullPath(repositoryRoot), StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _isGitCommandRunning = true;
+        UpdateGitActionButtons();
+        UpdateReviewChangesButton();
+        try
+        {
+            var preview = await GitRepositoryInspector.PreviewUntrackedRemovalAsync(
+                snapshot.Root, relativePath, _repositoryRefreshCancellation.Token);
+            if (_isClosing) return;
+            if (string.IsNullOrWhiteSpace(preview))
+            {
+                SetStatus("Нет неотслеживаемых файлов для удаления", relativePath);
+                return;
+            }
+
+            var paths = preview.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.StartsWith("Would remove ", StringComparison.Ordinal)
+                    ? line["Would remove ".Length..]
+                    : line)
+                .ToArray();
+            var visiblePaths = string.Join(Environment.NewLine, paths.Take(20));
+            if (paths.Length > 20) visiblePaths += $"{Environment.NewLine}… и ещё {paths.Length - 20}";
+            var answer = MessageBox.Show(this,
+                $"Git удалит неотслеживаемые файлы по пути «{relativePath}». Игнорируемые файлы и файлы из индекса не удаляются. Продолжить?\n\n{visiblePaths}",
+                "Удалить неотслеживаемые файлы", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes || _isClosing || HasActiveRuns) return;
+
+            var confirmedPreview = await GitRepositoryInspector.PreviewUntrackedRemovalAsync(
+                snapshot.Root, relativePath, _repositoryRefreshCancellation.Token);
+            if (!string.Equals(preview, confirmedPreview, StringComparison.Ordinal))
+            {
+                SetStatus("Список файлов изменился", "Обновите состояние Git и повторите удаление.", isError: true);
+                return;
+            }
+            if (HasActiveRuns || _repositorySnapshot is not { IsRepository: true }
+                || !string.Equals(Path.GetFullPath(_repositorySnapshot.Root), Path.GetFullPath(snapshot.Root), StringComparison.OrdinalIgnoreCase))
+            {
+                SetStatus("Удаление отменено", "Репозиторий изменился или Codex начал работу.");
+                return;
+            }
+
+            await GitRepositoryInspector.RemoveUntrackedPathAsync(snapshot.Root, relativePath, _repositoryRefreshCancellation.Token);
+            if (_isClosing) return;
+            await RefreshRepositoryInfoAsync();
+            SetStatus("Неотслеживаемые файлы удалены", relativePath);
+        }
+        catch (OperationCanceledException) when (_isClosing) { }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Не удалось удалить неотслеживаемые файлы", error.Message, isError: true);
+        }
+        finally
+        {
+            _isGitCommandRunning = false;
+            UpdateGitActionButtons();
+            UpdateReviewChangesButton();
+        }
     }
 
     private async Task ShowRepositoryFileDiffAsync(string repositoryRoot, RepositoryFileStatus file, RepositoryDiffScope diffScope)
