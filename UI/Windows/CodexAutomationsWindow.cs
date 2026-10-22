@@ -925,10 +925,29 @@ internal sealed class CodexAutomationEditorWindow : Window
         };
     }
 
-    private sealed record ModelChoice(string Id, string Label, string DefaultEffort, IReadOnlyList<string> Efforts);
-    private sealed record ExistingThreadChoice(CodexAutomationChat? Chat, string? ThreadId,
-        string? WorkingDirectory, string? WorktreePath, string Label);
-    private sealed record CadenceChoice(string Id, string Label);
-    private sealed record DayChoice(DayOfWeek Day, string Label);
-    private sealed record MonthDayChoice(int Day, string Label);
+    public sealed record ModelChoice(string Id, string Label, string DefaultEffort, IReadOnlyList<string> Efforts)
+    {
+        public override string ToString() => Label;
+    }
+
+    public sealed record ExistingThreadChoice(CodexAutomationChat? Chat, string? ThreadId,
+        string? WorkingDirectory, string? WorktreePath, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    public sealed record CadenceChoice(string Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    public sealed record DayChoice(DayOfWeek Day, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    public sealed record MonthDayChoice(int Day, string Label)
+    {
+        public override string ToString() => Label;
+    }
 }

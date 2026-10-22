@@ -1368,19 +1368,8 @@ public partial class MainWindow : Window
         UpdateChatQuickOverview();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
-            var welcome = new StackPanel { Margin = new Thickness(0, 52, 0, 0), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Center };
-            welcome.Children.Add(new Border
-            {
-                Width = 52,
-                Height = 52,
-                CornerRadius = new CornerRadius(14),
-                Background = Brush("#223B38"),
-                BorderBrush = Brush("#2A3946"),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 0, 0, 20),
-                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#92E5C7"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-            });
-            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? "С чего начнём?", FontSize = 32, FontWeight = FontWeights.SemiBold, Foreground = Brush("#ECF2F5"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
+            var isNewChat = _currentThread?.CodexSessionId is null;
+            var title = isNewChat ? "С чего начнём?" : _currentThread?.Title ?? "С чего начнём?";
             var detail = _currentThread?.HistoryLoading == true
                 ? "Загружаю историю из Codex…"
                 : _currentThread?.HistoryError is { } historyError
@@ -1388,14 +1377,10 @@ public partial class MainWindow : Window
                     : _currentThread?.CodexSessionId is not null
                 ? "Этот чат сохранён в Codex. Отправьте сообщение, чтобы продолжить разговор."
                     : "Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.";
-            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 15, LineHeight = 24, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A4B1C2"), Margin = new Thickness(0, 12, 0, 26), MaxWidth = 660 });
-            if (_currentThread is null)
-            {
-                welcome.Children.Add(CreateSuggestion("Разберись в структуре проекта"));
-                welcome.Children.Add(CreateSuggestion("Помоги найти и исправить ошибку"));
-                welcome.Children.Add(CreateSuggestion("Предложи улучшения для кода"));
-            }
-            stack.Children.Add(welcome);
+            var suggestions = isNewChat
+                ? new[] { "Покажи структуру проекта", "Найди и исправь ошибку", "Предложи улучшения кода" }
+                : Array.Empty<string>();
+            stack.Children.Add(ChatWelcomeView.Create(title, detail, suggestions, SendWelcomeSuggestion));
         }
         else
         {
@@ -1428,33 +1413,12 @@ public partial class MainWindow : Window
     private static bool IsNearConversationBottom(ScrollViewer scroll) =>
         scroll.ScrollableHeight - scroll.VerticalOffset <= 72;
 
-    private FrameworkElement CreateSuggestion(string text)
+    private async void SendWelcomeSuggestion(string text)
     {
-        var button = new Button
-        {
-            Content = new Grid
-            {
-                Children =
-                {
-                    new TextBlock { Text = text, Margin = new Thickness(0, 0, 24, 0), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center },
-                    new TextBlock { Text = "↗", Foreground = Brush("#777981"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center }
-                }
-            },
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = Brush("#16212B"),
-            Foreground = Brush("#D1D2D5"),
-            Padding = new Thickness(14, 11, 14, 11),
-            Margin = new Thickness(0, 4, 9, 4),
-            Width = 390,
-            BorderBrush = Brush("#2A3946"),
-            BorderThickness = new Thickness(1)
-        };
-        button.Click += async (_, _) =>
-        {
-            if (Control<TextBox>("PromptInput") is { } input) input.Text = text;
-            await SendPromptAsync();
-        };
-        return button;
+        if (Control<TextBox>("PromptInput") is not { } input) return;
+        input.Text = text;
+        input.CaretIndex = input.Text.Length;
+        await SendPromptAsync();
     }
 
     private FrameworkElement CreateMessage(ChatMessage message)
@@ -1932,6 +1896,11 @@ public partial class MainWindow : Window
         }
         var snapshot = string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase)
             ? _repositorySnapshot : null;
+        var hasGitChanges = snapshot?.Changes.Count is > 0
+            || snapshot?.UnpushedAddedLines is > 0
+            || snapshot?.UnpushedRemovedLines is > 0;
+        if (Control<Border>("ChatOverviewCard") is { } overview)
+            overview.Visibility = attachments.Length > 0 || hasGitChanges ? Visibility.Visible : Visibility.Collapsed;
         if (Control<TextBlock>("GitAddedLines") is { } added)
             added.Text = snapshot?.UnpushedAddedLines is { } unpushedAdded ? $"+{unpushedAdded:N0}" : "+—";
         if (Control<TextBlock>("GitRemovedLines") is { } removed)

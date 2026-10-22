@@ -3,15 +3,21 @@
 Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
-Loads App.xaml resources and renders Views/WorkspaceView.xaml, the built-in Activity and Actions
-windows, the worktree setup window, or the Pull Request editor with local preview data in a
-standalone STA PowerShell process. It never starts CodexGUI or the App Server.
+Loads App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
+the built-in Activity and Actions windows, the automation editor and its calendar, the worktree
+setup window, or the Pull Request editor with local preview data in a standalone STA PowerShell
+process. It never starts CodexGUI or the App Server.
 
 .EXAMPLE
+dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1
 
 .EXAMPLE
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -OutputPath .\preview\workspace.png -Width 1600 -Height 1000
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Welcome -OutputPath .\preview\welcome.png
 
 .EXAMPLE
 dotnet build --no-restore
@@ -28,10 +34,17 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Setup -Out
 .EXAMPLE
 dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View PullRequest -OutputPath .\preview\pull-request.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View AutomationEditor -OutputPath .\preview\automation-editor.png
+
+.EXAMPLE
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Calendar -OutputPath .\preview\calendar.png
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Activity', 'Actions', 'Setup', 'PullRequest')]
+    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -52,8 +65,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -eq 'Workspace') { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'Setup') { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -eq 'Workspace') { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -74,7 +87,8 @@ if ($null -eq $resourceNode) {
 }
 $resourcesXaml = @"
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
 $($resourceNode.InnerXml)
 </ResourceDictionary>
 "@
@@ -86,8 +100,12 @@ $releaseAssembly = Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.
 $rendererAssembly = @($debugAssembly, $releaseAssembly) | Where-Object { Test-Path -LiteralPath $_ } |
     ForEach-Object { Get-Item -LiteralPath $_ } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $markdownSource = Join-Path $projectRoot 'UI\Chat\ChatMarkdownRenderer.cs'
-if ($rendererAssembly -and (Test-Path -LiteralPath $markdownSource) -and
-    $rendererAssembly.LastWriteTime -ge (Get-Item -LiteralPath $markdownSource).LastWriteTime) {
+$welcomeSource = Join-Path $projectRoot 'UI\Chat\ChatWelcomeView.cs'
+$markdownAssemblyIsFresh = $rendererAssembly -and (Test-Path -LiteralPath $markdownSource) -and
+    $rendererAssembly.LastWriteTime -ge (Get-Item -LiteralPath $markdownSource).LastWriteTime
+$welcomeAssemblyIsFresh = $rendererAssembly -and (Test-Path -LiteralPath $welcomeSource) -and
+    $rendererAssembly.LastWriteTime -ge (Get-Item -LiteralPath $welcomeSource).LastWriteTime
+if ($markdownAssemblyIsFresh) {
     $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
     $rendererType = $assembly.GetType('CodexGUI.ChatMarkdownRenderer', $false)
     if ($rendererType) {
@@ -169,7 +187,7 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
 }
 
 $visual = $null
-if ($View -eq 'Workspace') {
+if ($View -in @('Workspace', 'Welcome')) {
     if (-not (Test-Path -LiteralPath $workspaceXamlPath)) {
         throw 'Views/WorkspaceView.xaml was not found beside this script.'
     }
@@ -182,8 +200,9 @@ if ($View -eq 'Workspace') {
         throw 'The Conversation panel could not be found in WorkspaceView.xaml.'
     }
     $conversation.Children.Clear()
-    [void]$conversation.Children.Add((New-PreviewMessage -IsUser $true -Text 'Проверь экран чата и предложи, как сделать его удобнее для долгой работы.'))
-    $previewResponse = @'
+    if ($View -eq 'Workspace') {
+        [void]$conversation.Children.Add((New-PreviewMessage -IsUser $true -Text 'Проверь экран чата и предложи, как сделать его удобнее для долгой работы.'))
+        $previewResponse = @'
 Готово — подробности в [документации проекта](https://learn.chatgpt.com/docs/developers).
 
 | Элемент | Результат |
@@ -194,7 +213,30 @@ if ($View -eq 'Workspace') {
 var ready = true;
 ```
 '@
-    [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text $previewResponse))
+        [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text $previewResponse))
+    }
+    else {
+        if ($workspace.FindName('ChatOverviewCard') -is [System.Windows.Controls.Border]) {
+            $workspace.FindName('ChatOverviewCard').Visibility = [System.Windows.Visibility]::Collapsed
+        }
+        if (-not $welcomeAssemblyIsFresh) {
+            throw 'Build CodexGUI first with dotnet build --no-restore to preview the Welcome screen.'
+        }
+        $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
+        $welcomeType = $assembly.GetType('CodexGUI.ChatWelcomeView', $true)
+        $flags = [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::NonPublic
+        $createMethod = $welcomeType.GetMethod('Create', $flags)
+        if ($null -eq $createMethod) {
+            throw 'The Welcome screen preview method was not found in the built assembly.'
+        }
+        $noSuggestionAction = [System.Action[string]]{ param([string]$prompt) }
+        $welcome = $createMethod.Invoke($null, [object[]]@(
+            'С чего начнём?',
+            'Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.',
+            [string[]]@('Покажи структуру проекта', 'Найди и исправь ошибку', 'Предложи улучшения кода'),
+            $noSuggestionAction))
+        [void]$conversation.Children.Add($welcome)
+    }
     $visual = $workspace
 }
 elseif ($View -eq 'Activity') {
@@ -317,6 +359,66 @@ elseif ($View -eq 'PullRequest') {
     $visual.Background = $application.Resources['Canvas']
     $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
     [void]$visual.Children.Add($windowContent)
+}
+elseif ($View -eq 'AutomationEditor') {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the automation editor.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $projectType = $assembly.GetType('CodexGUI.CodexAutomationProject', $true)
+    $modelType = $assembly.GetType('CodexGUI.ModelOption', $true)
+    $windowType = $assembly.GetType('CodexGUI.CodexAutomationEditorWindow', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $projectConstructor = $projectType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 4 } | Select-Object -First 1
+    $modelConstructor = $modelType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 5 } | Select-Object -First 1
+    $windowConstructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 6 } | Select-Object -First 1
+    if ($null -eq $projectConstructor -or $null -eq $modelConstructor -or $null -eq $windowConstructor) {
+        throw 'The automation editor preview constructors were not found in the built assembly.'
+    }
+
+    $projects = [Array]::CreateInstance($projectType, 2)
+    $projects.SetValue($projectConstructor.Invoke([object[]]@('preview-codexgui', 'CodexGUI', 'C:\Projects\CodexGUI', $true)), 0)
+    $projects.SetValue($projectConstructor.Invoke([object[]]@('preview-sample', 'Demo project', 'C:\Projects\Demo', $true)), 1)
+    $chats = [Array]::CreateInstance($assembly.GetType('CodexGUI.CodexAutomationChat', $true), 0)
+    $models = [Array]::CreateInstance($modelType, 1)
+    $models.SetValue($modelConstructor.Invoke([object[]]@('gpt-6-luna', 'GPT-6 Luna', 'high', [string[]]@('low', 'medium', 'high', 'xhigh'), 0)), 0)
+    $window = $windowConstructor.Invoke([object[]]@($projects, $chats, $models, $null, 'preview-codexgui', $true))
+    $window.Width = $Width
+    $window.Height = $Height
+    $nameInput = $windowType.GetField('_name', $flags).GetValue($window)
+    $nameInput.Text = 'Еженедельный обзор проекта'
+    $promptInput = $windowType.GetField('_prompt', $flags).GetValue($window)
+    $promptInput.Text = 'Изучи изменения проекта, найди возможные ошибки и кратко перечисли риски.'
+    $cadenceInput = $windowType.GetField('_cadence', $flags).GetValue($window)
+    $cadenceInput.SelectedIndex = 4
+    $ruleInput = $windowType.GetField('_ruleText', $flags).GetValue($window)
+    $ruleInput.Text = 'FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0'
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The automation editor has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
+}
+elseif ($View -eq 'Calendar') {
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Margin = [System.Windows.Thickness]::new(8)
+    $visual.Background = $application.Resources['Canvas']
+    $calendar = [System.Windows.Controls.Calendar]::new()
+    $calendar.DisplayDate = [DateTime]::Today
+    $calendar.SelectedDate = [DateTime]::Today
+    $calendar.IsTodayHighlighted = $true
+    [void]$visual.Children.Add($calendar)
 }
 else {
     $assemblyCandidates = @(
