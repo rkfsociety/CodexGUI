@@ -35,7 +35,7 @@ namespace CodexGUI;
 
 public partial class MainWindow : Window
 {
-    private const string PromptPlaceholder = "Спросите Codex о задаче или попросите изменить проект…";
+    private const string PromptPlaceholder = "Опишите задачу или изменение проекта…";
     private const string DefaultModel = "gpt-6-luna";
     private const string DefaultEffort = "high";
     private static readonly JsonSerializerOptions StateSerializerOptions = new() { WriteIndented = true };
@@ -78,8 +78,8 @@ public partial class MainWindow : Window
     private bool _repositoryRefreshPending;
     private bool _isReviewingChanges;
     private bool _isGitCommandRunning;
-    private string _usageLimitsText = "Загружаю лимиты Codex…";
-    private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
+    private string _usageLimitsText = "Загружаю лимиты…";
+    private string _usageLimitsTooltip = "Лимиты аккаунта";
     private FileSystemWatcher? _viewWatcher;
     private Forms.NotifyIcon? _trayIcon;
     private DrawingIcon? _trayImage;
@@ -675,8 +675,8 @@ public partial class MainWindow : Window
         RenderConversation();
         if (_contextOpen) RefreshFileTree();
         _ = RefreshRepositoryInfoAsync();
-        SetStatus(HasActiveRuns ? "Codex работает…" : "Codex готов",
-            _startupIssue ?? (HasActiveRuns ? "Есть выполняющиеся запросы." : "Запросы выполняются в выбранной папке."),
+        SetStatus(HasActiveRuns ? "В работе" : "Готов",
+            _startupIssue ?? "Запросы выполняются в выбранной папке.",
             isError: _startupIssue is not null);
     }
 
@@ -1182,7 +1182,7 @@ public partial class MainWindow : Window
             {
                 RenderConversation();
                 if (thread.HistoryError is null)
-                    SetStatus("Codex готов", "История чата восстановлена из Codex.");
+                    SetStatus("Готов", "История чата восстановлена.");
             }
         }
     }
@@ -1500,7 +1500,7 @@ public partial class MainWindow : Window
             };
             DockPanel.SetDock(copyButton, Dock.Right);
             header.Children.Add(copyButton);
-            header.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock { Text = "✳   АССИСТЕНТ", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
             outer.Children.Add(header);
         }
 
@@ -3658,7 +3658,7 @@ public partial class MainWindow : Window
                 : response;
             if (assistantMessage.HasCompletedMessages && string.IsNullOrWhiteSpace(response) && activeRun.CompletionStatus != "interrupted")
                 thread.Messages.Remove(assistantMessage);
-            if (_currentThread == thread) SetStatus("Codex готов", "Ответ получен.");
+            if (_currentThread == thread) SetStatus("Готов", "Ответ получен.");
         }
         catch (Exception error)
         {
