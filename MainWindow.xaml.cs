@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     private FileSystemWatcher? _viewWatcher;
     private Forms.NotifyIcon? _trayIcon;
     private DrawingIcon? _trayImage;
+    private string? _pendingTrayNotificationThreadId;
     private readonly Dictionary<string, Process?> _activeProcesses = new(StringComparer.Ordinal);
     private readonly List<CodexAutomationDefinition> _automationDefinitions = [];
     private readonly List<CodexAutomationRun> _automationRuns = [];
@@ -402,7 +403,25 @@ public partial class MainWindow : Window
         {
             if (e.Button == Forms.MouseButtons.Left) Dispatcher.BeginInvoke(ShowFromTray);
         };
-        _trayIcon.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(ShowFromTray);
+        _trayIcon.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            ShowFromTray();
+            if (_pendingTrayNotificationThreadId is not { } threadId) return;
+            _pendingTrayNotificationThreadId = null;
+            if (_threads.FirstOrDefault(thread => thread.Id == threadId) is not { } thread) return;
+            _showArchivedChats = thread.IsArchived;
+            SelectThread(thread);
+        });
+    }
+
+    private void ShowChatCompletionNotification(ChatThread thread, bool failed)
+    {
+        if (_trayIcon is null || _isClosing) return;
+        _pendingTrayNotificationThreadId = thread.Id;
+        var title = failed ? "Запрос Codex завершился с ошибкой" : "Ответ Codex готов";
+        var text = thread.Title.Length <= 240 ? thread.Title : thread.Title[..237] + "…";
+        _trayIcon.ShowBalloonTip(5000, title, text,
+            failed ? Forms.ToolTipIcon.Warning : Forms.ToolTipIcon.Info);
     }
 
     internal void ShowFromTray()
@@ -3202,6 +3221,7 @@ public partial class MainWindow : Window
 
     private async Task ExecuteActiveCliRunAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage, bool reloadHistoryWhenFinished)
     {
+        var failed = false;
         try
         {
             var response = await RunCodexAsync(thread, activeRun, assistantMessage);
@@ -3216,6 +3236,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error)
         {
+            failed = true;
             assistantMessage.Text = "Не удалось выполнить запрос:\n" + error.Message;
             if (_currentThread == thread) SetStatus("Ошибка запроса", error.Message, isError: true);
         }
@@ -3223,7 +3244,11 @@ public partial class MainWindow : Window
         {
             if (_activeProcesses.Remove(activeRun.RunId, out var activeProcess)) activeProcess?.Dispose();
             if (thread.ActiveRun?.RunId == activeRun.RunId) thread.ActiveRun = null;
-            if (_currentThread != thread) thread.HasUnreadResponse = true;
+            if (_currentThread != thread || !IsActive || WindowState == WindowState.Minimized || !IsVisible)
+            {
+                thread.HasUnreadResponse = true;
+                ShowChatCompletionNotification(thread, failed);
+            }
             SaveState();
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
                 await RestoreThreadHistoryAsync(thread, force: true);
@@ -3815,8 +3840,11 @@ public partial class MainWindow : Window
     {
         var appPath = Environment.ProcessPath
             ?? throw new InvalidOperationException("Не удалось определить исполняемый файл CodexGUI.");
-        var assemblyPath = typeof(App).Assembly.Location;
-        var isFrameworkDependent = !string.IsNullOrWhiteSpace(assemblyPath)
+        var assemblyName = typeof(App).Assembly.GetName().Name;
+        var assemblyPath = assemblyName is null
+            ? ""
+            : Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
+        var isFrameworkDependent = File.Exists(assemblyPath)
             && !File.Exists(Path.Combine(AppContext.BaseDirectory, "hostfxr.dll"));
         var startInfo = isFrameworkDependent
             ? new ProcessStartInfo(string.Equals(Path.GetFileNameWithoutExtension(appPath), "dotnet", StringComparison.OrdinalIgnoreCase)
