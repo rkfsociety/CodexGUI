@@ -46,13 +46,9 @@ internal sealed class CodexActivityWindow : Window
     {
         var scrollOffset = _scroll.VerticalOffset;
         _items.Children.Clear();
-        _summary.Text = items.Count switch
-        {
-            0 => "Сейчас нет активных чатов или непрочитанных ответов.",
-            1 => "1 чат требует внимания",
-            >= 2 and <= 4 => $"{items.Count} чата требуют внимания",
-            _ => $"{items.Count} чатов требуют внимания"
-        };
+        _summary.Text = items.Count == 0
+            ? "Сейчас нет активных чатов, запросов на решение или непрочитанных ответов."
+            : $"Чатов в списке активности: {items.Count}";
 
         if (items.Count == 0)
         {

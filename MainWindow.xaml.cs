@@ -809,13 +809,7 @@ public partial class MainWindow : Window
         if (Control<Button>("ActivityButton") is { } button)
         {
             button.Content = items.Count == 0 ? "Активность" : $"Активность · {items.Count}";
-            button.ToolTip = items.Count switch
-            {
-                0 => "Активные чаты, запросы на подтверждение и непрочитанные ответы",
-                1 => "1 чат требует внимания",
-                >= 2 and <= 4 => $"{items.Count} чата требуют внимания",
-                _ => $"{items.Count} чатов требуют внимания"
-            };
+            button.ToolTip = "Активные чаты, запросы на подтверждение и непрочитанные ответы";
         }
         _activityWindow?.UpdateItems(items);
     }
