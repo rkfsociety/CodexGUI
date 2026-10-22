@@ -13,6 +13,9 @@ internal sealed class CodexAutomationDefinition
     public string Name { get; set; } = "Новая автоматизация";
     public string ProjectId { get; set; } = "";
     public string ProjectPath { get; set; } = "";
+    public string? ExistingThreadId { get; set; }
+    public string? ExistingThreadWorkingDirectory { get; set; }
+    public string? ExistingThreadWorktreePath { get; set; }
     public string Prompt { get; set; } = "";
     public string Model { get; set; } = "gpt-6-luna";
     public string Effort { get; set; } = "high";

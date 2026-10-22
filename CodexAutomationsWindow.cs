@@ -10,12 +10,17 @@ using System.Windows.Media;
 namespace CodexGUI;
 
 internal sealed record CodexAutomationProject(string Id, string Name, string Path);
+internal sealed record CodexAutomationChat(string ProjectId, string ThreadId, string Title, string ProjectPath, string? WorktreePath)
+{
+    public string WorkingDirectory => WorktreePath ?? ProjectPath;
+}
 
 internal sealed class CodexAutomationsWindow : Window
 {
     private readonly IList<CodexAutomationDefinition> _definitions;
     private readonly IList<CodexAutomationRun> _runs;
     private readonly IReadOnlyList<CodexAutomationProject> _projects;
+    private readonly IReadOnlyList<CodexAutomationChat> _chats;
     private readonly IReadOnlyList<ModelOption> _models;
     private readonly string? _defaultProjectId;
     private readonly Action _saveDefinitions;
@@ -33,13 +38,15 @@ internal sealed class CodexAutomationsWindow : Window
     private readonly Button _reviewButton = new() { Content = "Отметить проверенным" };
 
     public CodexAutomationsWindow(IList<CodexAutomationDefinition> definitions, IList<CodexAutomationRun> runs,
-        IReadOnlyList<CodexAutomationProject> projects, IReadOnlyList<ModelOption> models, string? defaultProjectId, Action saveDefinitions,
+        IReadOnlyList<CodexAutomationProject> projects, IReadOnlyList<CodexAutomationChat> chats,
+        IReadOnlyList<ModelOption> models, string? defaultProjectId, Action saveDefinitions,
         Func<CodexAutomationDefinition, Task> runNow, Action<CodexAutomationRun> openRun,
         Action<CodexAutomationRun> markReviewed)
     {
         _definitions = definitions;
         _runs = runs;
         _projects = projects;
+        _chats = chats;
         _models = models;
         _defaultProjectId = defaultProjectId;
         _saveDefinitions = saveDefinitions;
@@ -267,7 +274,7 @@ internal sealed class CodexAutomationsWindow : Window
                 System.Diagnostics.Trace.TraceWarning("Не удалось определить тип проекта для расписания: {0}", error.Message);
             }
         }
-        var editor = new CodexAutomationEditorWindow(_projects, _models, existing, defaultProject.Id, defaultUseWorktree) { Owner = this };
+        var editor = new CodexAutomationEditorWindow(_projects, _chats, _models, existing, defaultProject.Id, defaultUseWorktree) { Owner = this };
         if (editor.ShowDialog() != true || editor.Definition is not { } edited) return;
         var index = existing is null ? -1 : _definitions.ToList().FindIndex(item => item.Id == existing.Id);
         if (index >= 0) _definitions[index] = edited;
@@ -325,7 +332,9 @@ internal sealed class CodexAutomationsWindow : Window
     private void UpdateRunSelection()
     {
         var selected = SelectedRun();
-        _openRunButton.IsEnabled = selected?.ThreadId is { Length: > 0 };
+        _openRunButton.IsEnabled = selected is not null
+            && !string.IsNullOrWhiteSpace(selected.ThreadId)
+            && selected.Status is not ("running" or "preparing");
         _reviewButton.IsEnabled = selected is { Status: "completed", Reviewed: false };
         if (selected is null) { _runDetails.Text = "Здесь появятся завершённые результаты и ошибки расписаний."; return; }
         _runDetails.Text = string.IsNullOrWhiteSpace(selected.Error) ? selected.Summary : selected.Error;
@@ -379,11 +388,14 @@ internal sealed class CodexAutomationsWindow : Window
 internal sealed class CodexAutomationEditorWindow : Window
 {
     private readonly IReadOnlyList<CodexAutomationProject> _projects;
+    private readonly IReadOnlyList<CodexAutomationChat> _chats;
     private readonly IReadOnlyList<ModelOption> _models;
     private readonly string _defaultProjectId;
     private readonly CodexAutomationDefinition _source;
     private readonly TextBox _name = new();
     private readonly ComboBox _project = new();
+    private readonly ComboBox _existingThread = new();
+    private readonly TextBlock _existingThreadNote = new() { TextWrapping = TextWrapping.Wrap, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(154, 168, 184)), Margin = new Thickness(1, 5, 1, 0) };
     private readonly ComboBox _cadence = new();
     private readonly TextBox _time = new();
     private readonly ComboBox _day = new();
@@ -401,13 +413,16 @@ internal sealed class CodexAutomationEditorWindow : Window
         Foreground = new SolidColorBrush(Color.FromRgb(166, 177, 191)),
         Margin = new Thickness(0, 11, 0, 5)
     };
+    private bool _loadingValues;
 
     public CodexAutomationDefinition? Definition { get; private set; }
 
     public CodexAutomationEditorWindow(IReadOnlyList<CodexAutomationProject> projects,
-        IReadOnlyList<ModelOption> models, CodexAutomationDefinition? existing, string defaultProjectId, bool defaultUseWorktree)
+        IReadOnlyList<CodexAutomationChat> chats, IReadOnlyList<ModelOption> models,
+        CodexAutomationDefinition? existing, string defaultProjectId, bool defaultUseWorktree)
     {
         _projects = projects;
+        _chats = chats;
         _models = models;
         _defaultProjectId = defaultProjectId;
         _source = existing is null ? new CodexAutomationDefinition() : Copy(existing);
@@ -422,7 +437,9 @@ internal sealed class CodexAutomationEditorWindow : Window
         Foreground = new SolidColorBrush(Color.FromRgb(240, 240, 241));
         FontFamily = new FontFamily("Segoe UI");
         Content = BuildEditor();
+        _loadingValues = true;
         LoadValues();
+        _loadingValues = false;
     }
 
     private UIElement BuildEditor()
@@ -443,6 +460,8 @@ internal sealed class CodexAutomationEditorWindow : Window
 
         AddField(form, "Название", _name);
         AddField(form, "Проект", _project);
+        AddField(form, "Продолжать существующий чат (опционально)", _existingThread);
+        form.Children.Add(_existingThreadNote);
         AddField(form, "Периодичность", _cadence);
         AddField(form, "Время по местному часовому поясу (ЧЧ:ММ)", _time);
         _day.ItemsSource = new[]
@@ -485,6 +504,12 @@ internal sealed class CodexAutomationEditorWindow : Window
         };
         _project.ItemsSource = _projects;
         _project.DisplayMemberPath = nameof(CodexAutomationProject.Name);
+        _existingThread.DisplayMemberPath = nameof(ExistingThreadChoice.Label);
+        _project.SelectionChanged += (_, _) =>
+        {
+            if (!_loadingValues) RefreshExistingThreadChoices();
+        };
+        _existingThread.SelectionChanged += (_, _) => UpdateExistingThreadUi();
         _model.SelectionChanged += (_, _) => RefreshEffortChoices();
         return root;
     }
@@ -496,6 +521,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             ?? _projects.FirstOrDefault(item => string.Equals(item.Path, _source.ProjectPath, StringComparison.OrdinalIgnoreCase))
             ?? _projects.FirstOrDefault(item => item.Id == _defaultProjectId)
             ?? _projects.FirstOrDefault();
+        RefreshExistingThreadChoices(_source.ExistingThreadId);
         _cadence.SelectedItem = _cadence.Items.Cast<CadenceChoice>().FirstOrDefault(item => item.Id == _source.Cadence)
             ?? _cadence.Items.Cast<CadenceChoice>().First();
         _time.Text = _source.TimeOfDay;
@@ -514,6 +540,56 @@ internal sealed class CodexAutomationEditorWindow : Window
         _enabled.IsChecked = _source.Enabled;
         _dayRow.Visibility = _source.Cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
         _dayLabel.Visibility = _dayRow.Visibility;
+        UpdateExistingThreadUi();
+    }
+
+    private void RefreshExistingThreadChoices(string? requestedThreadId = null)
+    {
+        var projectId = (_project.SelectedItem as CodexAutomationProject)?.Id;
+        var choices = new List<ExistingThreadChoice>
+        {
+            new(null, null, null, null, "Начинать отдельный чат в каждом запуске")
+        };
+        if (projectId is not null)
+            choices.AddRange(_chats.Where(chat => chat.ProjectId == projectId)
+                .Select(chat => new ExistingThreadChoice(chat, chat.ThreadId, chat.WorkingDirectory, chat.WorktreePath,
+                    $"{chat.Title} · {(chat.WorktreePath is null ? "папка проекта" : "worktree")}")));
+        if (!string.IsNullOrWhiteSpace(requestedThreadId)
+            && choices.All(choice => choice.ThreadId != requestedThreadId))
+        {
+            choices.Add(new ExistingThreadChoice(null, requestedThreadId,
+                _source.ExistingThreadWorkingDirectory ?? _source.ProjectPath,
+                _source.ExistingThreadWorktreePath,
+                $"Сохранённый чат недоступен · {requestedThreadId}"));
+        }
+        _existingThread.ItemsSource = choices;
+        _existingThread.SelectedItem = choices.FirstOrDefault(choice => choice.ThreadId == requestedThreadId)
+            ?? choices[0];
+        UpdateExistingThreadUi();
+    }
+
+    private void UpdateExistingThreadUi()
+    {
+        var choice = _existingThread.SelectedItem as ExistingThreadChoice;
+        var chat = choice?.Chat;
+        _worktree.IsEnabled = choice?.ThreadId is null;
+        if (choice?.ThreadId is null)
+        {
+            _worktree.IsChecked = _source.UseWorktree;
+            _existingThreadNote.Text = "Без выбранного чата каждый запуск создаёт новую сессию. Для Git-проекта запуск по умолчанию использует отдельный worktree.";
+        }
+        else if (chat is null)
+        {
+            _worktree.IsChecked = false;
+            _existingThreadNote.Text = "Сохранённый чат не найден среди доступных. Его ID сохранён; выберите другой чат или отдельный чат для запуска, чтобы изменить настройку.";
+        }
+        else
+        {
+            _worktree.IsChecked = false;
+            _existingThreadNote.Text = chat.WorktreePath is null
+                ? "Продолжит контекст чата в его текущей папке. Изменения будут записываться прямо в папку проекта."
+                : $"Продолжит чат в его существующем worktree: {chat.WorktreePath}";
+        }
     }
 
     private void RefreshEffortChoices(string? requested = null)
@@ -555,13 +631,16 @@ internal sealed class CodexAutomationEditorWindow : Window
             Name = name,
             ProjectId = project.Id,
             ProjectPath = project.Path,
+            ExistingThreadId = (_existingThread.SelectedItem as ExistingThreadChoice)?.ThreadId,
+            ExistingThreadWorkingDirectory = (_existingThread.SelectedItem as ExistingThreadChoice)?.WorkingDirectory,
+            ExistingThreadWorktreePath = (_existingThread.SelectedItem as ExistingThreadChoice)?.WorktreePath,
             Prompt = prompt,
             Model = model.Id,
             Effort = effort,
             Cadence = cadence,
             TimeOfDay = _time.Text.Trim(),
             DayOfWeek = day.Day,
-            UseWorktree = _worktree.IsChecked == true,
+            UseWorktree = (_existingThread.SelectedItem as ExistingThreadChoice)?.ThreadId is null && _worktree.IsChecked == true,
             Enabled = _enabled.IsChecked == true,
             NextRunAtUtc = _source.NextRunAtUtc
         };
@@ -597,6 +676,9 @@ internal sealed class CodexAutomationEditorWindow : Window
         Name = source.Name,
         ProjectId = source.ProjectId,
         ProjectPath = source.ProjectPath,
+        ExistingThreadId = source.ExistingThreadId,
+        ExistingThreadWorkingDirectory = source.ExistingThreadWorkingDirectory,
+        ExistingThreadWorktreePath = source.ExistingThreadWorktreePath,
         Prompt = source.Prompt,
         Model = source.Model,
         Effort = source.Effort,
@@ -609,6 +691,8 @@ internal sealed class CodexAutomationEditorWindow : Window
     };
 
     private sealed record ModelChoice(string Id, string Label, string DefaultEffort, IReadOnlyList<string> Efforts);
+    private sealed record ExistingThreadChoice(CodexAutomationChat? Chat, string? ThreadId,
+        string? WorkingDirectory, string? WorktreePath, string Label);
     private sealed record CadenceChoice(string Id, string Label);
     private sealed record DayChoice(DayOfWeek Day, string Label);
 }

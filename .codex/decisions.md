@@ -16,6 +16,14 @@
 - Constraint: closing CodexGUI stops schedule polling, though already launched workers continue and are reconciled on next launch. Local schedules are not an OS background service. User-input requests receive empty answers and permission/MCP elicitations are cancelled in unattended runs.
 - Source: `CodexAutomationStore.cs`, `CodexAppServerTurnWorker.cs`, `MainWindow.xaml.cs`, and user workflow in `README.md`.
 
+## Allow scheduled tasks to resume an existing thread
+
+- Status: active.
+- Decision: an automation may target an existing thread via App Server `thread/resume`; retain the thread's original working directory and, when applicable, its already registered Git worktree. Do not create a new worktree for a resumed thread.
+- Reason: users can carry conversation context into later scheduled runs while the App Server keeps the canonical thread history.
+- Constraint: `thread/resume` does not move a thread to a new `cwd`; validate the saved project/worktree path before starting. Avoid concurrent automation or interactive runs in the same thread. Keep an unavailable saved thread selection visible in the editor instead of silently replacing it with a new thread.
+- Source: `CodexAutomationStore.cs`, `CodexAutomationsWindow.cs`, `CodexAppServerTurnWorker.cs`, `MainWindow.xaml.cs`, and the App Server thread lifecycle docs.
+
 ## Handle App Server interactive requests in the client
 
 - Status: active.

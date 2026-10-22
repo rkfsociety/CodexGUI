@@ -3805,10 +3805,15 @@ public partial class MainWindow : Window
         if (_availableModels.Count == 0 && Control<Button>("ModelButton") is { } modelButton)
             await EnsureModelCatalogAsync(modelButton);
         var projects = _projects.Select(project => new CodexAutomationProject(project.Id, project.Name, project.Path)).ToArray();
+        var chats = _threads.Where(thread => !thread.IsArchived && !string.IsNullOrWhiteSpace(thread.CodexSessionId))
+            .Select(thread => new CodexAutomationChat(
+                thread.ProjectId, thread.CodexSessionId!, thread.Title, thread.ProjectPath, thread.WorktreePath))
+            .ToArray();
         _automationWindow = new CodexAutomationsWindow(
             _automationDefinitions,
             _automationRuns,
             projects,
+            chats,
             _availableModels,
             _selectedProject?.Id,
             PersistAutomationDefinitions,
@@ -3884,6 +3889,8 @@ public partial class MainWindow : Window
         if (existing is not null)
         {
             SelectThread(existing);
+            if (run.Status is not ("running" or "preparing"))
+                _ = RestoreThreadHistoryAsync(existing, force: true);
             return;
         }
 
@@ -3935,7 +3942,7 @@ public partial class MainWindow : Window
             var now = DateTimeOffset.UtcNow;
             foreach (var definition in _automationDefinitions.Where(item => item.Enabled && item.NextRunAtUtc <= now).ToArray())
             {
-                if (_automationRuns.Any(run => run.AutomationId == definition.Id && (run.Status is "running" or "preparing"))) continue;
+                if (IsAutomationBusy(definition)) continue;
                 definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(definition, now);
                 PersistAutomationDefinitions();
                 await StartAutomationAsync(definition);
@@ -3955,10 +3962,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool IsAutomationBusy(CodexAutomationDefinition definition)
+    {
+        var existingThreadId = definition.ExistingThreadId;
+        return _automationRuns.Any(run => (run.Status is "running" or "preparing")
+            && (run.AutomationId == definition.Id
+                || existingThreadId is { Length: > 0 } && run.ThreadId == existingThreadId))
+            || (existingThreadId is { Length: > 0 }
+                && _threads.Any(thread => thread.CodexSessionId == existingThreadId && thread.ActiveRun is not null));
+    }
+
     private async Task StartAutomationAsync(CodexAutomationDefinition definition, bool manualRun = false)
     {
-        if ((!definition.Enabled && !manualRun) || _automationRuns.Any(run => run.AutomationId == definition.Id && (run.Status is "running" or "preparing")))
+        if (!definition.Enabled && !manualRun)
             return;
+        if (IsAutomationBusy(definition))
+        {
+            if (manualRun) throw new InvalidOperationException("Эта автоматизация или выбранный чат уже выполняется.");
+            return;
+        }
 
         var workerRunId = Guid.NewGuid().ToString("N");
         using var coordinatorProcess = Process.GetCurrentProcess();
@@ -3968,6 +3990,7 @@ public partial class MainWindow : Window
             AutomationName = definition.Name,
             ProjectId = definition.ProjectId,
             ProjectPath = definition.ProjectPath,
+            ThreadId = definition.ExistingThreadId,
             WorkerRunId = workerRunId,
             CoordinatorProcessId = coordinatorProcess.Id,
             CoordinatorStartTimeUtcTicks = coordinatorProcess.StartTime.ToUniversalTime().Ticks,
@@ -3984,7 +4007,26 @@ public partial class MainWindow : Window
                 throw new DirectoryNotFoundException($"Папка проекта больше не существует: {definition.ProjectPath}");
 
             var workingDirectory = Path.GetFullPath(definition.ProjectPath);
-            if (definition.UseWorktree)
+            if (definition.ExistingThreadId is { Length: > 0 })
+            {
+                var existingThreadDirectory = Path.GetFullPath(
+                    string.IsNullOrWhiteSpace(definition.ExistingThreadWorkingDirectory)
+                        ? definition.ProjectPath
+                        : definition.ExistingThreadWorkingDirectory);
+                if (definition.ExistingThreadWorktreePath is { Length: > 0 } storedWorktree)
+                {
+                    var fullWorktree = Path.GetFullPath(storedWorktree);
+                    if (!string.Equals(existingThreadDirectory, fullWorktree, StringComparison.OrdinalIgnoreCase)
+                        || !Directory.Exists(fullWorktree)
+                        || !await GitRepositoryInspector.IsRegisteredWorktreeAsync(definition.ProjectPath, fullWorktree, CancellationToken.None))
+                        throw new InvalidDataException("Выбранный чат ссылается на недоступный Git worktree.");
+                    run.WorktreePath = fullWorktree;
+                }
+                else if (!string.Equals(existingThreadDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Папка сохранённого чата изменилась; выберите чат заново в настройках расписания.");
+                workingDirectory = existingThreadDirectory;
+            }
+            else if (definition.UseWorktree)
             {
                 if (!Guid.TryParseExact(definition.ProjectId, "N", out var projectId))
                     throw new InvalidDataException("Не удалось проверить идентификатор проекта для изолированной копии.");
@@ -4025,6 +4067,7 @@ public partial class MainWindow : Window
                 Model = definition.Model,
                 Effort = definition.Effort,
                 Unattended = true,
+                ThreadId = definition.ExistingThreadId,
                 StartedPath = activeRun.StartedPath,
                 OutputPath = activeRun.OutputPath,
                 ErrorPath = activeRun.ErrorPath,
