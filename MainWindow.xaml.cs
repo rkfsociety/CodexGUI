@@ -663,9 +663,32 @@ public partial class MainWindow : Window
 
         void AddThreadButton(ChatThread thread)
         {
+            var isActive = thread.ActiveRun is not null;
+            var hasUnreadResponse = thread.HasUnreadResponse;
             var button = new Button
             {
-                Content = thread.ActiveRun is null ? thread.Title : "●  " + thread.Title,
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Children =
+                    {
+                        new Ellipse
+                        {
+                            Width = 6,
+                            Height = 6,
+                            Margin = new Thickness(0, 0, 8, 0),
+                            Fill = Brush(isActive ? "#D7B66E" : hasUnreadResponse ? "#92E5C7" : "#00000000"),
+                            VerticalAlignment = VerticalAlignment.Center
+                        },
+                        new TextBlock
+                        {
+                            Text = thread.Title,
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            MaxWidth = 180,
+                            FontWeight = hasUnreadResponse ? FontWeights.SemiBold : FontWeights.Normal
+                        }
+                    }
+                },
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(12, 10, 7, 10),
                 Margin = new Thickness(0, 2, 0, 2),
@@ -674,8 +697,13 @@ public partial class MainWindow : Window
                 BorderThickness = new Thickness(1),
                 Foreground = Brush(thread == _currentThread ? "#F1FBF7" : "#A5B5C3"),
                 FontSize = 12,
-                ToolTip = thread.ActiveRun is null ? thread.Title : "Выполняется… " + thread.Title
+                ToolTip = isActive ? "Выполняется… " + thread.Title
+                    : hasUnreadResponse ? "Новый ответ · " + thread.Title
+                    : thread.Title
             };
+            AutomationProperties.SetName(button, isActive
+                ? $"{thread.Title}, выполняется"
+                : hasUnreadResponse ? $"{thread.Title}, новый ответ" : thread.Title);
             button.Click += (_, _) => SelectThread(thread);
             button.PreviewMouseRightButtonUp += (_, e) =>
             {
@@ -3195,6 +3223,7 @@ public partial class MainWindow : Window
         {
             if (_activeProcesses.Remove(activeRun.RunId, out var activeProcess)) activeProcess?.Dispose();
             if (thread.ActiveRun?.RunId == activeRun.RunId) thread.ActiveRun = null;
+            if (_currentThread != thread) thread.HasUnreadResponse = true;
             SaveState();
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
                 await RestoreThreadHistoryAsync(thread, force: true);
@@ -4202,6 +4231,7 @@ public partial class MainWindow : Window
     private void SelectThread(ChatThread thread)
     {
         _currentThread = thread;
+        thread.HasUnreadResponse = false;
         _selectedProject = _projects.FirstOrDefault(project => project.Id == thread.ProjectId);
         _projectPath = thread.WorktreePath ?? _selectedProject?.Path ?? thread.ProjectPath;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = thread.Title;
@@ -4273,6 +4303,7 @@ public partial class MainWindow : Window
         _projectPath = project.Path;
         _showArchivedChats = false;
         _currentThread = _threads.LastOrDefault(thread => thread.ProjectId == project.Id && !thread.IsArchived);
+        if (_currentThread is { } currentThread) currentThread.HasUnreadResponse = false;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         RefreshView();
         SaveState();
@@ -4782,6 +4813,7 @@ public partial class MainWindow : Window
                             ForkFromSessionId = stored.ForkFromSessionId,
                             IsArchived = stored.IsArchived,
                             IsPinned = stored.IsPinned,
+                            HasUnreadResponse = stored.HasUnreadResponse,
                             UseWorktree = stored.UseWorktree,
                             WorktreeSessionStarted = stored.WorktreeSessionStarted,
                             ContextTokens = stored.ContextTokens,
@@ -4823,6 +4855,7 @@ public partial class MainWindow : Window
         _selectedProject ??= _projects[0];
         _projectPath = _selectedProject.Path;
         _currentThread = _threads.LastOrDefault(thread => thread.ProjectId == _selectedProject.Id && !thread.IsArchived);
+        if (_currentThread is { } currentThread) currentThread.HasUnreadResponse = false;
         SaveState();
     }
 
@@ -4852,6 +4885,7 @@ public partial class MainWindow : Window
                     ForkFromSessionId = thread.ForkFromSessionId,
                     IsArchived = thread.IsArchived,
                     IsPinned = thread.IsPinned,
+                    HasUnreadResponse = thread.HasUnreadResponse,
                     UseWorktree = thread.UseWorktree,
                     WorktreeSessionStarted = thread.WorktreeSessionStarted,
                     ContextTokens = thread.ContextTokens,
@@ -5569,6 +5603,7 @@ public partial class MainWindow : Window
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
+        public bool HasUnreadResponse { get; set; }
         public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
@@ -5601,6 +5636,7 @@ public partial class MainWindow : Window
         public string? ForkFromSessionId { get; set; }
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
+        public bool HasUnreadResponse { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
         public long? ContextTokens { get; set; }
