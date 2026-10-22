@@ -59,6 +59,12 @@ public partial class MainWindow : Window
     private bool _isClosing;
     private bool _stateSaveBlocked;
     private PreparedAppUpdate? _preparedUpdate;
+    private string? _availableUpdateVersion;
+    private int? _updateDownloadPercent;
+    private long _updateDownloadedBytes;
+    private long? _updateTotalBytes;
+    private string _updateDownloadStage = "";
+    private string? _updateDownloadError;
     private GitRepositorySnapshot? _repositorySnapshot;
     private string? _snapshotProjectPath;
     private bool _isRefreshingRepository;
@@ -187,8 +193,26 @@ public partial class MainWindow : Window
             if (update is null)
                 return;
 
+            _availableUpdateVersion = update.Version;
+            _updateDownloadPercent = 0;
+            _updateDownloadedBytes = 0;
+            _updateTotalBytes = null;
+            _updateDownloadStage = "Подготовка загрузки";
+            _updateDownloadError = null;
+            UpdateUpdateButton();
             SetTrayTooltip($"Codex — скачиваю обновление v{update.Version}");
-            var preparedUpdate = await AppUpdater.DownloadAndVerifyAsync(update, _updateCheckCancellation.Token);
+            var progress = new Progress<UpdateDownloadProgress>(status =>
+            {
+                // Progress callbacks can be queued after the download has finished.
+                if (_isClosing || _preparedUpdate is not null || _availableUpdateVersion != update.Version)
+                    return;
+                _updateDownloadStage = status.Stage;
+                _updateDownloadPercent = status.Percent;
+                _updateDownloadedBytes = status.DownloadedBytes;
+                _updateTotalBytes = status.TotalBytes;
+                UpdateUpdateButton();
+            });
+            var preparedUpdate = await AppUpdater.DownloadAndVerifyAsync(update, _updateCheckCancellation.Token, progress);
             if (_isClosing)
             {
                 AppUpdater.DiscardPreparedUpdate(preparedUpdate);
@@ -196,6 +220,8 @@ public partial class MainWindow : Window
             }
 
             _preparedUpdate = preparedUpdate;
+            _updateDownloadPercent = 100;
+            _updateDownloadStage = "Скачано и проверено";
             UpdateUpdateButton();
             SetTrayTooltip($"Codex — обновление v{update.Version} готово к установке");
         }
@@ -203,16 +229,21 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             if (_isClosing) return;
+            _updateDownloadError = _availableUpdateVersion is null ? null : error.Message;
+            if (_updateDownloadError is not null)
+            {
+                _updateDownloadPercent = null;
+                _updateDownloadStage = "Ошибка загрузки";
+                UpdateUpdateButton();
+            }
             SetTrayTooltip("Codex — не удалось загрузить обновление");
             Debug.WriteLine($"Не удалось проверить или скачать обновление CodexGUI: {error}");
         }
         finally
         {
             _isCheckingUpdates = false;
-            if (!_isClosing && _preparedUpdate is null)
-            {
+            if (!_isClosing && _preparedUpdate is null && _updateDownloadError is null)
                 SetTrayTooltip("Codex — готов к работе");
-            }
         }
     }
 
@@ -238,14 +269,79 @@ public partial class MainWindow : Window
 
     private void UpdateUpdateButton()
     {
-        if (Control<Button>("UpdateButton") is not { } button) return;
-        button.Visibility = _preparedUpdate is null ? Visibility.Collapsed : Visibility.Visible;
-        button.IsEnabled = !_isInstallingUpdate;
-        button.ToolTip = _preparedUpdate is { } preparedUpdate
-            ? $"Обновление v{preparedUpdate.Update.Version} скачано и проверено. Нажмите, чтобы установить и перезапустить Codex."
-            : null;
-        button.Background = Brush(_isInstallingUpdate ? "#202125" : "#244633");
-        button.Foreground = Brush(_isInstallingUpdate ? "#9A9BA1" : "#B9F4CE");
+        if (Control<Border>("UpdateStatusPanel") is not { } panel ||
+            Control<Button>("UpdateButton") is not { } button) return;
+
+        panel.Visibility = _availableUpdateVersion is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_availableUpdateVersion is null) return;
+
+        var ready = _preparedUpdate is not null && !_isInstallingUpdate;
+        button.IsEnabled = ready;
+        button.Cursor = ready ? Cursors.Hand : Cursors.Arrow;
+        button.ToolTip = ready
+            ? $"Обновление v{_availableUpdateVersion} скачано и проверено. Нажмите, чтобы установить и перезапустить Codex."
+            : _updateDownloadError is not null
+                ? $"Ошибка загрузки v{_availableUpdateVersion}: {_updateDownloadError}"
+                : $"Обновление v{_availableUpdateVersion}: {_updateDownloadStage}. Установка доступна только после проверки.";
+
+        panel.BorderBrush = Brush(_updateDownloadError is not null ? "#865A57" : ready ? "#448E73" : "#365C53");
+        if (Control<TextBlock>("UpdateStatusTitle") is { } title)
+            title.Text = $"Обновление v{_availableUpdateVersion}";
+
+        if (Control<TextBlock>("UpdateProgressLabel") is { } label)
+        {
+            label.Text = _isInstallingUpdate ? "…" : _updateDownloadError is not null ? "!" :
+                ready ? "✓" : _updateDownloadPercent is { } value ? $"{value}%" : "…";
+            label.Foreground = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#D1F9E8");
+        }
+
+        if (Control<TextBlock>("UpdateStatusDetail") is { } status)
+        {
+            if (_isInstallingUpdate)
+                status.Text = "Запускаю установщик…";
+            else if (ready)
+                status.Text = "Готово к установке · нажмите на круг";
+            else if (_updateDownloadError is not null)
+                status.Text = "Не удалось скачать · повторим при следующей проверке";
+            else if (_updateTotalBytes is > 0 && _updateDownloadStage == "Загрузка архива")
+                status.Text = $"{_updateDownloadStage} · {_updateDownloadedBytes / 1048576.0:0.0} / {_updateTotalBytes.Value / 1048576.0:0.0} МБ";
+            else if (_updateDownloadedBytes > 0 && _updateDownloadStage == "Загрузка архива")
+                status.Text = $"{_updateDownloadStage} · {_updateDownloadedBytes / 1048576.0:0.0} МБ";
+            else
+                status.Text = _updateDownloadStage;
+            status.ToolTip = _updateDownloadError;
+        }
+
+        if (Control<System.Windows.Shapes.Path>("UpdateProgressArc") is { } arc)
+        {
+            arc.Stroke = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#92E5C7");
+            // The final full ring and install action are reserved for a verified download.
+            var percent = ready || _isInstallingUpdate ? 100 : _updateDownloadError is not null ? 0
+                : Math.Clamp(_updateDownloadPercent ?? 0, 0, 99);
+            const double center = 23;
+            const double radius = 19.5;
+            if (percent == 0)
+            {
+                arc.Data = Geometry.Empty;
+            }
+            else if (percent == 100)
+            {
+                arc.Data = new EllipseGeometry(new Point(center, center), radius, radius);
+            }
+            else
+            {
+                var fraction = percent / 100.0;
+                var angle = fraction * Math.PI * 2;
+                var end = new Point(center + radius * Math.Sin(angle), center - radius * Math.Cos(angle));
+                var figure = new PathFigure
+                {
+                    StartPoint = new Point(center, center - radius), IsClosed = false, IsFilled = false
+                };
+                figure.Segments.Add(new ArcSegment(end, new Size(radius, radius), 0,
+                    fraction > 0.5, SweepDirection.Clockwise, true));
+                arc.Data = new PathGeometry([figure]);
+            }
+        }
     }
 
     private void SetTrayTooltip(string text)

@@ -15,6 +15,7 @@ namespace CodexGUI;
 
 internal sealed record AppUpdate(string Version, Uri ArchiveUri, Uri ChecksumUri, Uri SignatureUri);
 internal sealed record PreparedAppUpdate(AppUpdate Update, string TempDirectory, string ArchivePath);
+internal sealed record UpdateDownloadProgress(string Stage, int? Percent, long DownloadedBytes = 0, long? TotalBytes = null);
 
 internal static class AppUpdater
 {
@@ -70,7 +71,8 @@ internal static class AppUpdater
         return new AppUpdate(latestVersion, archiveUri, checksumUri, signatureUri);
     }
 
-    public static async Task<PreparedAppUpdate> DownloadAndVerifyAsync(AppUpdate update, CancellationToken cancellationToken = default)
+    public static async Task<PreparedAppUpdate> DownloadAndVerifyAsync(AppUpdate update, CancellationToken cancellationToken = default,
+        IProgress<UpdateDownloadProgress>? progress = null)
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), "CodexGUI-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -80,9 +82,28 @@ internal static class AppUpdater
 
         try
         {
-            await DownloadFileAsync(update.ArchiveUri, archivePath, MaximumArchiveBytes, cancellationToken);
+            progress?.Report(new UpdateDownloadProgress("Загрузка архива", 0));
+            var lastReportedPercent = -1;
+            long lastReportedBytes = 0;
+            await DownloadFileAsync(update.ArchiveUri, archivePath, MaximumArchiveBytes, cancellationToken,
+                (received, total) =>
+                {
+                    var percent = total is > 0
+                        ? (int?)Math.Clamp((int)(received * 90.0 / total.Value), 0, 90)
+                        : null;
+                    // Avoid posting a WPF UI callback for every network chunk.
+                    if (total is > 0 && percent == lastReportedPercent)
+                        return;
+                    if (total is not > 0 && received - lastReportedBytes < 1024 * 1024)
+                        return;
+                    lastReportedPercent = percent ?? -1;
+                    lastReportedBytes = received;
+                    progress?.Report(new UpdateDownloadProgress("Загрузка архива", percent, received, total));
+                });
+            progress?.Report(new UpdateDownloadProgress("Загрузка метаданных и подписи", 92));
             await DownloadFileAsync(update.ChecksumUri, checksumPath, MaximumMetadataBytes, cancellationToken);
             await DownloadFileAsync(update.SignatureUri, signaturePath, MaximumMetadataBytes, cancellationToken);
+            progress?.Report(new UpdateDownloadProgress("Проверка SHA-256", 96));
             var expectedHash = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             if (expectedHash is null || expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
                 throw new InvalidDataException("Файл контрольной суммы релиза повреждён.");
@@ -92,6 +113,7 @@ internal static class AppUpdater
             if (!actualHash.Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Контрольная сумма архива не совпала.");
 
+            progress?.Report(new UpdateDownloadProgress("Проверка подписи релиза", 99));
             byte[] signature;
             try { signature = Convert.FromBase64String((await File.ReadAllTextAsync(signaturePath, cancellationToken)).Trim()); }
             catch (FormatException error) { throw new InvalidDataException("Подпись архива имеет некорректный формат.", error); }
@@ -201,15 +223,18 @@ internal static class AppUpdater
         return 0;
     }
 
-    private static async Task DownloadFileAsync(Uri uri, string path, long maximumBytes, CancellationToken cancellationToken)
+    private static async Task DownloadFileAsync(Uri uri, string path, long maximumBytes, CancellationToken cancellationToken,
+        Action<long, long?>? onProgress = null)
     {
         using var response = await GetResponseAsync(Client, uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength is { } contentLength && contentLength > maximumBytes)
+        var total = response.Content.Headers.ContentLength;
+        if (total is { } contentLength && contentLength > maximumBytes)
             throw new InvalidDataException("Размер файла обновления превышает допустимый предел.");
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var destination = File.Create(path);
-        await CopyDownloadAsync(source, destination, TimeSpan.FromSeconds(30), cancellationToken, maximumBytes);
+        await CopyDownloadAsync(source, destination, TimeSpan.FromSeconds(30), cancellationToken, maximumBytes,
+            count => onProgress?.Invoke(count, total));
     }
 
     internal static async Task<HttpResponseMessage> GetResponseAsync(HttpClient client, Uri uri,
@@ -232,7 +257,8 @@ internal static class AppUpdater
     }
 
     internal static async Task CopyDownloadAsync(Stream source, Stream destination, TimeSpan idleTimeout,
-        CancellationToken cancellationToken, long maximumBytes = long.MaxValue)
+        CancellationToken cancellationToken, long maximumBytes = long.MaxValue,
+        Action<long>? onProgress = null)
     {
         var buffer = new byte[81920];
         long transferred = 0;
@@ -260,6 +286,7 @@ internal static class AppUpdater
                 throw new InvalidDataException("Размер файла обновления превышает допустимый предел.");
             transferred += count;
             await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+            onProgress?.Invoke(transferred);
         }
     }
 }
