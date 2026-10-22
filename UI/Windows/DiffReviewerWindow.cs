@@ -37,7 +37,7 @@ internal sealed class DiffReviewerWindow : Window
     private readonly Func<IReadOnlyList<DiffCommentThread>, bool> _attachThreads;
     private readonly ListBox _threadList = new()
     {
-        Background = Brush("#171E27"),
+        Background = Brush("#16212B"),
         Foreground = Brush("#E2E8F0"),
         BorderThickness = new Thickness(0)
     };
@@ -75,9 +75,7 @@ internal sealed class DiffReviewerWindow : Window
         MinWidth = 860;
         MinHeight = 470;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Brush("#11151B");
-        Foreground = Brush("#EEF3F8");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout(repositoryRoot, relativePath);
         _threadList.SelectionChanged += (_, _) =>
         {
@@ -141,9 +139,9 @@ internal sealed class DiffReviewerWindow : Window
             AcceptsReturn = true,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Background = Brush("#18212C"),
+            Background = Brush("#16212B"),
             Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2B3746"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
             ToolTip = _hunkActionsAvailable
                 ? "Выделите строки одного diff-блока для stage, unstage или отмены"
@@ -165,7 +163,7 @@ internal sealed class DiffReviewerWindow : Window
         };
         _attachButton.Padding = new Thickness(12, 7, 12, 7);
         _attachButton.Background = Brush("#223B38");
-        _attachButton.Foreground = Brush("#A8E6CF");
+        _attachButton.Foreground = Brush("#92E5C7");
         _attachButton.Click += (_, _) =>
         {
             if (_attachThreads(_threads)) DialogResult = true;
@@ -221,7 +219,7 @@ internal sealed class DiffReviewerWindow : Window
         var actions = new WrapPanel { Margin = new Thickness(0, 7, 0, 0) };
         _newThreadButton.Padding = new Thickness(9, 5, 9, 5);
         _newThreadButton.Background = Brush("#223B38");
-        _newThreadButton.Foreground = Brush("#A8E6CF");
+        _newThreadButton.Foreground = Brush("#92E5C7");
         _newThreadButton.Click += (_, _) => AddThread();
         actions.Children.Add(_newThreadButton);
         _replyButton.Padding = new Thickness(9, 5, 9, 5);
@@ -271,7 +269,7 @@ internal sealed class DiffReviewerWindow : Window
             card.Children.Add(new TextBlock
             {
                 Text = thread.LineAnchor ?? "Замечание к diff",
-                Foreground = Brush("#A8E6CF"),
+                Foreground = Brush("#92E5C7"),
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold
             });
@@ -314,13 +312,13 @@ internal sealed class DiffReviewerWindow : Window
                 Text = label,
                 FontSize = 9,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brush(accent ? "#A8E6CF" : "#9BAAC0")
+                Foreground = Brush(accent ? "#92E5C7" : "#9BAAC0")
             });
             stack.Children.Add(new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
             _conversation.Children.Add(new Border
             {
                 Background = Brush(accent ? "#1B2A28" : "#202936"),
-                BorderBrush = Brush("#2B3746"),
+                BorderBrush = Brush("#2A3946"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(8),
@@ -355,7 +353,7 @@ internal sealed class DiffReviewerWindow : Window
         if (SelectedHunk() is not { } hunk) return;
         if (action == GitHunkAction.Revert)
         {
-            var answer = MessageBox.Show(this,
+            var answer = CodexMessageDialog.Show(this,
                 $"Отменить незастейдженные изменения в блоке файла «{_relativePath}»? Изменения этого блока будут удалены.",
                 "Отменить изменения блока", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.Yes) return;
@@ -373,7 +371,7 @@ internal sealed class DiffReviewerWindow : Window
         button.Padding = new Thickness(9, 5, 9, 5);
         button.Background = Brush(background);
         button.Foreground = Brush("#E2E8F0");
-        button.BorderBrush = Brush("#34465A");
+        button.BorderBrush = Brush("#2A3946");
         button.BorderThickness = new Thickness(1);
         button.ToolTip = tooltip;
     }
@@ -394,7 +392,7 @@ internal sealed class DiffReviewerWindow : Window
             PagePadding = new Thickness(12),
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
-            Background = Brush("#18212C")
+            Background = Brush("#16212B")
         };
         var paragraphs = new List<Paragraph>();
         foreach (var line in diff.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
@@ -570,7 +568,7 @@ internal sealed class DiffReviewerWindow : Window
     private static Border Card(UIElement child) => new()
     {
         Background = Brush("#141A22"),
-        BorderBrush = Brush("#2B3746"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(9),
         Padding = new Thickness(4),
@@ -580,9 +578,9 @@ internal sealed class DiffReviewerWindow : Window
     private static void StyleInput(Control input)
     {
         input.Padding = new Thickness(9, 7, 9, 7);
-        input.Background = Brush("#18212C");
+        input.Background = Brush("#16212B");
         input.Foreground = Brush("#D2D9E3");
-        input.BorderBrush = Brush("#2B3746");
+        input.BorderBrush = Brush("#2A3946");
         input.BorderThickness = new Thickness(1);
     }
 
@@ -592,7 +590,7 @@ internal sealed class DiffReviewerWindow : Window
         Padding = new Thickness(12, 7, 12, 7),
         Background = Brush(background),
         Foreground = Brush("#E2E8F0"),
-        BorderBrush = Brush("#34465A"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1)
     };
 

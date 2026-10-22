@@ -32,9 +32,7 @@ internal sealed class CodexThreadGoalWindow : Window
         MinWidth = 500;
         MinHeight = 500;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Brush("#11151B");
-        Foreground = Brush("#EEF3F8");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         LoadValues(initialObjective, initialStatus);
     }
@@ -61,7 +59,7 @@ internal sealed class CodexThreadGoalWindow : Window
         cancel.IsCancel = true;
         buttons.Children.Add(cancel);
         var save = MakeButton("Сохранить", "#223B38");
-        save.Foreground = Brush("#A8E6CF");
+        save.Foreground = Brush("#92E5C7");
         save.IsDefault = true;
         save.Click += (_, _) => SaveGoal();
         buttons.Children.Add(save);
@@ -118,13 +116,13 @@ internal sealed class CodexThreadGoalWindow : Window
         var objective = _objective.Text.Trim();
         if (objective.Length == 0 || objective.Length > 4000)
         {
-            MessageBox.Show(this, "Цель должна содержать от 1 до 4000 символов.", "Проверьте цель",
+            CodexMessageDialog.Show(this, "Цель должна содержать от 1 до 4000 символов.", "Проверьте цель",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (_status.SelectedItem is not GoalStatusChoice status)
         {
-            MessageBox.Show(this, "Выберите статус цели.", "Проверьте цель",
+            CodexMessageDialog.Show(this, "Выберите статус цели.", "Проверьте цель",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -135,7 +133,7 @@ internal sealed class CodexThreadGoalWindow : Window
         {
             if (!ulong.TryParse(budgetText, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
             {
-                MessageBox.Show(this, "Лимит должен быть целым неотрицательным числом.", "Проверьте лимит",
+                CodexMessageDialog.Show(this, "Лимит должен быть целым неотрицательным числом.", "Проверьте лимит",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -150,7 +148,7 @@ internal sealed class CodexThreadGoalWindow : Window
 
     private void ClearGoal()
     {
-        var answer = MessageBox.Show(this, "Удалить сохранённую цель этого чата?", "Очистить цель",
+        var answer = CodexMessageDialog.Show(this, "Удалить сохранённую цель этого чата?", "Очистить цель",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.Yes) return;
         ClearRequested = true;
@@ -179,9 +177,9 @@ internal sealed class CodexThreadGoalWindow : Window
         if (input is Control control)
         {
             control.Padding = new Thickness(8, 6, 8, 6);
-            control.Background = Brush("#1C2430");
-            control.Foreground = Brush("#EEF3F8");
-            control.BorderBrush = Brush("#34465A");
+            control.Background = Brush("#16212B");
+            control.Foreground = Brush("#ECF2F5");
+            control.BorderBrush = Brush("#2A3946");
         }
         panel.Children.Add(input);
         return labelBlock;
@@ -193,7 +191,7 @@ internal sealed class CodexThreadGoalWindow : Window
         Padding = new Thickness(12, 7, 12, 7),
         Background = Brush(background),
         Foreground = Brush("#E2E8F0"),
-        BorderBrush = Brush("#34465A"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1)
     };
 

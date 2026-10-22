@@ -14,7 +14,7 @@ internal sealed class CodexSubagentsWindow : Window
 {
     private readonly Func<IReadOnlyList<CodexSubagentInfo>> _readSubagents;
     private readonly Func<string, Task> _openSubagent;
-    private readonly ListBox _list = new() { Background = Brush("#171E27"), BorderThickness = new Thickness(0) };
+    private readonly ListBox _list = new() { Background = Brush("#16212B"), BorderThickness = new Thickness(0) };
     private readonly TextBlock _details = new();
     private readonly Button _openButton = new() { Content = "Открыть историю субагента" };
 
@@ -29,9 +29,7 @@ internal sealed class CodexSubagentsWindow : Window
         MinWidth = 700;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Brush("#11151B");
-        Foreground = Brush("#F0F0F1");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateDetails();
         RefreshList();
@@ -78,7 +76,7 @@ internal sealed class CodexSubagentsWindow : Window
         _openButton.Margin = new Thickness(0, 12, 0, 0);
         _openButton.Padding = new Thickness(11, 7, 11, 7);
         _openButton.Background = Brush("#223B38");
-        _openButton.Foreground = Brush("#A8E6CF");
+        _openButton.Foreground = Brush("#92E5C7");
         _openButton.Click += async (_, _) =>
         {
             if (SelectedSubagent() is not { } agent) return;
@@ -90,7 +88,7 @@ internal sealed class CodexSubagentsWindow : Window
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, error.Message, "Не удалось открыть субагента", MessageBoxButton.OK, MessageBoxImage.Error);
+                CodexMessageDialog.Show(this, error.Message, "Не удалось открыть субагента", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally { _openButton.IsEnabled = SelectedSubagent() is not null; }
         };
@@ -124,7 +122,7 @@ internal sealed class CodexSubagentsWindow : Window
             {
                 Text = $"{StatusName(agent.Status)} · {ToolName(agent.Tool)}",
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brush(agent.Status is "errored" or "notFound" ? "#F08C8C" : agent.Status == "running" ? "#A8E6CF" : "#D3DCE6")
+                Foreground = Brush(agent.Status is "errored" or "notFound" ? "#F08C8C" : agent.Status == "running" ? "#92E5C7" : "#D3DCE6")
             });
             card.Children.Add(new TextBlock
             {
@@ -162,8 +160,8 @@ internal sealed class CodexSubagentsWindow : Window
 
     private static Border Card(UIElement child) => new()
     {
-        Background = Brush("#171E27"),
-        BorderBrush = Brush("#2B3746"),
+        Background = Brush("#16212B"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(10),
         Padding = new Thickness(5),
@@ -176,7 +174,7 @@ internal sealed class CodexSubagentsWindow : Window
         Padding = new Thickness(11, 7, 11, 7),
         Background = Brush("#263344"),
         Foreground = Brush("#D3DCE6"),
-        BorderBrush = Brush("#34465A"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1)
     };
 

@@ -51,7 +51,7 @@ public partial class App : Application
             if (CodexAppServerRuntime.TryResolveInstalledCli(out _))
             {
                 CodexAppServerRuntime.UseInstalledCliFallback = true;
-                MessageBox.Show(
+                CodexMessageDialog.Show(
                     $"Не удалось подготовить App Server {CodexAppServerRuntime.Version}. Запущена установленная версия Codex runtime.\n\n{error.Message}",
                     "CodexGUI",
                     MessageBoxButton.OK,
@@ -59,7 +59,7 @@ public partial class App : Application
             }
             else
             {
-                MessageBox.Show(
+                CodexMessageDialog.Show(
                     $"CodexGUI не смог загрузить обязательный App Server {CodexAppServerRuntime.Version}. Проверьте подключение к интернету и запустите приложение снова.\n\n{error.Message}",
                     "CodexGUI",
                     MessageBoxButton.OK,
@@ -77,7 +77,7 @@ public partial class App : Application
         {
             if (!await CodexAppServerLogin.EnsureSignedInAsync())
             {
-                MessageBox.Show("Вход в Codex отменён. Для запуска CodexGUI требуется авторизация.",
+                CodexMessageDialog.Show("Вход в Codex отменён. Для запуска CodexGUI требуется авторизация.",
                     "Вход в Codex", MessageBoxButton.OK, MessageBoxImage.Information);
                 Shutdown();
                 return;
@@ -85,7 +85,7 @@ public partial class App : Application
         }
         catch (Exception error)
         {
-            MessageBox.Show($"Не удалось завершить вход в Codex.\n\n{error.Message}",
+            CodexMessageDialog.Show($"Не удалось завершить вход в Codex.\n\n{error.Message}",
                 "Вход в Codex", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
             return;

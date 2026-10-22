@@ -52,7 +52,7 @@ internal static class AppInstaller
         }
         catch (Exception error)
         {
-            MessageBox.Show(
+            CodexMessageDialog.Show(
                 $"Не удалось установить CodexGUI в папку пользователя. Приложение будет запущено из текущей папки.\n\n{error.Message}",
                 "Установка CodexGUI",
                 MessageBoxButton.OK,
@@ -184,7 +184,7 @@ internal static class AppInstaller
         }
         catch (Exception error)
         {
-            MessageBox.Show(
+            CodexMessageDialog.Show(
                 $"CodexGUI установлен в папку пользователя, но ярлык меню Пуск создать не удалось.\n\n{error.Message}",
                 "Установка CodexGUI",
                 MessageBoxButton.OK,

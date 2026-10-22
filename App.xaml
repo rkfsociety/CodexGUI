@@ -12,6 +12,12 @@
     <SolidColorBrush x:Key="TextFaint" Color="#8494A2" />
     <SolidColorBrush x:Key="Accent" Color="#92E5C7" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
+    <Style TargetType="{x:Type Window}">
+      <Setter Property="Background" Value="{StaticResource Canvas}" />
+      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+      <Setter Property="FontFamily" Value="Segoe UI" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
     <Style TargetType="Button">
       <Setter Property="Foreground" Value="{StaticResource TextMain}" />
       <Setter Property="Background" Value="Transparent" />

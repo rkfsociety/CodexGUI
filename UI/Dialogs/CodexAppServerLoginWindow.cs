@@ -24,8 +24,7 @@ internal sealed class CodexAppServerLoginWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
-        Background = Color("#18212C");
-        Foreground = Color("#F0F0F1");
+        CodexWindowTheme.Apply(this);
 
         var layout = new StackPanel { Margin = new Thickness(22) };
         _status = new TextBlock
@@ -58,7 +57,7 @@ internal sealed class CodexAppServerLoginWindow : Window
             TextAlignment = TextAlignment.Center,
             Padding = new Thickness(8, 5, 8, 5),
             Margin = new Thickness(0, 12, 0, 10),
-            Background = Color("#222E3D"),
+            Background = Color("#20303D"),
             BorderThickness = new Thickness(0),
             SelectionBrush = Color("#3D655E")
         };

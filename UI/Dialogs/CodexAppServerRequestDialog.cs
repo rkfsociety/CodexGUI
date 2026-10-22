@@ -46,9 +46,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         ResizeMode = ResizeMode.CanResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
-        Background = Brush("#18212C");
-        Foreground = Brush("#F0F0F1");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         Closed += (_, _) => ResponseJson ??= JsonSerializer.Serialize(BuildDeclineResponse());
     }
@@ -100,7 +98,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         DockPanel.SetDock(actions, Dock.Bottom);
         if (_method == "mcpServer/elicitation/request" && GetString(_parameters, "mode") == "url")
         {
-            var openUrl = MakeButton("Открыть ссылку", "#222E3D");
+            var openUrl = MakeButton("Открыть ссылку", "#20303D");
             openUrl.Margin = new Thickness(0, 0, 8, 0);
             openUrl.Click += (_, _) => OpenRequestedUrl();
             actions.Children.Add(openUrl);
@@ -176,7 +174,7 @@ internal sealed class CodexAppServerRequestDialog : Window
                 {
                     Text = header,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = Brush("#A8E6CF"),
+                    Foreground = Brush("#92E5C7"),
                     Margin = new Thickness(0, 13, 0, 4)
                 });
             _body.Children.Add(new TextBlock
@@ -232,7 +230,7 @@ internal sealed class CodexAppServerRequestDialog : Window
             _openedUrl = url;
             _body.Children.Add(new Border
             {
-                Background = Brush("#222E3D"),
+                Background = Brush("#20303D"),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 12, 0, 0),
@@ -394,7 +392,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         }
         catch (Exception error) when (error is FormatException or JsonException or InvalidDataException)
         {
-            MessageBox.Show(this, error.Message, "Проверьте ответ", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, error.Message, "Проверьте ответ", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -491,7 +489,7 @@ internal sealed class CodexAppServerRequestDialog : Window
     {
         if (!Uri.TryCreate(_openedUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http"))
         {
-            MessageBox.Show(this, "Ссылка MCP должна использовать HTTP или HTTPS.", "Недопустимая ссылка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            CodexMessageDialog.Show(this, "Ссылка MCP должна использовать HTTP или HTTPS.", "Недопустимая ссылка", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         try
@@ -503,7 +501,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         }
         catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            MessageBox.Show(this, error.Message, "Не удалось открыть ссылку", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось открыть ссылку", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -538,7 +536,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         });
         _body.Children.Add(new Border
         {
-            Background = Brush("#222E3D"),
+            Background = Brush("#20303D"),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(9),
             Child = new TextBlock
@@ -577,9 +575,9 @@ internal sealed class CodexAppServerRequestDialog : Window
     private static void StyleInput(Control input)
     {
         input.Padding = new Thickness(8, 6, 8, 6);
-        input.Background = Brush("#222E3D");
-        input.Foreground = Brush("#F0F0F1");
-        input.BorderBrush = Brush("#34465A");
+        input.Background = Brush("#20303D");
+        input.Foreground = Brush("#ECF2F5");
+        input.BorderBrush = Brush("#2A3946");
         input.Margin = new Thickness(0, 3, 0, 7);
     }
 
@@ -604,8 +602,8 @@ internal sealed class CodexAppServerRequestDialog : Window
         MinHeight = 34,
         Padding = new Thickness(11, 0, 11, 0),
         Background = Brush(background),
-        Foreground = Brush("#F0F0F1"),
-        BorderBrush = Brush("#34465A"),
+        Foreground = Brush("#ECF2F5"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1),
         Cursor = System.Windows.Input.Cursors.Hand
     };

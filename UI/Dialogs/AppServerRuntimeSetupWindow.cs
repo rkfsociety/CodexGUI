@@ -20,8 +20,7 @@ internal sealed class AppServerRuntimeSetupWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
-        Background = new SolidColorBrush(Color.FromRgb(24, 33, 44));
-        Foreground = new SolidColorBrush(Color.FromRgb(240, 240, 241));
+        CodexWindowTheme.Apply(this);
 
         var layout = new StackPanel { Margin = new Thickness(22) };
         layout.Children.Add(new TextBlock

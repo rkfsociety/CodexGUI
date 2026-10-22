@@ -60,9 +60,7 @@ internal sealed class CodexAutomationsWindow : Window
         MinWidth = 850;
         MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Brush("#11151B");
-        Foreground = Brush("#F0F0F1");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _definitionList.SelectionChanged += (_, _) => UpdateDefinitionSelection();
         _runList.SelectionChanged += (_, _) => UpdateRunSelection();
@@ -168,7 +166,7 @@ internal sealed class CodexAutomationsWindow : Window
             if (SelectedDefinition() is not { } definition) return;
             _runButton.IsEnabled = false;
             try { await _runNow(definition); }
-            catch (Exception error) { MessageBox.Show(this, error.Message, "Не удалось запустить автоматизацию", MessageBoxButton.OK, MessageBoxImage.Error); }
+            catch (Exception error) { CodexMessageDialog.Show(this, error.Message, "Не удалось запустить автоматизацию", MessageBoxButton.OK, MessageBoxImage.Error); }
             finally { _runButton.IsEnabled = true; UpdateLists(); }
         };
         buttons.Children.Add(_runButton);
@@ -273,7 +271,7 @@ internal sealed class CodexAutomationsWindow : Window
     {
         if (_projects.Count == 0)
         {
-            MessageBox.Show(this, "Сначала добавьте проект в боковой панели CodexGUI.", "Нет проекта", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Сначала добавьте проект в боковой панели CodexGUI.", "Нет проекта", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var defaultProject = _projects.FirstOrDefault(item => item.Id == _defaultProjectId) ?? _projects[0];
@@ -300,7 +298,7 @@ internal sealed class CodexAutomationsWindow : Window
         {
             if (index >= 0) _definitions[index] = existing!;
             else _definitions.Remove(edited);
-            MessageBox.Show(this, error.Message, "Не удалось сохранить расписание", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось сохранить расписание", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         UpdateLists();
@@ -309,7 +307,7 @@ internal sealed class CodexAutomationsWindow : Window
     private void DeleteDefinition()
     {
         if (SelectedDefinition() is not { } definition) return;
-        var answer = MessageBox.Show(this, $"Удалить расписание «{definition.Name}»? История выполнений останется.",
+        var answer = CodexMessageDialog.Show(this, $"Удалить расписание «{definition.Name}»? История выполнений останется.",
             "Удалить расписание", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
         _definitions.Remove(definition);
@@ -317,7 +315,7 @@ internal sealed class CodexAutomationsWindow : Window
         catch (Exception error)
         {
             _definitions.Add(definition);
-            MessageBox.Show(this, error.Message, "Не удалось удалить расписание", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось удалить расписание", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         UpdateLists();
     }
@@ -362,8 +360,8 @@ internal sealed class CodexAutomationsWindow : Window
 
     private static Border Card(UIElement content) => new()
     {
-        Background = Brush("#171E27"),
-        BorderBrush = Brush("#2B3746"),
+        Background = Brush("#16212B"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(11),
         Padding = new Thickness(4),
@@ -383,9 +381,9 @@ internal sealed class CodexAutomationsWindow : Window
     {
         Content = text,
         Padding = new Thickness(10, 6, 10, 6),
-        Background = accent ? Brush("#223B38") : Brush("#222E3D"),
-        Foreground = accent ? Brush("#A8E6CF") : Brush("#D3DCE6"),
-        BorderBrush = Brush("#34465A"),
+        Background = accent ? Brush("#223B38") : Brush("#20303D"),
+        Foreground = accent ? Brush("#92E5C7") : Brush("#D3DCE6"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1),
         Cursor = System.Windows.Input.Cursors.Hand
     };
@@ -463,9 +461,7 @@ internal sealed class CodexAutomationEditorWindow : Window
         MinWidth = 500;
         MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(17, 21, 27));
-        Foreground = new SolidColorBrush(Color.FromRgb(240, 240, 241));
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildEditor();
         _loadingValues = true;
         LoadValues();
@@ -724,25 +720,25 @@ internal sealed class CodexAutomationEditorWindow : Window
             || SelectedCadence() == "monthly" && _monthDay.SelectedItem is not MonthDayChoice
             || _effort.SelectedItem is not string effort)
         {
-            MessageBox.Show(this, "Выберите хотя бы один проект, модель, усилия и параметры периодичности.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Выберите хотя бы один проект, модель, усилия и параметры периодичности.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (existingThread?.ThreadId is not null && selectedProjects.Count != 1)
         {
-            MessageBox.Show(this, "Продолжение существующего чата поддерживается для одного проекта.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Продолжение существующего чата поддерживается для одного проекта.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var name = _name.Text.Trim();
         var prompt = _prompt.Text.Trim();
         if (name.Length == 0 || prompt.Length == 0)
         {
-            MessageBox.Show(this, "Укажите название расписания и задачу для Codex.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Укажите название расписания и задачу для Codex.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var cadence = SelectedCadence();
         if (cadence != "interval" && !TimeOnly.TryParseExact(_time.Text.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
         {
-            MessageBox.Show(this, "Укажите время в формате ЧЧ:ММ, например 09:30.", "Проверьте время", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Укажите время в формате ЧЧ:ММ, например 09:30.", "Проверьте время", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var intervalMinutesValue = _source.IntervalMinutes;
@@ -750,7 +746,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             && (!int.TryParse(_interval.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out intervalMinutesValue)
                 || intervalMinutesValue < 1))
         {
-            MessageBox.Show(this, "Интервал должен быть положительным целым числом минут.", "Проверьте интервал", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Интервал должен быть положительным целым числом минут.", "Проверьте интервал", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         string? recurrenceRule = null;
@@ -763,7 +759,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             recurrenceRule = _ruleText.Text.Trim();
             if (_ruleStartDate.SelectedDate is not { } startDate)
             {
-                MessageBox.Show(this, "Выберите начальную дату RRULE.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+                CodexMessageDialog.Show(this, "Выберите начальную дату RRULE.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             var startTime = TimeOnly.ParseExact(_time.Text.Trim(), "HH:mm", CultureInfo.InvariantCulture);
@@ -771,7 +767,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             try { CodexRecurrenceRule.Validate(recurrenceRule); }
             catch (InvalidDataException error)
             {
-                MessageBox.Show(this, error.Message, "Проверьте RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
+                CodexMessageDialog.Show(this, error.Message, "Проверьте RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -782,7 +778,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             {
                 if (_enabled.IsChecked == true)
                 {
-                    MessageBox.Show(this, "В этом RRULE уже исчерпан COUNT или наступил UNTIL. Измените правило либо начальную дату.",
+                    CodexMessageDialog.Show(this, "В этом RRULE уже исчерпан COUNT или наступил UNTIL. Измените правило либо начальную дату.",
                         "Повторы завершены", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
@@ -805,12 +801,12 @@ internal sealed class CodexAutomationEditorWindow : Window
                 }
                 catch (InvalidDataException error)
                 {
-                    MessageBox.Show(this, error.Message, "Не удалось рассчитать RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
+                    CodexMessageDialog.Show(this, error.Message, "Не удалось рассчитать RRULE", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
                 if (calculated.NextRunAtUtc is not { } next)
                 {
-                    MessageBox.Show(this, "Для выбранного DTSTART в RRULE нет будущих запусков. Проверьте COUNT и UNTIL.",
+                    CodexMessageDialog.Show(this, "Для выбранного DTSTART в RRULE нет будущих запусков. Проверьте COUNT и UNTIL.",
                         "Повторов нет", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }

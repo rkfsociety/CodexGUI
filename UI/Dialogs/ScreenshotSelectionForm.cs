@@ -22,7 +22,8 @@ internal sealed class ScreenshotSelectionForm : Forms.Form
         TopMost = true;
         KeyPreview = true;
         DoubleBuffered = true;
-        BackColor = Color.Black;
+        Font = new Font("Segoe UI", 12, FontStyle.Regular);
+        BackColor = Color.FromArgb(11, 17, 23);
         Opacity = 0.48;
         Cursor = Forms.Cursors.Cross;
 
@@ -41,7 +42,8 @@ internal sealed class ScreenshotSelectionForm : Forms.Form
         {
             const string instruction = "Перетащите мышь, чтобы выбрать область · Esc — отмена";
             var size = e.Graphics.MeasureString(instruction, Font);
-            e.Graphics.DrawString(instruction, Font, Brushes.White,
+            using var accent = new SolidBrush(Color.FromArgb(146, 229, 199));
+            e.Graphics.DrawString(instruction, Font, accent,
                 Math.Max(12, (ClientSize.Width - size.Width) / 2), Math.Max(12, ClientSize.Height * 0.12f));
             return;
         }
@@ -49,7 +51,7 @@ internal sealed class ScreenshotSelectionForm : Forms.Form
         var selection = GetSelectionRectangle(_start, _current);
         if (selection.Width > 0 && selection.Height > 0)
         {
-            using var pen = new Pen(Color.White, 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+            using var pen = new Pen(Color.FromArgb(146, 229, 199), 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
             e.Graphics.DrawRectangle(pen, selection);
         }
     }

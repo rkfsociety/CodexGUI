@@ -109,6 +109,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        CodexWindowTheme.Apply(this);
         _inputLanguageManager = InputLanguageManager.Current;
         _inputLanguageManager.InputLanguageChanged += PromptInputLanguageChanged;
         _reloadDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(320) };
@@ -186,7 +187,6 @@ public partial class MainWindow : Window
             CleanupWindowResources();
         };
         PreviewKeyDown += MainWindow_PreviewKeyDown;
-        SourceInitialized += (_, _) => ApplyDarkTitleBar();
         StateChanged += (_, _) =>
         {
             if (WindowState == WindowState.Minimized) Hide();
@@ -278,7 +278,7 @@ public partial class MainWindow : Window
             _isInstallingUpdate = false;
             SetTrayTooltip($"Codex — обновление v{preparedUpdate.Update.Version} готово к установке");
             UpdateUpdateButton();
-            MessageBox.Show(this, $"Не удалось запустить установку обновления.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, $"Не удалось запустить установку обновления.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -377,8 +377,8 @@ public partial class MainWindow : Window
 
         var menu = new Forms.ContextMenuStrip
         {
-            BackColor = DrawingColor.FromArgb(30, 32, 36),
-            ForeColor = DrawingColor.FromArgb(240, 240, 241),
+            BackColor = DrawingColor.FromArgb(22, 33, 43),
+            ForeColor = DrawingColor.FromArgb(236, 242, 245),
             ShowImageMargin = false
         };
         var showItem = new Forms.ToolStripMenuItem("Открыть Codex");
@@ -436,24 +436,6 @@ public partial class MainWindow : Window
         Activate();
         _ = RefreshRepositoryInfoAsync();
     }
-
-    private void ApplyDarkTitleBar()
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        var enabled = 1;
-        _ = DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
-        _ = DwmSetWindowAttribute(handle, 19, ref enabled, sizeof(int));
-        uint captionColor = 0x001B1511;
-        uint textColor = 0x00F1F0F0;
-        _ = DwmSetWindowAttribute(handle, 35, ref captionColor, sizeof(uint));
-        _ = DwmSetWindowAttribute(handle, 36, ref textColor, sizeof(uint));
-    }
-
-    [DllImport("dwmapi.dll", PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int valueSize);
-
-    [DllImport("dwmapi.dll", PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref uint value, int valueSize);
 
     private static string FindProjectRoot()
     {
@@ -599,14 +581,23 @@ public partial class MainWindow : Window
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
             prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
+            prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8494A2" : "#ECF2F5");
             prompt.GotKeyboardFocus += (_, _) =>
             {
                 prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
-                if (prompt.Text == PromptPlaceholder) prompt.Clear();
+                if (prompt.Text == PromptPlaceholder)
+                {
+                    prompt.Clear();
+                    prompt.Foreground = Brush("#ECF2F5");
+                }
             };
             prompt.LostKeyboardFocus += (_, _) =>
             {
-                if (string.IsNullOrWhiteSpace(prompt.Text)) prompt.Text = PromptPlaceholder;
+                if (string.IsNullOrWhiteSpace(prompt.Text))
+                {
+                    prompt.Text = PromptPlaceholder;
+                    prompt.Foreground = Brush("#8494A2");
+                }
             };
             prompt.PreviewKeyDown += PromptInput_PreviewKeyDown;
         }
@@ -798,7 +789,7 @@ public partial class MainWindow : Window
             popup.IsOpen = false;
             await SetThreadArchivedAsync(thread, !thread.IsArchived);
         };
-        var forkButton = CreateThreadActionButton("Ответвить чат", "M4,3 V8 C4,12 12,12 12,16 M9,13 L12,16 L15,13", "#A8E6CF");
+        var forkButton = CreateThreadActionButton("Ответвить чат", "M4,3 V8 C4,12 12,12 12,16 M9,13 L12,16 L15,13", "#92E5C7");
         forkButton.IsEnabled = thread.ActiveRun is null && !thread.IsForking && !string.IsNullOrWhiteSpace(thread.CodexSessionId);
         forkButton.ToolTip = forkButton.IsEnabled ? "Создать отдельный чат с копией истории" : "Ответвление доступно после первого запроса";
         forkButton.Click += async (_, _) =>
@@ -822,8 +813,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 194,
-            Background = Brush("#1C2430"),
-            BorderBrush = Brush("#34465A"),
+            Background = Brush("#16212B"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(5),
@@ -871,7 +862,7 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             SetStatus("Не удалось ответвить чат", error.Message, isError: true);
-            MessageBox.Show(this, error.Message, "Не удалось ответвить чат", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось ответвить чат", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -966,7 +957,7 @@ public partial class MainWindow : Window
     private async Task DeleteThreadAsync(ChatThread thread)
     {
         if (thread.ActiveRun is not null) return;
-        var result = MessageBox.Show(this,
+        var result = CodexMessageDialog.Show(this,
             $"Удалить чат «{thread.Title}»? Codex удалит историю и порождённые ответвления. Это действие нельзя отменить.",
             "Удалить чат", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) return;
@@ -1218,7 +1209,7 @@ public partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(9, 7, 38, 7),
                 Background = isSelected ? Brush("#263344") : Brushes.Transparent,
-                Foreground = Brush(isSelected ? "#F0F0F1" : "#A4A5AA"),
+                Foreground = Brush(isSelected ? "#ECF2F5" : "#A4A5AA"),
                 ToolTip = project.Path,
                 Content = new StackPanel
                 {
@@ -1291,12 +1282,12 @@ public partial class MainWindow : Window
                 Height = 52,
                 CornerRadius = new CornerRadius(14),
                 Background = Brush("#223B38"),
-                BorderBrush = Brush("#2B3746"),
+                BorderBrush = Brush("#2A3946"),
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 0, 20),
-                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#A8E6CF"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                Child = new TextBlock { Text = "✳", FontSize = 25, Foreground = Brush("#92E5C7"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             });
-            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? "С чего начнём?", FontSize = 32, FontWeight = FontWeights.SemiBold, Foreground = Brush("#F0F0F1"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
+            welcome.Children.Add(new TextBlock { Text = _currentThread?.Title ?? "С чего начнём?", FontSize = 32, FontWeight = FontWeights.SemiBold, Foreground = Brush("#ECF2F5"), TextWrapping = TextWrapping.Wrap, LineHeight = 37 });
             var detail = _currentThread?.HistoryLoading == true
                 ? "Загружаю историю из Codex…"
                 : _currentThread?.HistoryError is { } historyError
@@ -1357,12 +1348,12 @@ public partial class MainWindow : Window
                 }
             },
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = Brush("#18212C"),
+            Background = Brush("#16212B"),
             Foreground = Brush("#D1D2D5"),
             Padding = new Thickness(14, 11, 14, 11),
             Margin = new Thickness(0, 4, 9, 4),
             Width = 390,
-            BorderBrush = Brush("#2B3746"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1)
         };
         button.Click += async (_, _) =>
@@ -1388,23 +1379,23 @@ public partial class MainWindow : Window
         var text = new TextBlock
         {
             Text = message.Text,
-            FontSize = 15,
-            LineHeight = 25,
+            FontSize = 16,
+            LineHeight = 27,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(message.IsUser ? "#E6E6E8" : "#D2D3D6")
+            Foreground = Brush(message.IsUser ? "#EAF4F0" : "#ECF2F5")
         };
         if (!message.IsUser && IsCurrentThreadRunning && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message))
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
-            var bubble = new Border { Background = Brush("#25453E"), BorderBrush = Brush("#376A58"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(16, 12, 16, 12), Child = text };
+            var bubble = new Border { Background = Brush("#1C3A32"), BorderBrush = Brush("#3D6B5A"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(18, 14, 18, 14), Child = text };
             outer.Children.Add(bubble);
         }
         else outer.Children.Add(new Border
         {
-            Background = Brush("#1A2833"), BorderBrush = Brush("#2D4050"),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(19, 16, 19, 16), Child = text
+            Background = Brush("#16212B"), BorderBrush = Brush("#2A3946"),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(20, 18, 20, 18), Child = text
         });
         return outer;
     }
@@ -1718,7 +1709,11 @@ public partial class MainWindow : Window
             changed = true;
         }
         if (!changed) return;
-        if (Control<TextBox>("PromptInput") is { Text: PromptPlaceholder } input) input.Clear();
+        if (Control<TextBox>("PromptInput") is { Text: PromptPlaceholder } input)
+        {
+            input.Clear();
+            input.Foreground = Brush("#ECF2F5");
+        }
         RenderComposerAttachments();
     }
 
@@ -1894,7 +1889,7 @@ public partial class MainWindow : Window
     {
         if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
         {
-            MessageBox.Show(this, "Сначала отправьте первый запрос, чтобы создать сессию чата.",
+            CodexMessageDialog.Show(this, "Сначала отправьте первый запрос, чтобы создать сессию чата.",
                 "Цель чата", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -2011,7 +2006,7 @@ public partial class MainWindow : Window
                 SetStatus("Цель ещё не задана", "В этой сессии нет сохранённой цели.");
                 return;
             }
-            var answer = MessageBox.Show(this, "Удалить цель этого чата?", "Очистить цель",
+            var answer = CodexMessageDialog.Show(this, "Удалить цель этого чата?", "Очистить цель",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.Yes) return;
             var result = await client.ClearThreadGoalAsync(threadId);
@@ -2387,9 +2382,10 @@ public partial class MainWindow : Window
             MinWidth = 560,
             MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brush("#11151B"),
-            Foreground = Brush("#EEF3F8")
+            Background = Brush("#0B1117"),
+            Foreground = Brush("#ECF2F5")
         };
+        CodexWindowTheme.Apply(dialog);
         var layout = new Grid { Margin = new Thickness(18) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -2414,9 +2410,9 @@ public partial class MainWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
             Padding = new Thickness(12),
-            Background = Brush("#18212C"),
+            Background = Brush("#16212B"),
             Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2B3746"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1)
         };
         Grid.SetRow(output, 1);
@@ -2491,7 +2487,7 @@ public partial class MainWindow : Window
                 var restore = new MenuItem { Header = "Отменить все изменения файла…" };
                 restore.Click += async (_, _) =>
                 {
-                    var answer = MessageBox.Show(this,
+                    var answer = CodexMessageDialog.Show(this,
                         $"Отменить staged- и unstaged-изменения файла «{file.Path}» и восстановить версию из HEAD? Это действие удалит изменения этого файла.",
                         "Отменить изменения файла", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                     if (answer != MessageBoxResult.Yes) return;
@@ -2541,7 +2537,7 @@ public partial class MainWindow : Window
                 .ToArray();
             var visiblePaths = string.Join(Environment.NewLine, paths.Take(20));
             if (paths.Length > 20) visiblePaths += $"{Environment.NewLine}… и ещё {paths.Length - 20}";
-            var answer = MessageBox.Show(this,
+            var answer = CodexMessageDialog.Show(this,
                 $"Git удалит неотслеживаемые файлы по пути «{relativePath}». Игнорируемые файлы и файлы из индекса не удаляются. Продолжить?\n\n{visiblePaths}",
                 "Удалить неотслеживаемые файлы", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (answer != MessageBoxResult.Yes || _isClosing || HasActiveRuns) return;
@@ -2819,8 +2815,8 @@ public partial class MainWindow : Window
         var enabled = _currentThread?.UseWorktree == true;
         if (Control<TextBlock>("WorktreeLabel") is { } label)
             label.Text = enabled ? "Изолированная копия" : "Рабочая копия";
-        button.Background = Brush(enabled ? "#223B38" : "#222E3D");
-        button.Foreground = Brush(enabled ? "#A8E6CF" : "#C8D4E2");
+        button.Background = Brush(enabled ? "#223B38" : "#20303D");
+        button.Foreground = Brush(enabled ? "#92E5C7" : "#C8D4E2");
         button.IsEnabled = _currentThread?.ActiveRun is null
             && !(_currentThread?.UseWorktree == true && _currentThread.CodexSessionId is not null)
             && !_isClosing;
@@ -2843,7 +2839,7 @@ public partial class MainWindow : Window
             var repository = await GitRepositoryInspector.ReadAsync(projectPath, CancellationToken.None);
             if (!repository.IsRepository)
             {
-                MessageBox.Show(this, "Для отдельной рабочей копии выберите Git-репозиторий.", "Рабочая копия", MessageBoxButton.OK, MessageBoxImage.Information);
+                CodexMessageDialog.Show(this, "Для отдельной рабочей копии выберите Git-репозиторий.", "Рабочая копия", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
         }
@@ -2896,9 +2892,10 @@ public partial class MainWindow : Window
             MinHeight = 330,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.CanResize,
-            Background = Brush("#18212C"),
-            Foreground = Brush("#F0F0F1")
+            Background = Brush("#16212B"),
+            Foreground = Brush("#ECF2F5")
         };
+        CodexWindowTheme.Apply(dialog);
         var layout = new StackPanel { Margin = new Thickness(18) };
         layout.Children.Add(new TextBlock
         {
@@ -3027,7 +3024,7 @@ public partial class MainWindow : Window
     private void ClearPromptQueue()
     {
         if (_promptQueue.Count == 0) return;
-        var result = MessageBox.Show(this,
+        var result = CodexMessageDialog.Show(this,
             $"Убрать из очереди все {_promptQueue.Count} сообщений?",
             "Очередь сообщений",
             MessageBoxButton.YesNo,
@@ -3062,7 +3059,7 @@ public partial class MainWindow : Window
             _projectPath = _selectedProject.Path;
         if (!Directory.Exists(_projectPath))
         {
-            MessageBox.Show(this, "Выберите существующую папку проекта.", "Codex", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Выберите существующую папку проекта.", "Codex", MessageBoxButton.OK, MessageBoxImage.Information);
             ChooseProjectFolder();
             return;
         }
@@ -3747,9 +3744,10 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
-            Background = Brush("#18212C"),
-            Foreground = Brush("#F0F0F1")
+            Background = Brush("#16212B"),
+            Foreground = Brush("#ECF2F5")
         };
+        CodexWindowTheme.Apply(window);
         var layout = new StackPanel { Margin = new Thickness(20) };
         layout.Children.Add(new TextBlock
         {
@@ -3787,7 +3785,7 @@ public partial class MainWindow : Window
             };
             layout.Children.Add(new Border
             {
-                Background = Brush("#222E3D"),
+                Background = Brush("#20303D"),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 0, 0, 10),
@@ -3827,7 +3825,7 @@ public partial class MainWindow : Window
                 Padding = new Thickness(10, 0, 10, 0),
                 Margin = new Thickness(7, 0, 0, 0),
                 Background = Brush(background),
-                Foreground = Brush("#F0F0F1")
+                Foreground = Brush("#ECF2F5")
             };
             button.Click += (_, _) => { window.Tag = value; window.Close(); };
             buttons.Children.Add(button);
@@ -4352,11 +4350,11 @@ public partial class MainWindow : Window
     {
         if (_projects.Count <= 1)
         {
-            MessageBox.Show(this, "В списке должен остаться хотя бы один проект.", "Проекты", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "В списке должен остаться хотя бы один проект.", "Проекты", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
-        var result = MessageBox.Show(this,
+        var result = CodexMessageDialog.Show(this,
             $"Убрать проект «{project.Name}» из списка? Папка, файлы и сохранённые чаты останутся на диске. Чтобы вернуть проект, добавьте ту же папку снова.",
             "Убрать проект из списка",
             MessageBoxButton.YesNo,
@@ -4435,7 +4433,7 @@ public partial class MainWindow : Window
             Text = "Как Codex может выполнять действия?",
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#F0F0F1"),
+            Foreground = Brush("#ECF2F5"),
             Margin = new Thickness(5, 2, 5, 11)
         });
         content.Children.Add(BuildAccessOption(
@@ -4457,7 +4455,7 @@ public partial class MainWindow : Window
             () =>
             {
                 popup.IsOpen = false;
-                var result = MessageBox.Show(this,
+                var result = CodexMessageDialog.Show(this,
                     "Codex получит неограниченный доступ к файлам компьютера и сети. Команды будут выполняться без дополнительных подтверждений. Включать полный доступ следует только для доверенных задач.\n\nПродолжить?",
                     "Подтверждение полного доступа",
                     MessageBoxButton.YesNo,
@@ -4471,8 +4469,8 @@ public partial class MainWindow : Window
         {
             Width = 430,
             MinHeight = 170,
-            Background = Brush("#1C2430"),
-            BorderBrush = Brush("#34465A"),
+            Background = Brush("#16212B"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -4522,7 +4520,7 @@ public partial class MainWindow : Window
         var option = new Border
         {
             Background = selected ? Brush("#292B30") : Brushes.Transparent,
-            BorderBrush = selected ? Brush("#46484F") : Brushes.Transparent,
+            BorderBrush = selected ? Brush("#2A3946") : Brushes.Transparent,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(11, 9, 10, 9),
@@ -4605,7 +4603,7 @@ public partial class MainWindow : Window
             Text = title,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#F0F0F1"),
+            Foreground = Brush("#ECF2F5"),
             Margin = new Thickness(5, 2, 5, 9)
         });
         var options = new StackPanel();
@@ -4624,8 +4622,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 360,
-            Background = Brush("#1C2430"),
-            BorderBrush = Brush("#34465A"),
+            Background = Brush("#16212B"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -4736,14 +4734,14 @@ public partial class MainWindow : Window
         name = name.Trim();
         if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name is "." or "..")
         {
-            MessageBox.Show(this, "В названии есть недопустимые символы.", "Новый проект", MessageBoxButton.OK, MessageBoxImage.Warning);
+            CodexMessageDialog.Show(this, "В названии есть недопустимые символы.", "Новый проект", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         var path = Path.Combine(picker.FolderName, name);
         if (Directory.Exists(path) || File.Exists(path))
         {
-            MessageBox.Show(this, "Папка или файл с таким именем уже существует. Выберите другое имя.", "Новый проект", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Папка или файл с таким именем уже существует. Выберите другое имя.", "Новый проект", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -4754,7 +4752,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            MessageBox.Show(this, error.Message, "Не удалось создать проект", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось создать проект", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -4768,14 +4766,15 @@ public partial class MainWindow : Window
             Height = 178,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#18212C"),
-            Foreground = Brush("#F0F0F1")
+            Background = Brush("#16212B"),
+            Foreground = Brush("#ECF2F5")
         };
+        CodexWindowTheme.Apply(dialog);
         var content = new StackPanel { Margin = new Thickness(18) };
         content.Children.Add(new TextBlock { Text = "Название проекта", FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 11) });
         var input = new TextBox { Height = 36, Padding = new Thickness(9, 7, 9, 5), Background = Brush("#25272C") };
         content.Children.Add(input);
-        var create = new Button { Content = "Создать папку", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#E9E9EB"), Foreground = Brush("#17181B") };
+        var create = new Button { Content = "Создать папку", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#204139"), Foreground = Brush("#92E5C7"), BorderBrush = Brush("#365C53"), BorderThickness = new Thickness(1) };
         create.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(input.Text)) dialog.DialogResult = true; };
         content.Children.Add(create);
         dialog.Content = content;
@@ -4996,7 +4995,7 @@ public partial class MainWindow : Window
     {
         if (_currentThread is not { } parent)
         {
-            MessageBox.Show(this, "Сначала откройте чат.", "Субагенты", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Сначала откройте чат.", "Субагенты", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (parent.ActiveRun is null && parent.CodexSessionId is { Length: > 0 } && !parent.HistoryLoaded)
@@ -5022,7 +5021,7 @@ public partial class MainWindow : Window
         var workingDirectory = _currentThread?.WorktreePath ?? _selectedProject?.Path ?? _projectPath;
         if (!Directory.Exists(workingDirectory))
         {
-            MessageBox.Show(this, "Сначала выберите доступную папку проекта.", "Терминал", MessageBoxButton.OK, MessageBoxImage.Information);
+            CodexMessageDialog.Show(this, "Сначала выберите доступную папку проекта.", "Терминал", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         _terminalWindow = new CodexTerminalWindow(workingDirectory, IsFullAccess) { Owner = this };
@@ -5063,7 +5062,7 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             run.Reviewed = false;
-            MessageBox.Show(this, error.Message, "Не удалось сохранить отметку проверки", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось сохранить отметку проверки", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         _automationWindow?.UpdateLists();
     }
@@ -5510,7 +5509,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or ExternalException)
         {
-            MessageBox.Show(this, error.Message, "Не удалось сохранить скриншот", MessageBoxButton.OK, MessageBoxImage.Error);
+            CodexMessageDialog.Show(this, error.Message, "Не удалось сохранить скриншот", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -5559,9 +5558,10 @@ public partial class MainWindow : Window
             Height = 170,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#18212C"),
-            Foreground = Brush("#F0F0F1")
+            Background = Brush("#16212B"),
+            Foreground = Brush("#ECF2F5")
         };
+        CodexWindowTheme.Apply(dialog);
         var layout = new StackPanel { Margin = new Thickness(18) };
         layout.Children.Add(new TextBlock { Text = "Найти чат", FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) });
         var query = new TextBox { Height = 38, Padding = new Thickness(10, 8, 10, 5), Background = Brush("#25272C"), Text = "" };
@@ -5571,7 +5571,7 @@ public partial class MainWindow : Window
             if (!string.IsNullOrEmpty(query.Text) && match is not null) dialog.Tag = match;
         };
         layout.Children.Add(query);
-        var open = new Button { Content = "Открыть чат", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#2B3746") };
+        var open = new Button { Content = "Открыть чат", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#2A3946") };
         open.Click += (_, _) =>
         {
             if (dialog.Tag is ChatThread match) SelectThread(match);

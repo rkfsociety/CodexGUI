@@ -14,13 +14,13 @@ internal sealed class ExtensionsWindow : Window
     private readonly CodexAppServerClient _client;
     private readonly string _projectPath;
     private readonly Action<CodexExtension> _useSkill;
-    private readonly TextBox _search = new() { Margin = new Thickness(0, 12, 0, 10), Padding = new Thickness(10, 8, 10, 8), Background = Color("#25272C") };
-    private readonly TabControl _tabs = new() { Background = Color("#17181B"), BorderThickness = new Thickness(0) };
+    private readonly TextBox _search = new() { Margin = new Thickness(0, 12, 0, 10), Padding = new Thickness(10, 8, 10, 8), Background = Color("#16212B") };
+    private readonly TabControl _tabs = new() { Background = Color("#0B1117"), BorderThickness = new Thickness(0) };
     private readonly ListBox _plugins = CreateList();
     private readonly ListBox _skills = CreateList();
     private readonly CheckBox _installedOnly = new() { Content = "Только установленные", IsChecked = true, Margin = new Thickness(0, 4, 0, 10) };
     private readonly TextBlock _details = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Color("#AAAAAF"), Margin = new Thickness(0, 8, 0, 0) };
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Color("#A7B5C0"), Margin = new Thickness(0, 8, 0, 0) };
     private readonly Button _refresh = new() { Content = "Обновить", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _install = new() { Content = "Установить", Margin = new Thickness(0, 0, 8, 0) };
     private readonly Button _toggle = new() { Content = "Включить", Margin = new Thickness(0, 0, 8, 0) };
@@ -40,8 +40,7 @@ internal sealed class ExtensionsWindow : Window
         MinWidth = 620;
         MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Color("#17181B");
-        Foreground = Color("#ECECEE");
+        CodexWindowTheme.Apply(this);
         var layout = new Grid { Margin = new Thickness(20), Background = Background };
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), new GridLength(140), GridLength.Auto, GridLength.Auto })
             layout.RowDefinitions.Add(new RowDefinition { Height = height });
@@ -190,7 +189,7 @@ internal sealed class ExtensionsWindow : Window
         var list = new ListBox
         {
             DisplayMemberPath = nameof(CodexExtension.DisplayLabel),
-            Background = Color("#202125"), Foreground = Color("#ECECEE"),
+            Background = Color("#16212B"), Foreground = Color("#ECF2F5"),
             BorderThickness = new Thickness(0)
         };
         VirtualizingPanel.SetIsVirtualizing(list, true);
@@ -198,7 +197,7 @@ internal sealed class ExtensionsWindow : Window
         ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         var itemStyle = new Style(typeof(ListBoxItem));
         itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 8, 10, 8)));
-        itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Color("#ECECEE")));
+        itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Color("#ECF2F5")));
         list.ItemContainerStyle = itemStyle;
         return list;
     }
@@ -209,14 +208,14 @@ internal sealed class ExtensionsWindow : Window
         Content = content,
         Style = (Style)XamlReader.Parse("""
             <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="TabItem">
-              <Setter Property="Foreground" Value="#D5D6D9"/>
+              <Setter Property="Foreground" Value="#A7B5C0"/>
               <Setter Property="Template"><Setter.Value>
                 <ControlTemplate TargetType="TabItem">
-                  <Border x:Name="TabBorder" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#202125" BorderBrush="#46484F" BorderThickness="1" Padding="14,8">
+                  <Border x:Name="TabBorder" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#16212B" BorderBrush="#2A3946" BorderThickness="1" Padding="14,8">
                     <ContentPresenter ContentSource="Header"/>
                   </Border>
                   <ControlTemplate.Triggers>
-                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#3A3C42"/></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#20303D"/><Setter Property="Foreground" Value="#92E5C7"/></Trigger>
                   </ControlTemplate.Triggers>
                 </ControlTemplate>
               </Setter.Value></Setter>

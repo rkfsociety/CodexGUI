@@ -33,9 +33,7 @@ internal sealed class CodexTerminalWindow : Window
         MinWidth = 760;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Brush("#11151B");
-        Foreground = Brush("#EEF3F8");
-        FontFamily = new FontFamily("Segoe UI");
+        CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _host.OutputReceived += OnOutputReceived;
         _host.SessionExited += OnSessionExited;
@@ -80,7 +78,7 @@ internal sealed class CodexTerminalWindow : Window
         header.Children.Add(actions);
         root.Children.Add(header);
 
-        _tabs.Background = Brush("#11151B");
+        _tabs.Background = Brush("#0B1117");
         _tabs.BorderThickness = new Thickness(0);
         Grid.SetRow(_tabs, 1);
         root.Children.Add(_tabs);
@@ -118,7 +116,7 @@ internal sealed class CodexTerminalWindow : Window
     private Task<bool> EnsureTerminalConsentAsync()
     {
         if (_fullAccess || _terminalAllowed == true) return Task.FromResult(true);
-        var answer = MessageBox.Show(this,
+        var answer = CodexMessageDialog.Show(this,
             "Для интерактивного PowerShell терминала App Server запускает процесс вне Windows sandbox. " +
             "Он будет работать с правами вашей учётной записи Windows и сможет читать или изменять файлы вне проекта. " +
             "Продолжать?",
@@ -171,7 +169,7 @@ internal sealed class CodexTerminalWindow : Window
             Padding = new Thickness(12),
             Background = Brush("#101820"),
             Foreground = Brush("#D5DEE9"),
-            BorderBrush = Brush("#2B3746"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1)
         };
         layout.Children.Add(tab.Output);
@@ -180,9 +178,9 @@ internal sealed class CodexTerminalWindow : Window
             MinHeight = 36,
             Padding = new Thickness(10, 7, 10, 7),
             Margin = new Thickness(0, 8, 0, 0),
-            Background = Brush("#18212C"),
-            Foreground = Brush("#F0F0F1"),
-            BorderBrush = Brush("#34465A"),
+            Background = Brush("#16212B"),
+            Foreground = Brush("#ECF2F5"),
+            BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
             ToolTip = "Введите команду и нажмите Enter. Ctrl+C прерывает текущую команду."
         };
@@ -315,8 +313,8 @@ internal sealed class CodexTerminalWindow : Window
         Content = label,
         Padding = new Thickness(10, 6, 10, 6),
         Background = Brush(accent ? "#223B38" : "#263344"),
-        Foreground = Brush(accent ? "#A8E6CF" : "#D3DCE6"),
-        BorderBrush = Brush("#34465A"),
+        Foreground = Brush(accent ? "#92E5C7" : "#D3DCE6"),
+        BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1)
     };
 
