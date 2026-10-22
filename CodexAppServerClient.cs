@@ -22,6 +22,22 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     public Task<JsonElement> ReadAccountAsync() => SendRequestAsync("account/read", new { refreshToken = false });
 
+    public Task<JsonElement> ReadThreadGoalAsync(string sessionId) =>
+        SendRequestAsync("thread/goal/get", new { threadId = sessionId });
+
+    public Task<JsonElement> SetThreadGoalAsync(string sessionId, string objective, string status, ulong? tokenBudget) =>
+        SendRequestAsync("thread/goal/set", new
+        {
+            threadId = sessionId,
+            origin = "user",
+            objective,
+            status,
+            tokenBudget
+        });
+
+    public Task<JsonElement> ClearThreadGoalAsync(string sessionId) =>
+        SendRequestAsync("thread/goal/clear", new { threadId = sessionId, origin = "user" });
+
     public Task<JsonElement> ReadSkillsAsync(string projectPath) => SendRequestAsync("skills/list", new
     {
         cwds = new[] { projectPath },

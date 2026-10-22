@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private readonly List<ProjectEntry> _projects = [];
     private readonly List<ProjectEntry> _removedProjects = [];
     private readonly List<QueuedPrompt> _promptQueue = [];
+    private readonly Dictionary<string, CodexThreadGoal?> _threadGoalCache = new(StringComparer.Ordinal);
     private IReadOnlyList<ModelOption> _availableModels = [];
     private Task<IReadOnlyList<ModelOption>>? _modelCatalogTask;
     private readonly Dictionary<string, FrameworkElement> _named = new(StringComparer.Ordinal);
@@ -483,6 +484,7 @@ public partial class MainWindow : Window
         Click("AutomationsButton", async (_, _) => await ShowAutomationsAsync());
         Click("AgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
+        Click("ThreadGoalButton", async (_, _) => await ShowThreadGoalAsync());
         Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
 
         if (Control<TextBox>("PromptInput") is { } prompt)
@@ -1390,6 +1392,7 @@ public partial class MainWindow : Window
 
     private void UpdateChatInfoPanel()
     {
+        UpdateThreadGoalButton();
         if (Control<TextBlock>("ChatInfoTitle") is not { } title ||
             Control<TextBlock>("ChatInfoDetails") is not { } details ||
             Control<TextBlock>("ChatSessionInfo") is not { } session) return;
@@ -1404,6 +1407,197 @@ public partial class MainWindow : Window
             ? $"Сессия {sessionId[..Math.Min(8, sessionId.Length)]}"
             : "Сессия создастся при первом запросе";
     }
+
+    private void UpdateThreadGoalButton()
+    {
+        if (Control<Button>("ThreadGoalButton") is not { } button) return;
+        var threadId = _currentThread?.CodexSessionId;
+        button.IsEnabled = !string.IsNullOrWhiteSpace(threadId);
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            button.Content = "Цель";
+            button.ToolTip = "Цель чата появится после первого запроса";
+            return;
+        }
+
+        if (_threadGoalCache.TryGetValue(threadId, out var goal) && goal is not null)
+        {
+            button.Content = $"Цель · {ThreadGoalStatusLabel(goal.Status)}";
+            button.ToolTip = goal.Objective;
+        }
+        else
+        {
+            button.Content = "Цель";
+            button.ToolTip = "Просмотреть или настроить сохранённую цель чата";
+        }
+    }
+
+    private async Task ShowThreadGoalAsync(string? initialObjective = null, string? initialStatus = null)
+    {
+        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        {
+            MessageBox.Show(this, "Сначала отправьте первый запрос, чтобы создать сессию чата.",
+                "Цель чата", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var response = await client.ReadThreadGoalAsync(threadId);
+            if (_isClosing) return;
+            var existing = ReadThreadGoal(response);
+            _threadGoalCache[threadId] = existing;
+            UpdateThreadGoalButton();
+
+            var editor = new CodexThreadGoalWindow(existing, initialObjective, initialStatus) { Owner = this };
+            if (editor.ShowDialog() != true) return;
+            if (editor.ClearRequested)
+            {
+                var cleared = await client.ClearThreadGoalAsync(threadId);
+                _threadGoalCache[threadId] = null;
+                UpdateThreadGoalButton();
+                var didClear = cleared.TryGetProperty("cleared", out var clearedValue)
+                    && clearedValue.ValueKind == JsonValueKind.True;
+                SetStatus(didClear ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
+                return;
+            }
+
+            var saved = await client.SetThreadGoalAsync(threadId,
+                editor.Objective ?? throw new InvalidDataException("Укажите цель чата."),
+                editor.GoalStatus ?? "active",
+                editor.TokenBudget);
+            var updatedGoal = ReadThreadGoal(saved)
+                ?? throw new InvalidDataException("Codex App Server не вернул сохранённую цель.");
+            _threadGoalCache[threadId] = updatedGoal;
+            UpdateThreadGoalButton();
+            SetStatus("Цель чата сохранена", ThreadGoalStatusLabel(updatedGoal.Status));
+        }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Не удалось обновить цель чата", error.Message, isError: true);
+        }
+    }
+
+    private async Task HandleThreadGoalCommandAsync(string command)
+    {
+        switch (command.Trim().ToLowerInvariant())
+        {
+            case "":
+            case "edit":
+            case "status":
+                await ShowThreadGoalAsync();
+                return;
+            case "pause":
+                await SetThreadGoalStatusAsync("paused");
+                return;
+            case "resume":
+                await SetThreadGoalStatusAsync("active");
+                return;
+            case "complete":
+                await SetThreadGoalStatusAsync("complete");
+                return;
+            case "clear":
+                await ClearThreadGoalAsync();
+                return;
+            default:
+                await ShowThreadGoalAsync(command.Trim(), "active");
+                return;
+        }
+    }
+
+    private async Task SetThreadGoalStatusAsync(string status)
+    {
+        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        {
+            SetStatus("Цель недоступна", "Сначала отправьте первый запрос, чтобы создать сессию чата.");
+            return;
+        }
+        try
+        {
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            if (current is null)
+            {
+                SetStatus("Цель ещё не задана", "Используйте /goal или кнопку «Цель», чтобы создать её.");
+                return;
+            }
+            var response = await client.SetThreadGoalAsync(threadId, current.Objective, status, current.TokenBudget);
+            var updated = ReadThreadGoal(response)
+                ?? throw new InvalidDataException("Codex App Server не вернул обновлённую цель.");
+            _threadGoalCache[threadId] = updated;
+            UpdateThreadGoalButton();
+            SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
+        }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
+        }
+    }
+
+    private async Task ClearThreadGoalAsync()
+    {
+        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        {
+            SetStatus("Цель недоступна", "Сначала отправьте первый запрос, чтобы создать сессию чата.");
+            return;
+        }
+        try
+        {
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            if (current is null)
+            {
+                _threadGoalCache[threadId] = null;
+                UpdateThreadGoalButton();
+                SetStatus("Цель ещё не задана", "В этой сессии нет сохранённой цели.");
+                return;
+            }
+            var answer = MessageBox.Show(this, "Удалить цель этого чата?", "Очистить цель",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+            var result = await client.ClearThreadGoalAsync(threadId);
+            var cleared = result.TryGetProperty("cleared", out var value) && value.ValueKind == JsonValueKind.True;
+            _threadGoalCache[threadId] = null;
+            UpdateThreadGoalButton();
+            SetStatus(cleared ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
+        }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Не удалось очистить цель чата", error.Message, isError: true);
+        }
+    }
+
+    private static CodexThreadGoal? ReadThreadGoal(JsonElement response)
+    {
+        if (!response.TryGetProperty("goal", out var goal) || goal.ValueKind != JsonValueKind.Object)
+            return null;
+        ulong? tokenBudget = goal.TryGetProperty("tokenBudget", out var budget)
+            && budget.ValueKind == JsonValueKind.Number && budget.TryGetUInt64(out var parsedBudget)
+                ? parsedBudget
+                : null;
+        var tokensUsed = goal.TryGetProperty("tokensUsed", out var tokens)
+            && tokens.ValueKind == JsonValueKind.Number && tokens.TryGetUInt64(out var parsedTokens)
+                ? parsedTokens
+                : 0;
+        var timeUsedSeconds = goal.TryGetProperty("timeUsedSeconds", out var duration)
+            && duration.ValueKind == JsonValueKind.Number && duration.TryGetUInt64(out var parsedDuration)
+                ? parsedDuration
+                : 0;
+        return new CodexThreadGoal(GetString(goal, "objective") ?? "", GetString(goal, "status") ?? "active",
+            tokenBudget, tokensUsed, timeUsedSeconds);
+    }
+
+    private static string ThreadGoalStatusLabel(string status) => status switch
+    {
+        "active" => "активна",
+        "paused" => "приостановлена",
+        "blocked" => "заблокирована",
+        "usageLimited" => "лимит использования",
+        "budgetLimited" => "лимит бюджета",
+        "complete" => "завершена",
+        _ => status
+    };
 
     private async Task RefreshRepositoryInfoAsync()
     {
@@ -2233,6 +2427,13 @@ public partial class MainWindow : Window
         if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
         var prompt = input.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || prompt == PromptPlaceholder) return;
+        if (prompt.Equals("/goal", StringComparison.OrdinalIgnoreCase)
+            || prompt.StartsWith("/goal ", StringComparison.OrdinalIgnoreCase))
+        {
+            input.Clear();
+            await HandleThreadGoalCommandAsync(prompt.Length > 5 ? prompt[5..].Trim() : "");
+            return;
+        }
         if (prompt is "/plugins" or "/skills")
         {
             input.Clear();

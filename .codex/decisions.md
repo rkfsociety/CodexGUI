@@ -60,3 +60,11 @@
 - Reason: the project already requires Git for status and managed worktrees, so these controls do not need a new dependency or a parallel repository service.
 - Constraint: serialize repository mutations against active Codex runs; use literal Git pathspecs for per-file actions. In an unborn repository, unstage with `git rm --cached` so working files remain intact because `git restore --staged` requires `HEAD`. Hunk actions are limited to supported text diffs. Untracked cleanup must preview `git clean -nd` and confirm before using `git clean -fd`; never use `-x`, so ignored files remain untouched. Pull-request creation remains a parity gap.
 - Source: `GitRepositoryInspector.cs`, `MainWindow.xaml.cs`, and the official local-environments/Git controls guide.
+
+## Store chat goals in App Server thread state
+
+- Status: active.
+- Decision: manage a chat's persistent goal with App Server `thread/goal/get`, `thread/goal/set`, and `thread/goal/clear`; label explicit UI and slash-command mutations with `origin: "user"` and do not duplicate goal state in CodexGUI's local chat metadata.
+- Reason: the pinned protocol defines these stable methods as the same goal state exposed by Codex's `/goal` command, so other Codex clients can continue the goal.
+- Constraint: only offer goal management after the chat has a persisted App Server thread ID. Keep the local button label as an ephemeral cache and re-read canonical state when opening the editor.
+- Source: pinned `rust-v0.163.0` `ThreadGoal*` schemas and official App Server and slash-command docs; implementation is in `CodexAppServerClient.cs`, `CodexThreadGoalWindow.cs`, and `MainWindow.xaml.cs`.
