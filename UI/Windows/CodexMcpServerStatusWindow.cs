@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,7 +13,7 @@ namespace CodexGUI;
 
 internal sealed class CodexMcpServerStatusWindow : Window
 {
-    private readonly Func<Task<IReadOnlyList<CodexMcpServerStatus>>> _loadStatuses;
+    private readonly string _appServerExecutablePath;
     private readonly ListBox _servers = new() { Background = Brush("#101820"), BorderBrush = Brush("#2A3946") };
     private readonly TextBlock _empty = new()
     {
@@ -33,12 +36,13 @@ internal sealed class CodexMcpServerStatusWindow : Window
         Margin = new Thickness(0, 10, 0, 0)
     };
     private readonly Button _refresh = MakeButton("Проверить снова");
+    private readonly Button _login = MakeButton("Войти", accent: true);
     private IReadOnlyList<CodexMcpServerStatus> _items = [];
     private bool _busy;
 
-    public CodexMcpServerStatusWindow(Func<Task<IReadOnlyList<CodexMcpServerStatus>>> loadStatuses)
+    public CodexMcpServerStatusWindow(string appServerExecutablePath)
     {
-        _loadStatuses = loadStatuses;
+        _appServerExecutablePath = appServerExecutablePath;
         Title = "MCP-серверы Codex";
         Width = 840;
         Height = 600;
@@ -47,9 +51,15 @@ internal sealed class CodexMcpServerStatusWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
-        _servers.SelectionChanged += (_, _) => ShowSelectedDetails();
+        _servers.SelectionChanged += (_, _) =>
+        {
+            ShowSelectedDetails();
+            UpdateButtons();
+        };
         _refresh.Click += async (_, _) => await ReloadAsync();
+        _login.Click += async (_, _) => await LoginSelectedAsync();
         Loaded += async (_, _) => await ReloadAsync();
+        UpdateButtons();
     }
 
     private UIElement BuildLayout()
@@ -61,8 +71,12 @@ internal sealed class CodexMcpServerStatusWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
-        DockPanel.SetDock(_refresh, Dock.Right);
-        header.Children.Add(_refresh);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        _login.Margin = new Thickness(8, 0, 0, 0);
+        DockPanel.SetDock(actions, Dock.Right);
+        actions.Children.Add(_refresh);
+        actions.Children.Add(_login);
+        header.Children.Add(actions);
         header.Children.Add(new TextBlock
         {
             Text = "MCP-серверы Codex",
@@ -74,7 +88,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
 
         var note = new TextBlock
         {
-            Text = "Состояние загружается из общего профиля Codex. App Server может запустить настроенные серверы и запросить список инструментов; конфигурация и OAuth здесь не меняются.",
+            Text = "Состояние загружается из общего профиля Codex. App Server может запустить настроенные серверы и запросить список инструментов. Для входа выберите сервер, нажмите «Войти» и отдельно откройте страницу авторизации.",
             Foreground = Brush("#A7B5C0"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -111,17 +125,19 @@ internal sealed class CodexMcpServerStatusWindow : Window
         return root;
     }
 
-    private async Task ReloadAsync()
+    private async Task ReloadAsync(bool keepBusy = false)
     {
-        if (_busy) return;
+        if (_busy && !keepBusy) return;
+        var wasBusy = _busy;
+        var selectedName = SelectedServer()?.Name;
         _busy = true;
-        _refresh.IsEnabled = false;
+        UpdateButtons();
         _status.Text = "Проверка MCP-серверов…";
         try
         {
-            _items = await _loadStatuses();
+            _items = await CodexMcpServerStatusCatalog.LoadAsync(new CodexAppServerClient(_appServerExecutablePath));
             _empty.Text = "В общем профиле Codex нет настроенных MCP-серверов.";
-            RefreshList();
+            RefreshList(selectedName);
             _status.Text = _items.Count == 0
                 ? "Проверка завершена. Настроенных MCP-серверов нет."
                 : $"Проверка завершена. Серверов: {_items.Count}.";
@@ -136,12 +152,110 @@ internal sealed class CodexMcpServerStatusWindow : Window
         }
         finally
         {
-            _busy = false;
-            _refresh.IsEnabled = true;
+            _busy = wasBusy;
+            UpdateButtons();
         }
     }
 
-    private void RefreshList()
+    private async Task LoginSelectedAsync()
+    {
+        if (_busy || SelectedServer() is not { } server || !RequiresLogin(server)) return;
+        _busy = true;
+        UpdateButtons();
+        _status.Text = $"Подготовка входа в «{server.Name}»…";
+        CodexMcpServerOAuthLoginWindow? loginWindow = null;
+        try
+        {
+            (bool Success, string? Error) outcome;
+            await using (var connection = await CodexAppServerConnection.StartAsync(_appServerExecutablePath))
+            {
+                await connection.InitializeAsync();
+                var response = await connection.SendRequestAsync("mcpServer/oauth/login", new
+                {
+                    name = server.Name,
+                    timeoutSecs = 300
+                });
+                var authorizationUrl = ReadRequiredString(response, "authorizationUrl");
+                var loginId = ReadOptionalString(response, "loginId");
+                loginWindow = new CodexMcpServerOAuthLoginWindow(server.Name, authorizationUrl) { Owner = this };
+                loginWindow.Show();
+
+                using var waitTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+                var completionTask = WaitForOAuthCompletionAsync(connection, server.Name, loginId, waitTimeout.Token);
+                var completed = await Task.WhenAny(completionTask, loginWindow.Cancelled);
+                if (completed != completionTask)
+                {
+                    waitTimeout.Cancel();
+                    try { await completionTask; }
+                    catch (OperationCanceledException) { }
+                    _status.Text = "Вход отменён. При необходимости запустите его снова.";
+                    return;
+                }
+
+                outcome = await completionTask;
+            }
+
+            if (loginWindow?.IsVisible == true) loginWindow.Close();
+            if (!outcome.Success)
+            {
+                _status.Text = "Вход не завершён: " + (outcome.Error ?? "сервер не подтвердил авторизацию.");
+                await ReloadAsync(keepBusy: true);
+                return;
+            }
+
+            _status.Text = "Вход завершён. Обновляю состояние MCP-серверов…";
+            await ReloadAsync(keepBusy: true);
+        }
+        catch (OperationCanceledException)
+        {
+            _status.Text = "Время ожидания входа истекло.";
+        }
+        catch (Exception error)
+        {
+            _status.Text = "Не удалось выполнить вход: " + error.Message;
+        }
+        finally
+        {
+            if (loginWindow?.IsVisible == true) loginWindow.Close();
+            _busy = false;
+            UpdateButtons();
+        }
+    }
+
+    private static async Task<(bool Success, string? Error)> WaitForOAuthCompletionAsync(
+        CodexAppServerConnection connection,
+        string serverName,
+        string? loginId,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            while (connection.TryReadIncoming(out var message))
+            {
+                if (ReadString(message, "method") != "mcpServer/oauthLogin/completed"
+                    || !message.TryGetProperty("params", out var parameters)
+                    || ReadString(parameters, "name") != serverName)
+                    continue;
+
+                var notificationLoginId = ReadOptionalString(parameters, "loginId");
+                if (loginId is not null && notificationLoginId is not null
+                    && !string.Equals(loginId, notificationLoginId, StringComparison.Ordinal))
+                    continue;
+                if (!parameters.TryGetProperty("success", out var success)
+                    || success.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new InvalidDataException("Codex App Server вернул некорректный результат OAuth-входа.");
+                return (success.GetBoolean(), ReadOptionalString(parameters, "error"));
+            }
+
+            if (connection.ReaderTask.IsCompleted)
+                throw new EndOfStreamException("Codex App Server завершился до окончания OAuth-входа.");
+            if (!await connection.WaitForIncomingAsync(cancellationToken))
+                throw new EndOfStreamException("Codex App Server завершил поток OAuth-уведомлений.");
+        }
+    }
+
+    private void RefreshList(string? preferredName = null)
     {
         _servers.Items.Clear();
         foreach (var status in _items)
@@ -172,7 +286,22 @@ internal sealed class CodexMcpServerStatusWindow : Window
             });
         }
         _empty.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (_items.Count > 0) _servers.SelectedIndex = 0;
+        if (_items.Count > 0)
+        {
+            var selectedIndex = 0;
+            if (preferredName is not null)
+            {
+                for (var index = 0; index < _items.Count; index++)
+                {
+                    if (string.Equals(_items[index].Name, preferredName, StringComparison.Ordinal))
+                    {
+                        selectedIndex = index;
+                        break;
+                    }
+                }
+            }
+            _servers.SelectedIndex = selectedIndex;
+        }
         else _details.Text = "Выберите сервер, чтобы посмотреть его авторизацию и инструменты.";
     }
 
@@ -193,12 +322,52 @@ internal sealed class CodexMcpServerStatusWindow : Window
         _details.Text = string.Join(Environment.NewLine, lines);
     }
 
-    private static Button MakeButton(string text) => new()
+    private void UpdateButtons()
+    {
+        _refresh.IsEnabled = !_busy;
+        _servers.IsEnabled = !_busy;
+        var canLogin = SelectedServer() is { } status && RequiresLogin(status);
+        _login.Visibility = canLogin ? Visibility.Visible : Visibility.Collapsed;
+        _login.IsEnabled = !_busy && canLogin;
+    }
+
+    private CodexMcpServerStatus? SelectedServer()
+        => (_servers.SelectedItem as ListBoxItem)?.Tag as CodexMcpServerStatus;
+
+    private static bool RequiresLogin(CodexMcpServerStatus status)
+        => status.RuntimeStatus != "disabled"
+           && (status.AuthStatus == "notLoggedIn" || status.RuntimeStatus == "authenticationRequired");
+
+    private static string ReadRequiredString(JsonElement value, string name)
+    {
+        if (!value.TryGetProperty(name, out var property)
+            || property.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(property.GetString()))
+            throw new InvalidDataException($"Codex App Server не вернул поле {name} для OAuth-входа.");
+        return property.GetString()!;
+    }
+
+    private static string? ReadOptionalString(JsonElement value, string name)
+    {
+        if (!value.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null) return null;
+        if (property.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"Поле {name} в ответе OAuth-входа должно быть строкой или null.");
+        return property.GetString();
+    }
+
+    private static string? ReadString(JsonElement value, string name)
+        => value.ValueKind == JsonValueKind.Object
+           && value.TryGetProperty(name, out var property)
+           && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static Button MakeButton(string text, bool accent = false) => new()
     {
         Content = text,
         Padding = new Thickness(12, 7, 12, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
+        Background = Brush(accent ? "#223B38" : "#16212B"),
+        Foreground = Brush(accent ? "#92E5C7" : "#ECF2F5"),
         BorderBrush = Brush("#2A3946"),
         BorderThickness = new Thickness(1)
     };

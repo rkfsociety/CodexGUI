@@ -5807,8 +5807,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
-            var dialog = new CodexMcpServerStatusWindow(() => CodexMcpServerStatusCatalog.LoadAsync(client)) { Owner = this };
+            var dialog = new CodexMcpServerStatusWindow(CodexAppServerRuntime.ResolveExecutable()) { Owner = this };
             dialog.ShowDialog();
             Control<TextBox>("PromptInput")?.Focus();
         }
