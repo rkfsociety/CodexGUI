@@ -1305,6 +1305,16 @@ public partial class MainWindow : Window
             };
             button.Click += (_, _) => SelectProject(project);
             var projectMenu = new ContextMenu();
+            var setupScript = new MenuItem { Header = "Настроить подготовку worktree…" };
+            setupScript.Click += async (_, _) => await ConfigureWorktreeSetupAsync(project);
+            projectMenu.Items.Add(setupScript);
+            if (WorktreeSetupConfiguration.Exists(project.Path))
+            {
+                var removeSetupScript = new MenuItem { Header = "Убрать сценарий подготовки worktree…" };
+                removeSetupScript.Click += (_, _) => RemoveWorktreeSetup(project);
+                projectMenu.Items.Add(removeSetupScript);
+            }
+            projectMenu.Items.Add(new Separator());
             var removeProjectItem = new MenuItem { Header = "Убрать из списка…" };
             removeProjectItem.Click += (_, _) => RemoveProjectFromList(project);
             projectMenu.Items.Add(removeProjectItem);
@@ -3441,7 +3451,10 @@ public partial class MainWindow : Window
                 throw new InvalidDataException("Сохранённый путь worktree не совпадает с управляемой папкой CodexGUI.");
             if (Directory.Exists(worktreePath)
                 && await GitRepositoryInspector.IsRegisteredWorktreeAsync(thread.ProjectPath, worktreePath, CancellationToken.None))
+            {
+                await EnsureWorktreeSetupAsync(thread, worktreePath);
                 return;
+            }
             throw new DirectoryNotFoundException("Сохранённый Git worktree больше не зарегистрирован в проекте.");
         }
 
@@ -3450,12 +3463,56 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(repository.Error ?? "Папка проекта не является Git-репозиторием.");
         thread.WorktreePath = await GitRepositoryInspector.CreateDetachedWorktreeAsync(
             repository.Root, worktreePath, CancellationToken.None);
-        SaveState();
+        thread.WorktreeSetupComplete = false;
+        if (!SaveState()) throw new IOException("Не удалось сохранить путь созданного worktree.");
         if (_currentThread == thread)
         {
             _projectPath = thread.WorktreePath;
             RefreshView();
         }
+        await EnsureWorktreeSetupAsync(thread, worktreePath);
+    }
+
+    private async Task EnsureWorktreeSetupAsync(ChatThread thread, string worktreePath)
+    {
+        if (thread.WorktreeSetupComplete) return;
+        var scriptRelativePath = WorktreeSetupConfiguration.ReadScriptPath(thread.ProjectPath);
+        if (scriptRelativePath is null)
+        {
+            thread.WorktreeSetupComplete = true;
+            if (!SaveState()) throw new IOException("Не удалось сохранить состояние подготовки worktree.");
+            return;
+        }
+
+        var repository = await GitRepositoryInspector.ReadAsync(thread.ProjectPath, CancellationToken.None);
+        if (!repository.IsRepository)
+            throw new InvalidOperationException(repository.Error ?? "Папка проекта больше не является Git-репозиторием.");
+        var projectRelativePath = Path.GetRelativePath(repository.Root, Path.GetFullPath(thread.ProjectPath));
+        var worktreeProjectPath = Path.GetFullPath(Path.Combine(worktreePath, projectRelativePath));
+        var relativeToWorktree = Path.GetRelativePath(Path.GetFullPath(worktreePath), worktreeProjectPath);
+        if (Path.IsPathRooted(relativeToWorktree) || relativeToWorktree == ".."
+            || relativeToWorktree.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException("Папка проекта выходит за пределы нового worktree.");
+        if (!File.Exists(Path.Combine(worktreeProjectPath, ".codex", "codexgui-worktree.json")))
+            throw new FileNotFoundException("Файл настройки worktree отсутствует в созданной копии. Добавьте и сохраните его в Git, затем повторите отправку.");
+        var scriptPath = WorktreeSetupConfiguration.ResolveScriptPath(worktreeProjectPath, scriptRelativePath);
+
+        var result = CodexMessageDialog.Show(this,
+            $"Разрешить запуск PowerShell-сценария «{scriptRelativePath}» в новом worktree? Он выполняется с правами вашей учётной записи и может менять файлы или обращаться к сети. При отказе запрос продолжится без подготовки.",
+            "Подготовить worktree",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            thread.WorktreeSetupComplete = true;
+            if (!SaveState()) throw new IOException("Не удалось сохранить отказ от setup-сценария.");
+            SetStatus("Подготовка worktree пропущена", "Сценарий можно запустить для новой рабочей копии из меню проекта.");
+            return;
+        }
+
+        CodexWorktreeSetupWindow.Run(this, worktreeProjectPath, scriptPath);
+        thread.WorktreeSetupComplete = true;
+        if (!SaveState()) throw new IOException("Сценарий завершён, но состояние worktree не удалось сохранить.");
     }
 
     private async Task<string> RunCodexAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage)
@@ -4512,6 +4569,58 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ConfigureWorktreeSetupAsync(ProjectEntry project)
+    {
+        try
+        {
+            var repository = await GitRepositoryInspector.ReadAsync(project.Path, CancellationToken.None);
+            if (!repository.IsRepository)
+            {
+                CodexMessageDialog.Show(this, repository.Error ?? "Сценарии подготовки worktree доступны только в Git-проекте.",
+                    "Настройка worktree", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var currentScript = WorktreeSetupConfiguration.ReadScriptPath(project.Path);
+            var picker = new OpenFileDialog
+            {
+                Title = "Выберите setup-сценарий для worktree",
+                Filter = "PowerShell (*.ps1)|*.ps1",
+                InitialDirectory = project.Path,
+                FileName = currentScript ?? ""
+            };
+            if (picker.ShowDialog(this) != true) return;
+
+            var relativePath = WorktreeSetupConfiguration.SaveScriptPath(project.Path, picker.FileName);
+            CodexMessageDialog.Show(this,
+                $"Сценарий «{relativePath}» записан в .codex/codexgui-worktree.json. Добавьте в Git файл настройки и сам сценарий. Перед запуском в каждом новом worktree CodexGUI запросит подтверждение.",
+                "Подготовка worktree настроена", MessageBoxButton.OK, MessageBoxImage.Information);
+            RenderProjects();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+        {
+            CodexMessageDialog.Show(this, error.Message, "Не удалось настроить подготовку worktree",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void RemoveWorktreeSetup(ProjectEntry project)
+    {
+        if (CodexMessageDialog.Show(this,
+            $"Удалить файл настройки .codex/codexgui-worktree.json из проекта «{project.Name}»? Сам setup-сценарий останется на месте.",
+            "Убрать сценарий подготовки", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        try
+        {
+            WorktreeSetupConfiguration.Remove(project.Path);
+            RenderProjects();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            CodexMessageDialog.Show(this, error.Message, "Не удалось удалить настройку worktree",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void UpdatePanelLayout()
     {
         if (_activeView is not { ColumnDefinitions.Count: 3 } view) return;
@@ -4992,6 +5101,7 @@ public partial class MainWindow : Window
                             HasUnreadResponse = stored.HasUnreadResponse,
                             UseWorktree = stored.UseWorktree,
                             WorktreeSessionStarted = stored.WorktreeSessionStarted,
+                            WorktreeSetupComplete = stored.WorktreeSetupComplete,
                             ContextTokens = stored.ContextTokens,
                             ContextWindowTokens = stored.ContextWindowTokens,
                             ActiveRun = stored.ActiveRun
@@ -5064,6 +5174,7 @@ public partial class MainWindow : Window
                     HasUnreadResponse = thread.HasUnreadResponse,
                     UseWorktree = thread.UseWorktree,
                     WorktreeSessionStarted = thread.WorktreeSessionStarted,
+                    WorktreeSetupComplete = thread.WorktreeSetupComplete,
                     ContextTokens = thread.ContextTokens,
                     ContextWindowTokens = thread.ContextWindowTokens,
                     ActiveRun = thread.ActiveRun
@@ -5803,6 +5914,7 @@ public partial class MainWindow : Window
         public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
+        public bool WorktreeSetupComplete { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }
@@ -5835,6 +5947,7 @@ public partial class MainWindow : Window
         public bool HasUnreadResponse { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
+        public bool WorktreeSetupComplete { get; set; }
         public long? ContextTokens { get; set; }
         public long? ContextWindowTokens { get; set; }
         public ActiveCliRun? ActiveRun { get; set; }

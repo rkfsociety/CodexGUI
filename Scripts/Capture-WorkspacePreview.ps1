@@ -3,8 +3,8 @@
 Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
-Loads App.xaml resources and renders Views/WorkspaceView.xaml, the built-in Activity window, or
-the saved Actions window with local preview data in a standalone STA PowerShell process. It never
+Loads App.xaml resources and renders Views/WorkspaceView.xaml, the built-in Activity and Actions
+windows, or the worktree setup window with local preview data in a standalone STA PowerShell process. It never
 starts CodexGUI or the App Server.
 
 .EXAMPLE
@@ -20,10 +20,14 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Activity -
 .EXAMPLE
 dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Actions -OutputPath .\preview\actions.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Setup -OutputPath .\preview\setup.png
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Activity', 'Actions')]
+    [ValidateSet('Workspace', 'Activity', 'Actions', 'Setup')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -44,8 +48,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -eq 'Workspace') { 1440 } elseif ($View -eq 'Actions') { 760 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -eq 'Workspace') { 1000 } elseif ($View -eq 'Actions') { 560 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -eq 'Workspace') { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'Setup') { 700 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -eq 'Workspace') { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'Setup') { 470 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -234,7 +238,7 @@ elseif ($View -eq 'Activity') {
     $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
     [void]$visual.Children.Add($windowContent)
 }
-else {
+elseif ($View -eq 'Actions') {
     $assemblyCandidates = @(
         (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
         (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
@@ -272,6 +276,39 @@ else {
     $windowContent = $window.Content
     if ($null -eq $windowContent) {
         throw "The Actions window has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
+}
+else {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the worktree setup window.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $windowType = $assembly.GetType('CodexGUI.CodexWorktreeSetupWindow', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $constructor = $windowType.GetConstructor($flags, $null, [Type[]]@([System.Windows.Window], [string], [string]), $null)
+    if ($null -eq $constructor) {
+        throw 'The worktree setup window preview constructor was not found in the built assembly.'
+    }
+    $window = $constructor.Invoke([object[]]@($null, 'C:\Projects\CodexGUI\worktree', 'C:\Projects\CodexGUI\worktree\scripts\setup.ps1'))
+    $window.Width = $Width
+    $window.Height = $Height
+    $windowType.GetField('_status', $flags).GetValue($window).Text = 'Устанавливаю зависимости…'
+    $windowType.GetField('_output', $flags).GetValue($window).Text = "Проверка окружения...`r`nВосстановление пакетов...`r`n"
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The worktree setup window has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
     }
     $window.Content = $null
     $visual = [System.Windows.Controls.Grid]::new()
