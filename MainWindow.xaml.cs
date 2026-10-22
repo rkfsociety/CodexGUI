@@ -1219,7 +1219,7 @@ public partial class MainWindow : Window
         UpdateChatQuickOverview();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
-            var welcome = new StackPanel { Margin = new Thickness(0, 48, 0, 0), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center };
+            var welcome = new StackPanel { Margin = new Thickness(0, 52, 0, 0), MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Center };
             welcome.Children.Add(new Border
             {
                 Width = 52,
@@ -1239,7 +1239,7 @@ public partial class MainWindow : Window
                     : _currentThread?.CodexSessionId is not null
                 ? "Этот чат сохранён в Codex. Отправьте сообщение, чтобы продолжить разговор."
                     : "Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.";
-            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 14, LineHeight = 22, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A4B1C2"), Margin = new Thickness(0, 11, 0, 24), MaxWidth = 600 });
+            welcome.Children.Add(new TextBlock { Text = detail, FontSize = 15, LineHeight = 24, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#A4B1C2"), Margin = new Thickness(0, 12, 0, 26), MaxWidth = 660 });
             if (_currentThread is null)
             {
                 welcome.Children.Add(CreateSuggestion("Разберись в структуре проекта"));
@@ -1296,7 +1296,7 @@ public partial class MainWindow : Window
             Foreground = Brush("#D1D2D5"),
             Padding = new Thickness(14, 11, 14, 11),
             Margin = new Thickness(0, 4, 9, 4),
-            Width = 350,
+            Width = 390,
             BorderBrush = Brush("#2B3746"),
             BorderThickness = new Thickness(1)
         };
@@ -1314,17 +1314,17 @@ public partial class MainWindow : Window
         var outer = new StackPanel
         {
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            MaxWidth = 745,
-            Margin = new Thickness(0, 14, 0, 16)
+            MaxWidth = 880,
+            Margin = new Thickness(0, 12, 0, 14)
         };
         if (!message.IsUser)
-            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(3, 0, 0, 9) });
+            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(3, 0, 0, 9) });
 
         var text = new TextBlock
         {
             Text = message.Text,
-            FontSize = 14,
-            LineHeight = 23,
+            FontSize = 15,
+            LineHeight = 25,
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brush(message.IsUser ? "#E6E6E8" : "#D2D3D6")
         };
@@ -1355,7 +1355,7 @@ public partial class MainWindow : Window
             entry.Children.Add(new TextBlock
             {
                 Text = message.ActivityTitle,
-                FontSize = 11,
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush(message.IsError ? "#F09999" : "#9FAFC7"),
                 TextWrapping = TextWrapping.Wrap
@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window
                     Foreground = Brush("#AFB5C0"),
                     BorderThickness = new Thickness(0),
                     FontFamily = new FontFamily("Consolas"),
-                    FontSize = 11,
+                    FontSize = 12,
                     Margin = new Thickness(0, 5, 0, 0),
                     MaxHeight = 180,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto
@@ -1431,8 +1431,8 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(13, 9, 13, 9),
-            MaxWidth = 760,
-            Margin = new Thickness(5, 4, 5, 8),
+            MaxWidth = 900,
+            Margin = new Thickness(5, 5, 5, 9),
             Child = expander
         };
     }
@@ -4252,7 +4252,7 @@ public partial class MainWindow : Window
         if (Control<Border>("CollapsedSidebarRail") is { } rail)
             rail.Visibility = hideSidebar ? Visibility.Visible : Visibility.Collapsed;
         if (Control<Border>("ChatOverviewCard") is { } overview)
-            overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 260 : 350;
+            overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 280 : 390;
         view.ColumnDefinitions[2].Width = new GridLength(_contextOpen ? 310 : 0);
     }
 

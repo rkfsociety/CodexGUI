@@ -2,7 +2,7 @@
 
 - `App.xaml.cs` handles startup, user installation, single-instance activation, app updates, App Server runtime setup, and first-run ChatGPT device-code login. `Infrastructure/Updates/AppUpdater.cs` verifies downloaded release archives and signatures.
 - `MainWindow.xaml.cs` owns chat/project state, request queues, repository context, and the UI event loop. `Views/WorkspaceView.xaml` is the hot-reloaded layout.
-- Composer dropdown triggers use the shared `ComposerDropdownButton` style and vector chevron paths in `Views/WorkspaceView.xaml`; the Codex brand label is not a dropdown.
+- Composer dropdown triggers use the shared `ComposerDropdownButton` style and vector chevron paths in `Views/WorkspaceView.xaml`; app-wide `ComboBox` and `ComboBoxItem` visuals are defined in `App.xaml`. The Codex brand label is not a dropdown.
 - The sidebar collapses to a 42-pixel rail with `ExpandSidebarButton`; `ToggleSidebar` also overrides responsive auto-hide when the context panel is open in a narrow window.
 - Conversation scrolling follows new content only when the same thread is already within 72 pixels of the bottom; rerendering preserves the reader's prior offset, and switching threads opens at the latest message.
 - Consecutive Codex activity items such as reasoning, commands, tool calls, and file changes render in one collapsed expander; opening it shows per-item details and subagent links.
