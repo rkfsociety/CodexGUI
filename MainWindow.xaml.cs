@@ -775,12 +775,32 @@ public partial class MainWindow : Window
                 var accent = waiting ? "#E6BC70" : active ? "#92E5C7" : "#92E5C7";
                 var projectName = _projects.FirstOrDefault(project => project.Id == thread.ProjectId)?.Name
                     ?? Path.GetFileName(thread.ProjectPath.TrimEnd(Path.DirectorySeparatorChar));
-                return (Item: new CodexActivityItem(thread.Id, thread.Title, projectName, status, description, accent), Priority: waiting ? 0 : active ? 1 : 2);
+                var item = new CodexActivityItem(thread.Id, thread.Title, projectName, status, description, accent)
+                {
+                    RecentEvents = BuildRecentActivityEvents(thread)
+                };
+                return (Item: item, Priority: waiting ? 0 : active ? 1 : 2);
             })
             .OrderBy(entry => entry.Priority)
             .ThenBy(entry => entry.Item.Title, StringComparer.CurrentCultureIgnoreCase)
             .Select(entry => entry.Item)
             .ToArray();
+    }
+
+    private static IReadOnlyList<CodexActivityEvent> BuildRecentActivityEvents(ChatThread thread)
+    {
+        const int eventLimit = 3;
+        var events = new List<CodexActivityEvent>(eventLimit);
+        for (var index = thread.Messages.Count - 1; index >= 0 && events.Count < eventLimit; index--)
+        {
+            var message = thread.Messages[index];
+            if (message.ActivityTitle is not { Length: > 0 } title) continue;
+            var detail = string.Join(" ", message.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (detail.Length > 140) detail = detail[..139] + "…";
+            events.Add(new CodexActivityEvent(title, detail, message.IsError));
+        }
+        events.Reverse();
+        return events;
     }
 
     private void UpdateActivityView()
@@ -3762,7 +3782,7 @@ public partial class MainWindow : Window
                         : CreateActivityMessage(item, completed);
                     if (message is null || (isAgent && !completed)) return;
                     var itemId = GetString(item, "id");
-                    ApplyItemUpdate(message, itemId, isAgent);
+                    ApplyItemUpdate(message, itemId, isAgent, eventType is "item.started" or "item.completed");
                 }
                 else if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
                     AppendResponse(delta);
@@ -3773,7 +3793,7 @@ public partial class MainWindow : Window
             }
         }
 
-        void ApplyItemUpdate(ChatMessage message, string? itemId, bool isAgent)
+        void ApplyItemUpdate(ChatMessage message, string? itemId, bool isAgent, bool refreshActivity)
         {
             // Apply in stream order on the UI thread, before consuming the next event.
             Dispatcher.Invoke(() =>
@@ -3786,6 +3806,7 @@ public partial class MainWindow : Window
                     lock (responseLock) response.Clear();
                 }
                 assistantMessage.Text = "Codex работает…";
+                if (refreshActivity && _activityWindow is { IsVisible: true }) UpdateActivityView();
                 QueueConversationRefresh();
             });
         }

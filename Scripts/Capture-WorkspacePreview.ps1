@@ -265,11 +265,14 @@ elseif ($View -eq 'Activity') {
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
     $windowType = $assembly.GetType('CodexGUI.CodexActivityWindow', $true)
     $itemType = $assembly.GetType('CodexGUI.CodexActivityItem', $true)
+    $activityEventType = $assembly.GetType('CodexGUI.CodexActivityEvent', $true)
     $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
     $callbackType = [System.Action[string]]
     $windowConstructor = $windowType.GetConstructor($flags, $null, [Type[]]@($callbackType), $null)
     $itemConstructor = $itemType.GetConstructor($flags, $null, [Type[]]@([string], [string], [string], [string], [string], [string]), $null)
-    if ($null -eq $windowConstructor -or $null -eq $itemConstructor) {
+    $activityEventConstructor = $activityEventType.GetConstructor($flags, $null, [Type[]]@([string], [string], [bool]), $null)
+    $recentEventsProperty = $itemType.GetProperty('RecentEvents')
+    if ($null -eq $windowConstructor -or $null -eq $itemConstructor -or $null -eq $activityEventConstructor -or $null -eq $recentEventsProperty) {
         throw 'The Activity window preview constructors were not found in the built assembly.'
     }
     $openThread = [System.Action[string]]{ param([string]$threadId) }
@@ -278,9 +281,26 @@ elseif ($View -eq 'Activity') {
     $window.Height = $Height
 
     $previewItems = [Array]::CreateInstance($itemType, 3)
-    $previewItems.SetValue($itemConstructor.Invoke([object[]]@('activity-waiting', 'Разрешить изменение файлов', 'CodexGUI', 'Ждёт ответа', 'Нужно ответить на запрос Codex', '#E6BC70')), 0)
-    $previewItems.SetValue($itemConstructor.Invoke([object[]]@('activity-running', 'Проверь структуру проекта', 'CodexGUI', 'Выполняется', 'Codex выполняет задачу', '#92E5C7')), 1)
-    $previewItems.SetValue($itemConstructor.Invoke([object[]]@('activity-unread', 'Обновить документацию', 'CrystalMystery', 'Новый ответ', 'Ответ завершённого чата не прочитан', '#92E5C7')), 2)
+    $waitingItem = $itemConstructor.Invoke([object[]]@('activity-waiting', 'Разрешить изменение файлов', 'CodexGUI', 'Ждёт ответа', 'Нужно ответить на запрос Codex', '#E6BC70'))
+    $waitingEvents = [Array]::CreateInstance($activityEventType, 1)
+    $waitingEvents.SetValue($activityEventConstructor.Invoke([object[]]@('●  Вызов инструмента · выполняется', 'Нужно разрешение на изменение файлов', $false)), 0)
+    $recentEventsProperty.SetValue($waitingItem, $waitingEvents)
+    $previewItems.SetValue($waitingItem, 0)
+
+    $runningItem = $itemConstructor.Invoke([object[]]@('activity-running', 'Проверь структуру проекта', 'CodexGUI', 'Выполняется', 'Codex выполняет задачу', '#92E5C7'))
+    $runningEvents = [Array]::CreateInstance($activityEventType, 3)
+    $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Команда · завершено', 'git status --short', $false)), 0)
+    $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Поиск в интернете · завершено', 'Найти документацию по App Server', $false)), 1)
+    $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('●  Команда · выполняется', 'dotnet build --no-restore', $false)), 2)
+    $recentEventsProperty.SetValue($runningItem, $runningEvents)
+    $previewItems.SetValue($runningItem, 1)
+
+    $unreadItem = $itemConstructor.Invoke([object[]]@('activity-unread', 'Обновить документацию', 'CrystalMystery', 'Новый ответ', 'Ответ завершённого чата не прочитан', '#92E5C7'))
+    $unreadEvents = [Array]::CreateInstance($activityEventType, 2)
+    $unreadEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Изменение файлов · завершено', 'README.md, docs/setup.md', $false)), 0)
+    $unreadEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Команда · завершено', 'git diff --check', $false)), 1)
+    $recentEventsProperty.SetValue($unreadItem, $unreadEvents)
+    $previewItems.SetValue($unreadItem, 2)
     $updateMethod = $windowType.GetMethod('UpdateItems', $flags)
     $methodArguments = [Array]::CreateInstance([object], 1)
     $methodArguments.SetValue($previewItems, 0)

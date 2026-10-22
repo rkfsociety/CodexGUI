@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace CodexGUI;
 
@@ -14,13 +15,19 @@ internal sealed record CodexActivityItem(
     string ProjectName,
     string Status,
     string Description,
-    string Accent);
+    string Accent)
+{
+    public IReadOnlyList<CodexActivityEvent> RecentEvents { get; init; } = [];
+}
+
+internal sealed record CodexActivityEvent(string Title, string Detail, bool IsError);
 
 internal sealed class CodexActivityWindow : Window
 {
     private readonly Action<string> _openThread;
     private readonly TextBlock _summary = new();
     private readonly StackPanel _items = new();
+    private readonly ScrollViewer _scroll = new();
 
     public CodexActivityWindow(Action<string> openThread)
     {
@@ -37,6 +44,7 @@ internal sealed class CodexActivityWindow : Window
 
     public void UpdateItems(IReadOnlyList<CodexActivityItem> items)
     {
+        var scrollOffset = _scroll.VerticalOffset;
         _items.Children.Clear();
         _summary.Text = items.Count switch
         {
@@ -63,6 +71,7 @@ internal sealed class CodexActivityWindow : Window
                     LineHeight = 20
                 }
             });
+            RestoreScrollOffset(scrollOffset);
             return;
         }
 
@@ -107,6 +116,53 @@ internal sealed class CodexActivityWindow : Window
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0)
             });
+            if (item.RecentEvents.Count > 0)
+            {
+                var recentEvents = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+                recentEvents.Children.Add(new TextBlock
+                {
+                    Text = "НЕДАВНИЕ ДЕЙСТВИЯ",
+                    FontSize = 8,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brush("#7F8B9A")
+                });
+                foreach (var activity in item.RecentEvents)
+                {
+                    var eventRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+                    eventRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+                    eventRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    eventRow.Children.Add(new Ellipse
+                    {
+                        Width = 4,
+                        Height = 4,
+                        Fill = Brush(activity.IsError ? "#E18B84" : item.Accent),
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(1, 4, 0, 0)
+                    });
+                    var eventLabels = new StackPanel();
+                    eventLabels.Children.Add(new TextBlock
+                    {
+                        Text = activity.Title,
+                        FontSize = 9,
+                        Foreground = Brush(activity.IsError ? "#E18B84" : "#A7B5C0"),
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                    if (activity.Detail.Length > 0)
+                        eventLabels.Children.Add(new TextBlock
+                        {
+                            Text = activity.Detail,
+                            FontSize = 9,
+                            Foreground = Brush("#81909C"),
+                            TextWrapping = TextWrapping.Wrap,
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            MaxHeight = 28
+                        });
+                    Grid.SetColumn(eventLabels, 1);
+                    eventRow.Children.Add(eventLabels);
+                    recentEvents.Children.Add(eventRow);
+                }
+                labels.Children.Add(recentEvents);
+            }
             Grid.SetColumn(labels, 1);
             row.Children.Add(labels);
             var status = new TextBlock
@@ -128,6 +184,13 @@ internal sealed class CodexActivityWindow : Window
             };
             _items.Children.Add(button);
         }
+        RestoreScrollOffset(scrollOffset);
+    }
+
+    private void RestoreScrollOffset(double offset)
+    {
+        if (offset <= 0 || !_scroll.IsLoaded) return;
+        Dispatcher.BeginInvoke(() => _scroll.ScrollToVerticalOffset(offset), DispatcherPriority.Loaded);
     }
 
     private UIElement BuildLayout()
@@ -147,14 +210,11 @@ internal sealed class CodexActivityWindow : Window
         _summary.Margin = new Thickness(0, 5, 0, 15);
         Grid.SetRow(_summary, 1);
         root.Children.Add(_summary);
-        var scroll = new ScrollViewer
-        {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content = _items
-        };
-        Grid.SetRow(scroll, 2);
-        root.Children.Add(scroll);
+        _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        _scroll.Content = _items;
+        Grid.SetRow(_scroll, 2);
+        root.Children.Add(_scroll);
         return root;
     }
 
