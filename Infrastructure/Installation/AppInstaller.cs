@@ -116,12 +116,15 @@ internal static class AppInstaller
     {
         foreach (var file in Directory.EnumerateFiles(sourceDirectory))
         {
-            if (file.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase)) continue;
+            if (file.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase)
+                || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) continue;
             File.Copy(file, Path.Combine(destinationDirectory, Path.GetFileName(file)), overwrite: true);
         }
 
         foreach (var directory in Directory.EnumerateDirectories(sourceDirectory))
         {
+            // Never recurse into a junction/symlink outside the distribution folder.
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
             var destination = Path.Combine(destinationDirectory, Path.GetFileName(directory));
             Directory.CreateDirectory(destination);
             CopyApplicationDirectory(directory, destination);

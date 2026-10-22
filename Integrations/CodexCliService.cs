@@ -67,12 +67,22 @@ internal static class CodexCliService
         {
             await process.WaitForExitAsync(timeout.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
-            await Task.WhenAll(outputTask, errorTask);
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { }
+
+            // A child process can keep redirected pipes open after the CLI exits.
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
+            try { await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
             throw new TimeoutException("Менеджер плагинов Codex CLI не завершил операцию за две минуты.");
+        }
+        try { await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Codex CLI завершился, но не закрыл потоки вывода.", error);
         }
         var output = await outputTask;
         var errors = await errorTask;

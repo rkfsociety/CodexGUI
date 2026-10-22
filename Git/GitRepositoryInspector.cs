@@ -390,6 +390,15 @@ internal static class GitRepositoryInspector
             throw;
         }
 
+        // Git may exit while a helper still owns the redirected handles.
+        try
+        {
+            await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Git завершился, но его потоки вывода остались открыты.", error);
+        }
         return new GitCommandResult(process.ExitCode, await outputTask, await errorTask);
     }
 
@@ -397,7 +406,9 @@ internal static class GitRepositoryInspector
     {
         try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
         catch (InvalidOperationException) { }
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        // Do not hide the original cancellation/timeout when a terminated child lingers.
+        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException) { }
     }
 
     private static (string Branch, string? Upstream, int Ahead, int Behind,

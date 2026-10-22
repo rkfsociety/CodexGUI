@@ -24,6 +24,7 @@ internal static class AppUpdater
     private const string SignatureName = ArchiveName + ".sig";
     private const long MaximumArchiveBytes = 512L * 1024 * 1024;
     private const long MaximumMetadataBytes = 4096;
+    private const long MaximumReleaseMetadataBytes = 2L * 1024 * 1024;
     private const string ReleasePublicKey = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjKDFJz59PcWpOLTJqcxFN3FsM+Ah\nvbzdlyTJhKnLZ93rxwqsrOGJOigTcx6Ntn1DlNg5vVA6AihvsTZOXq+rDQ==\n-----END PUBLIC KEY-----";
     private static readonly HttpClient Client = CreateClient();
 
@@ -34,18 +35,27 @@ internal static class AppUpdater
 
     public static async Task<AppUpdate?> FindUpdateAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await GetResponseAsync(Client, new Uri(LatestReleaseApi), HttpCompletionOption.ResponseContentRead, cancellationToken);
+        using var response = await GetResponseAsync(Client, new Uri(LatestReleaseApi), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is > MaximumReleaseMetadataBytes)
+            throw new InvalidDataException("Метаданные релиза GitHub превышают допустимый размер.");
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        using var metadata = new MemoryStream();
+        await CopyDownloadAsync(stream, metadata, TimeSpan.FromSeconds(30), cancellationToken, MaximumReleaseMetadataBytes);
+        metadata.Position = 0;
+        using var document = await JsonDocument.ParseAsync(metadata, cancellationToken: cancellationToken);
         var root = document.RootElement;
-        var tag = root.GetProperty("tag_name").GetString();
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("tag_name", out var tagElement) || tagElement.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("GitHub вернул некорректные метаданные релиза.");
+        var tag = tagElement.GetString();
         if (tag is null || !tag.StartsWith('v')) return null;
         var latestVersion = tag[1..];
         if (!IsVersionFormat(latestVersion) || !IsVersionFormat(CurrentVersion)) return null;
         if (CompareVersions(latestVersion, CurrentVersion) <= 0) return null;
 
-        var assets = root.GetProperty("assets");
+        if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("В метаданных релиза GitHub отсутствует список файлов.");
         var archiveUrl = FindAssetUrl(assets, ArchiveName);
         var checksumUrl = FindAssetUrl(assets, ChecksumName);
         var signatureUrl = FindAssetUrl(assets, SignatureName);
@@ -154,8 +164,19 @@ internal static class AppUpdater
 
     private static string? FindAssetUrl(JsonElement assets, string name)
     {
-        var asset = assets.EnumerateArray().FirstOrDefault(item => item.GetProperty("name").GetString() == name);
-        return asset.ValueKind == JsonValueKind.Undefined ? null : asset.GetProperty("browser_download_url").GetString();
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (asset.ValueKind != JsonValueKind.Object
+                || !asset.TryGetProperty("name", out var assetName)
+                || assetName.ValueKind != JsonValueKind.String
+                || assetName.GetString() != name)
+                continue;
+            return asset.TryGetProperty("browser_download_url", out var url) && url.ValueKind == JsonValueKind.String
+                ? url.GetString()
+                : null;
+        }
+
+        return null;
     }
 
     internal static bool IsVersionFormat(string version) =>

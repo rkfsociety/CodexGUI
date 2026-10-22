@@ -410,8 +410,16 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         };
         CodexAppServerRuntime.AddProcessArguments(startInfo, executablePath);
         var process = new Process { StartInfo = startInfo };
-        if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
-        return Task.FromResult(new CodexAppServerConnection(process));
+        try
+        {
+            if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
+            return Task.FromResult(new CodexAppServerConnection(process));
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
     }
 
     public async Task InitializeAsync()
@@ -523,20 +531,26 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        try { _writer.Close(); }
-        catch (IOException) { }
-        if (!_process.HasExited)
+        try
         {
-            try { await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-            catch (TimeoutException)
+            try { _writer.Close(); }
+            catch (IOException) { }
+            if (!_process.HasExited)
             {
-                try { _process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException) { }
+                try { await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
+                catch (TimeoutException)
+                {
+                    try { _process.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) { }
+                }
             }
+            // A descendant may retain stdout/stderr even after the server exits.
+            await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(5));
         }
-        await ReaderTask;
-        await _standardErrorTask;
-        _process.Dispose();
-        _writeLock.Dispose();
+        finally
+        {
+            _process.Dispose();
+            _writeLock.Dispose();
+        }
     }
 }

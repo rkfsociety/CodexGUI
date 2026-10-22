@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CodexGUI;
@@ -204,30 +205,46 @@ internal sealed class CodexAppServerClient(string executablePath)
                 {
                     try { process.Kill(entireProcessTree: true); }
                     catch (InvalidOperationException) { }
-                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                    try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+                    catch (TimeoutException) { }
                 }
             }
-            await errorsTask;
+            // Ignore lingering inherited stderr handles during shutdown.
+            try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
         }
     }
 
     private static async Task<JsonElement> ReadRpcResultAsync(StreamReader reader, int requestId)
     {
-        while (await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20)) is { } line)
+        // A single deadline prevents unrelated notifications from keeping an RPC alive forever.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
         {
-            using var document = JsonDocument.Parse(line);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.Number || id.GetInt32() != requestId)
-                continue;
-            if (root.TryGetProperty("error", out var error))
+            while (await reader.ReadLineAsync(timeout.Token) is { } line)
             {
-                var message = error.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String
-                    ? text.GetString()
-                    : null;
-                throw new InvalidOperationException(message ?? "Codex app-server отклонил запрос.");
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object
+                    || !root.TryGetProperty("id", out var id)
+                    || id.ValueKind != JsonValueKind.Number
+                    || !id.TryGetInt32(out var responseId)
+                    || responseId != requestId)
+                    continue;
+                if (root.TryGetProperty("error", out var error) && error.ValueKind != JsonValueKind.Null)
+                {
+                    var message = error.ValueKind == JsonValueKind.Object
+                        && error.TryGetProperty("message", out var text)
+                        && text.ValueKind == JsonValueKind.String ? text.GetString() : null;
+                    throw new InvalidOperationException(message ?? "Codex app-server отклонил запрос.");
+                }
+                if (root.TryGetProperty("result", out var result)) return result.Clone();
+                throw new InvalidDataException("Codex app-server вернул пустой ответ.");
             }
-            if (root.TryGetProperty("result", out var result)) return result.Clone();
-            throw new InvalidDataException("Codex app-server вернул пустой ответ.");
+        }
+        catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException("Codex app-server не ответил на запрос за 20 секунд.", error);
         }
 
         throw new EndOfStreamException("Codex app-server завершился до ответа.");

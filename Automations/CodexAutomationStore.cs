@@ -172,7 +172,8 @@ internal static class CodexAutomationStore
             try
             {
                 if (JsonSerializer.Deserialize<CodexAutomationRun>(File.ReadAllText(path)) is { } run
-                    && Guid.TryParseExact(run.Id, "N", out _))
+                    && Guid.TryParseExact(run.Id, "N", out _)
+                    && string.Equals(Path.GetFileNameWithoutExtension(path), run.Id, StringComparison.OrdinalIgnoreCase))
                     runs.Add(run);
                 else
                     System.Diagnostics.Trace.TraceWarning("Пропущен результат автоматизации с некорректным идентификатором: {0}", path);

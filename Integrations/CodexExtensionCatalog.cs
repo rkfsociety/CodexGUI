@@ -28,8 +28,11 @@ internal static class CodexExtensionCatalog
             || !root.TryGetProperty("available", out var available) || available.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("Codex CLI вернул неизвестный формат каталога плагинов.");
 
-        return installed.EnumerateArray().Concat(available.EnumerateArray())
-            .Select(item => new CodexExtension(
+        var entries = installed.EnumerateArray().Concat(available.EnumerateArray()).ToArray();
+        if (entries.Any(item => item.ValueKind != JsonValueKind.Object))
+            throw new InvalidDataException("Каталог плагинов Codex CLI содержит некорректную запись.");
+
+        return entries.Select(item => new CodexExtension(
                 Text(item, "pluginId"), Text(item, "name"),
                 $"{Text(item, "marketplaceName")} · {Text(item, "version")}",
                 null, null, Flag(item, "installed"), Flag(item, "enabled"),
@@ -50,9 +53,19 @@ internal static class CodexExtensionCatalog
         var errors = new List<string>();
         foreach (var entry in data.EnumerateArray())
         {
-            if (entry.TryGetProperty("errors", out var failures))
+            if (entry.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException("Каталог скиллов Codex содержит некорректную запись.");
+            if (entry.TryGetProperty("errors", out var failures) && failures.ValueKind != JsonValueKind.Null)
+            {
+                if (failures.ValueKind != JsonValueKind.Array
+                    || failures.EnumerateArray().Any(error => error.ValueKind != JsonValueKind.Object))
+                    throw new InvalidDataException("Codex вернул некорректный список ошибок скиллов.");
                 errors.AddRange(failures.EnumerateArray().Select(error => $"{Text(error, "path")}: {Text(error, "message")}"));
+            }
             if (!entry.TryGetProperty("skills", out var items)) continue;
+            if (items.ValueKind != JsonValueKind.Array
+                || items.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.Object))
+                throw new InvalidDataException("Codex вернул некорректный список скиллов.");
             foreach (var item in items.EnumerateArray())
             {
                 var path = Text(item, "path");
