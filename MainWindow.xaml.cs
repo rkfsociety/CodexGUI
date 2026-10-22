@@ -1248,7 +1248,21 @@ public partial class MainWindow : Window
         }
         else
         {
-            foreach (var message in _currentThread.Messages) stack.Children.Add(CreateMessage(message));
+            for (var index = 0; index < _currentThread.Messages.Count;)
+            {
+                var message = _currentThread.Messages[index];
+                if (message.ActivityTitle is null)
+                {
+                    stack.Children.Add(CreateMessage(message));
+                    index++;
+                    continue;
+                }
+
+                var activities = new List<ChatMessage>();
+                while (index < _currentThread.Messages.Count && _currentThread.Messages[index].ActivityTitle is not null)
+                    activities.Add(_currentThread.Messages[index++]);
+                stack.Children.Add(CreateActivityGroup(activities));
+            }
         }
         if (scroll is not null)
             Dispatcher.BeginInvoke(() =>
@@ -1294,54 +1308,7 @@ public partial class MainWindow : Window
 
     private FrameworkElement CreateMessage(ChatMessage message)
     {
-        if (message.ActivityTitle is { } activityTitle)
-        {
-            var details = new TextBox
-            {
-                Text = message.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
-                Background = Brushes.Transparent, Foreground = Brush("#AFB5C0"),
-                BorderThickness = new Thickness(0), FontFamily = new FontFamily("Consolas"),
-                FontSize = 12, Margin = new Thickness(0, 8, 0, 0),
-                MaxHeight = 260, VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            };
-            var expander = new Expander
-            {
-                Header = activityTitle, Content = details, IsExpanded = message.IsExpanded,
-                Foreground = Brush(message.IsError ? "#F09999" : "#9FAFC7"), FontSize = 12
-            };
-            expander.Expanded += (_, _) => message.IsExpanded = true;
-            expander.Collapsed += (_, _) => message.IsExpanded = false;
-            var activityContent = new StackPanel();
-            activityContent.Children.Add(expander);
-            var subagents = message.Subagents.Count > 0
-                ? message.Subagents
-                : message.RelatedThreadId is { Length: > 0 } legacyId
-                    ? [new CodexSubagentInfo(legacyId, "spawn_agent", null, "running", null)]
-                    : [];
-            foreach (var subagent in subagents)
-            {
-                var openSubagent = new Button
-                {
-                    Content = subagents.Count > 1 ? $"Открыть · {SubagentStatusName(subagent.Status)}" : "Открыть субагента",
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    Padding = new Thickness(9, 5, 9, 5),
-                    Margin = new Thickness(0, 7, 0, 0),
-                    Background = Brush("#263344"),
-                    Foreground = Brush("#C8D4E2"),
-                    FontSize = 10
-                };
-                openSubagent.ToolTip = $"{SubagentStatusName(subagent.Status)} · {subagent.ThreadId}";
-                openSubagent.Click += async (_, _) => await OpenSubagentThreadAsync(subagent.ThreadId);
-                activityContent.Children.Add(openSubagent);
-            }
-            return new Border
-            {
-                Background = Brush("#182733"), BorderBrush = Brush(message.IsError ? "#8E5357" : "#304657"),
-                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(13, 11, 13, 11), MaxWidth = 760,
-                Margin = new Thickness(5, 4, 5, 11), Child = activityContent
-            };
-        }
+        if (message.ActivityTitle is not null) return CreateActivityGroup([message]);
         var outer = new StackPanel
         {
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
@@ -1373,6 +1340,99 @@ public partial class MainWindow : Window
             Padding = new Thickness(19, 16, 19, 16), Child = text
         });
         return outer;
+    }
+
+    private FrameworkElement CreateActivityGroup(IReadOnlyList<ChatMessage> activities)
+    {
+        var errorCount = activities.Count(message => message.IsError);
+        var header = $"Работа Codex · {activities.Count}" + (errorCount > 0 ? $" · ошибок: {errorCount}" : "");
+        var entries = new StackPanel();
+        foreach (var message in activities)
+        {
+            var entry = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            entry.Children.Add(new TextBlock
+            {
+                Text = message.ActivityTitle,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brush(message.IsError ? "#F09999" : "#9FAFC7"),
+                TextWrapping = TextWrapping.Wrap
+            });
+            if (!string.IsNullOrWhiteSpace(message.Text))
+            {
+                entry.Children.Add(new TextBox
+                {
+                    Text = message.Text,
+                    IsReadOnly = true,
+                    TextWrapping = TextWrapping.Wrap,
+                    Background = Brushes.Transparent,
+                    Foreground = Brush("#AFB5C0"),
+                    BorderThickness = new Thickness(0),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 11,
+                    Margin = new Thickness(0, 5, 0, 0),
+                    MaxHeight = 180,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                });
+            }
+
+            var subagents = message.Subagents.Count > 0
+                ? message.Subagents
+                : message.RelatedThreadId is { Length: > 0 } legacyId
+                    ? [new CodexSubagentInfo(legacyId, "spawn_agent", null, "running", null)]
+                    : [];
+            foreach (var subagent in subagents)
+            {
+                var openSubagent = new Button
+                {
+                    Content = subagents.Count > 1 ? $"Открыть · {SubagentStatusName(subagent.Status)}" : "Открыть субагента",
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(9, 5, 9, 5),
+                    Margin = new Thickness(0, 6, 0, 0),
+                    Background = Brush("#263344"),
+                    Foreground = Brush("#C8D4E2"),
+                    FontSize = 10
+                };
+                openSubagent.ToolTip = $"{SubagentStatusName(subagent.Status)} · {subagent.ThreadId}";
+                openSubagent.Click += async (_, _) => await OpenSubagentThreadAsync(subagent.ThreadId);
+                entry.Children.Add(openSubagent);
+            }
+            entries.Children.Add(entry);
+        }
+
+        var expander = new Expander
+        {
+            Header = header,
+            Content = new ScrollViewer
+            {
+                Content = entries,
+                MaxHeight = 460,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            },
+            IsExpanded = activities.Any(message => message.IsExpanded),
+            Foreground = Brush(errorCount > 0 ? "#F09999" : "#9FAFC7"),
+            FontSize = 12
+        };
+        expander.Expanded += (_, _) =>
+        {
+            foreach (var message in activities) message.IsExpanded = true;
+        };
+        expander.Collapsed += (_, _) =>
+        {
+            foreach (var message in activities) message.IsExpanded = false;
+        };
+        return new Border
+        {
+            Background = Brush("#182733"),
+            BorderBrush = Brush(errorCount > 0 ? "#8E5357" : "#304657"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(13, 9, 13, 9),
+            MaxWidth = 760,
+            Margin = new Thickness(5, 4, 5, 8),
+            Child = expander
+        };
     }
 
     private static void UpsertTimelineItem(List<ChatMessage> messages, ChatMessage anchor,
