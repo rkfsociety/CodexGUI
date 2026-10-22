@@ -456,16 +456,9 @@ internal static class GitRepositoryInspector
 
     private static string GetField(string record, int fieldIndex)
     {
-        var start = 0;
-        for (var field = 0; field < fieldIndex; field++)
-        {
-            var separator = record.IndexOf(' ', start);
-            if (separator < 0) return "";
-            start = separator + 1;
-        }
-
-        var end = record.IndexOf(' ', start);
-        return end < 0 ? record[start..] : record[start..end];
+        var value = GetFieldAfter(record, fieldIndex);
+        var end = value.IndexOf(' ');
+        return end < 0 ? value : value[..end];
     }
 
     private static string GetFieldAfter(string record, int fieldIndex)

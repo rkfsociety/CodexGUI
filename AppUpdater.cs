@@ -96,6 +96,7 @@ internal static class AppUpdater
         {
             try { Directory.Delete(tempDirectory, recursive: true); }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             throw;
         }
     }
