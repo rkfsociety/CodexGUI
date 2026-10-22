@@ -23,6 +23,7 @@ internal sealed class ExtensionsWindow : Window
     private readonly CheckBox _installedOnly = new() { Content = "Только установленные", IsChecked = true, Margin = new Thickness(0, 4, 0, 10) };
     private readonly TextBlock _details = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Color("#A7B5C0"), Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Button _addMarketplace = new() { Content = "Добавить маркетплейс", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _upgradeMarketplaces = new() { Content = "Обновить каталоги", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _refresh = new() { Content = "Обновить", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _install = new() { Content = "Установить", Margin = new Thickness(0, 0, 8, 0) };
@@ -53,6 +54,9 @@ internal sealed class ExtensionsWindow : Window
         DockPanel.SetDock(_upgradeMarketplaces, Dock.Right);
         _upgradeMarketplaces.ToolTip = "Обновить все настроенные Git-маркетплейсы через Codex App Server";
         header.Children.Add(_upgradeMarketplaces);
+        DockPanel.SetDock(_addMarketplace, Dock.Right);
+        _addMarketplace.ToolTip = "Добавить источник плагинов в общий профиль Codex";
+        header.Children.Add(_addMarketplace);
         header.Children.Add(new TextBlock { Text = "Плагины и скиллы", FontSize = 21, FontWeight = FontWeights.SemiBold });
         Add(layout, header, 0);
         Add(layout, _search, 1);
@@ -76,6 +80,7 @@ internal sealed class ExtensionsWindow : Window
         _plugins.SelectionChanged += (_, _) => UpdateSelection();
         _skills.SelectionChanged += (_, _) => UpdateSelection();
         _refresh.Click += async (_, _) => await ReloadAsync();
+        _addMarketplace.Click += async (_, _) => await AddMarketplaceAsync();
         _upgradeMarketplaces.Click += async (_, _) => await UpgradeMarketplacesAsync();
         _install.Click += async (_, _) => await ChangeAsync(install: true);
         _toggle.Click += async (_, _) => await ChangeAsync(install: false);
@@ -143,6 +148,8 @@ internal sealed class ExtensionsWindow : Window
     private void UpdateSelection()
     {
         _installedOnly.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
+        _addMarketplace.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
+        _upgradeMarketplaces.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
         var item = Selected;
         _details.Text = item is null ? "Ничего не найдено." :
             $"{item.Name}\n{(item.Installed ? item.Enabled ? "Включён" : "Выключен" : "Не установлен")}\n{item.Description}"
@@ -203,6 +210,39 @@ internal sealed class ExtensionsWindow : Window
         finally { SetBusy(false); }
     }
 
+    private async Task AddMarketplaceAsync()
+    {
+        if (_busy) return;
+        var editor = new CodexMarketplaceAddWindow { Owner = this };
+        if (editor.ShowDialog() != true || editor.Result is not { } request) return;
+
+        SetBusy(true);
+        _status.Text = "Добавление маркетплейса…";
+        try
+        {
+            var response = await _client.AddMarketplaceAsync(request.Source, request.RefName, request.SparsePaths);
+            var notice = FormatMarketplaceAddResult(response);
+            await ReloadAsync(notice, keepBusy: true);
+        }
+        catch (Exception error)
+        {
+            _status.Text = "Не удалось добавить маркетплейс: " + error.Message;
+        }
+        finally { SetBusy(false); }
+    }
+
+    private static string FormatMarketplaceAddResult(JsonElement response)
+    {
+        if (!response.TryGetProperty("marketplaceName", out var name) || name.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("Codex App Server вернул некорректное имя маркетплейса.");
+        if (!response.TryGetProperty("alreadyAdded", out var alreadyAdded)
+            || alreadyAdded.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidDataException("Codex App Server вернул некорректный статус маркетплейса.");
+        return alreadyAdded.GetBoolean()
+            ? $"Маркетплейс «{name.GetString()}» уже добавлен."
+            : $"Маркетплейс «{name.GetString()}» добавлен.";
+    }
+
     private static string FormatMarketplaceUpgradeResult(JsonElement response)
     {
         var selectedCount = ReadArrayLength(response, "selectedMarketplaces");
@@ -240,6 +280,7 @@ internal sealed class ExtensionsWindow : Window
     {
         _busy = busy;
         _refresh.IsEnabled = !busy;
+        _addMarketplace.IsEnabled = !busy;
         _upgradeMarketplaces.IsEnabled = !busy;
         _tabs.IsEnabled = !busy;
         UpdateSelection();

@@ -59,6 +59,17 @@ internal sealed class CodexAppServerClient(string executablePath)
     public Task<JsonElement> UpgradeMarketplacesAsync() =>
         SendRequestAsync("marketplace/upgrade", new { });
 
+    public Task<JsonElement> AddMarketplaceAsync(string source, string? refName, IReadOnlyList<string> sparsePaths)
+    {
+        if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Не указан источник маркетплейса.", nameof(source));
+        var parameters = new Dictionary<string, object> { ["source"] = source.Trim() };
+        if (!string.IsNullOrWhiteSpace(refName)) parameters["refName"] = refName.Trim();
+        var paths = sparsePaths.Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim()).Distinct(StringComparer.Ordinal).ToArray();
+        if (paths.Length > 0) parameters["sparsePaths"] = paths;
+        return SendRequestAsync("marketplace/add", parameters);
+    }
+
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>
