@@ -86,6 +86,7 @@ public partial class MainWindow : Window
     private readonly List<CodexAutomationDefinition> _automationDefinitions = [];
     private readonly List<CodexAutomationRun> _automationRuns = [];
     private CodexAutomationsWindow? _automationWindow;
+    private CodexActivityWindow? _activityWindow;
     private CodexTerminalWindow? _terminalWindow;
     private bool _isProcessingAutomationTick;
     private bool _isPumpingPromptQueue;
@@ -534,6 +535,7 @@ public partial class MainWindow : Window
         Click("SearchButton", (_, _) => ShowSearch());
         Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
+        Click("ActivityButton", (_, _) => ShowActivityWindow());
         Click("ContextButton", (_, _) => ToggleContext());
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
         Click("ChatDiffButton", (_, _) => ToggleContext(true));
@@ -660,6 +662,7 @@ public partial class MainWindow : Window
 
     private void RenderThreads()
     {
+        UpdateActivityView();
         if (Control<StackPanel>("ChatList") is not { } list) return;
         list.Children.Clear();
         var projectThreads = _threads.Where(thread =>
@@ -680,6 +683,7 @@ public partial class MainWindow : Window
         void AddThreadButton(ChatThread thread)
         {
             var isActive = thread.ActiveRun is not null;
+            var isWaiting = thread.WaitingForInput;
             var hasUnreadResponse = thread.HasUnreadResponse;
             var button = new Button
             {
@@ -693,7 +697,7 @@ public partial class MainWindow : Window
                             Width = 6,
                             Height = 6,
                             Margin = new Thickness(0, 0, 8, 0),
-                            Fill = Brush(isActive ? "#D7B66E" : hasUnreadResponse ? "#92E5C7" : "#00000000"),
+                            Fill = Brush(isWaiting ? "#E6BC70" : isActive || hasUnreadResponse ? "#92E5C7" : "#00000000"),
                             VerticalAlignment = VerticalAlignment.Center
                         },
                         new TextBlock
@@ -713,11 +717,14 @@ public partial class MainWindow : Window
                 BorderThickness = new Thickness(1),
                 Foreground = Brush(thread == _currentThread ? "#F1FBF7" : "#A5B5C3"),
                 FontSize = 12,
-                ToolTip = isActive ? "Выполняется… " + thread.Title
+                ToolTip = isWaiting ? "Ожидает вашего ответа · " + thread.Title
+                    : isActive ? "Выполняется… " + thread.Title
                     : hasUnreadResponse ? "Новый ответ · " + thread.Title
                     : thread.Title
             };
-            AutomationProperties.SetName(button, isActive
+            AutomationProperties.SetName(button, isWaiting
+                ? $"{thread.Title}, ожидает вашего ответа"
+                : isActive
                 ? $"{thread.Title}, выполняется"
                 : hasUnreadResponse ? $"{thread.Title}, новый ответ" : thread.Title);
             button.Click += (_, _) => SelectThread(thread);
@@ -747,6 +754,79 @@ public partial class MainWindow : Window
             if (pinned.Length > 0) AddSectionHeader("НЕДАВНИЕ");
             foreach (var thread in recent) AddThreadButton(thread);
         }
+    }
+
+    private IReadOnlyList<CodexActivityItem> BuildActivityItems()
+    {
+        return _threads
+            .Where(thread => thread.WaitingForInput || thread.ActiveRun is not null || thread.HasUnreadResponse)
+            .Select(thread =>
+            {
+                var waiting = thread.WaitingForInput;
+                var active = thread.ActiveRun is not null;
+                var status = waiting ? "Ждёт ответа" : active ? "Выполняется" : "Новый ответ";
+                var description = waiting
+                    ? "Нужно ответить на запрос Codex"
+                    : active ? "Codex выполняет задачу" : "Ответ завершённого чата не прочитан";
+                var accent = waiting ? "#E6BC70" : active ? "#92E5C7" : "#92E5C7";
+                var projectName = _projects.FirstOrDefault(project => project.Id == thread.ProjectId)?.Name
+                    ?? Path.GetFileName(thread.ProjectPath.TrimEnd(Path.DirectorySeparatorChar));
+                return (Item: new CodexActivityItem(thread.Id, thread.Title, projectName, status, description, accent), Priority: waiting ? 0 : active ? 1 : 2);
+            })
+            .OrderBy(entry => entry.Priority)
+            .ThenBy(entry => entry.Item.Title, StringComparer.CurrentCultureIgnoreCase)
+            .Select(entry => entry.Item)
+            .ToArray();
+    }
+
+    private void UpdateActivityView()
+    {
+        var items = BuildActivityItems();
+        if (Control<Button>("ActivityButton") is { } button)
+        {
+            button.Content = items.Count == 0 ? "Активность" : $"Активность · {items.Count}";
+            button.ToolTip = items.Count switch
+            {
+                0 => "Активные чаты, запросы на подтверждение и непрочитанные ответы",
+                1 => "1 чат требует внимания",
+                >= 2 and <= 4 => $"{items.Count} чата требуют внимания",
+                _ => $"{items.Count} чатов требуют внимания"
+            };
+        }
+        _activityWindow?.UpdateItems(items);
+    }
+
+    private void ShowActivityWindow()
+    {
+        if (_activityWindow is { IsVisible: true } existing)
+        {
+            UpdateActivityView();
+            existing.Activate();
+            return;
+        }
+
+        var window = new CodexActivityWindow(OpenActivityThread) { Owner = this };
+        _activityWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_activityWindow, window)) _activityWindow = null;
+        };
+        UpdateActivityView();
+        window.Show();
+    }
+
+    private void OpenActivityThread(string threadId)
+    {
+        if (_threads.FirstOrDefault(thread => thread.Id == threadId) is not { } thread) return;
+        _showArchivedChats = thread.IsArchived;
+        SelectThread(thread);
+    }
+
+    private void SetThreadWaitingForInput(ChatThread thread, bool waiting)
+    {
+        if (thread.WaitingForInput == waiting) return;
+        thread.WaitingForInput = waiting;
+        RenderThreads();
     }
 
     private void ShowThreadContextMenu(Button target, ChatThread thread)
@@ -3651,7 +3731,10 @@ public partial class MainWindow : Window
             return;
 
         ShowFromTray();
-        var decision = ShowAppServerApprovalDialog(method, parameters);
+        string decision;
+        SetThreadWaitingForInput(thread, waiting: true);
+        try { decision = ShowAppServerApprovalDialog(method, parameters); }
+        finally { SetThreadWaitingForInput(thread, waiting: false); }
         if (thread.ActiveRun?.RunId != run.RunId || _isClosing) return;
         try
         {
@@ -3688,6 +3771,7 @@ public partial class MainWindow : Window
 
         ShowFromTray();
         string responseJson;
+        SetThreadWaitingForInput(thread, waiting: true);
         try
         {
             responseJson = CodexAppServerRequestDialog.Show(this, run.RunId + ":" + requestId, method, parameters);
@@ -3697,6 +3781,7 @@ public partial class MainWindow : Window
             SetStatus("Не удалось показать запрос Codex", error.Message, isError: true);
             responseJson = CodexAppServerRequestDialog.BuildSafeCancellationResponse(method, parameters);
         }
+        finally { SetThreadWaitingForInput(thread, waiting: false); }
         if (thread.ActiveRun?.RunId != run.RunId || _isClosing
             || run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal)) return;
         try
@@ -5637,6 +5722,7 @@ public partial class MainWindow : Window
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
+        public bool WaitingForInput { get; set; }
         public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
