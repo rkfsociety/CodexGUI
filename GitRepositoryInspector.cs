@@ -18,6 +18,8 @@ internal sealed record GitRepositorySnapshot(
     int Ahead,
     int Behind,
     string? RemoteUrl,
+    bool HasOrigin,
+    bool HasHead,
     IReadOnlyList<RepositoryFileStatus> Changes,
     string? Error);
 
@@ -45,10 +47,11 @@ internal static class GitRepositoryInspector
             if (status.ExitCode != 0)
                 return EmptySnapshot(root, status.Error.Trim());
 
-            var (branch, upstream, ahead, behind, changes) = ParseStatus(status.Output);
+            var (branch, upstream, ahead, behind, changes, hasHead) = ParseStatus(status.Output);
             var remoteResult = await remoteTask;
             var remoteUrl = remoteResult.ExitCode == 0 ? SanitizeRemoteUrl(remoteResult.Output.Trim()) : null;
-            return new GitRepositorySnapshot(true, root, branch, upstream, ahead, behind, remoteUrl, changes, null);
+            return new GitRepositorySnapshot(true, root, branch, upstream, ahead, behind, remoteUrl,
+                remoteResult.ExitCode == 0, hasHead, changes, null);
         }
         catch (OperationCanceledException)
         {
@@ -82,6 +85,76 @@ internal static class GitRepositoryInspector
         return result.Output.Length <= maximumDiffCharacters
             ? result.Output
             : result.Output[..maximumDiffCharacters] + "\n\n… Diff сокращён: вывод превышает 500 000 символов.";
+    }
+
+    public static Task StageFileAsync(string repositoryRoot, string relativePath, CancellationToken cancellationToken) =>
+        RunGitMutationAsync(repositoryRoot, cancellationToken, "add", "--", ValidateRepositoryRelativePath(repositoryRoot, relativePath));
+
+    public static async Task UnstageFileAsync(string repositoryRoot, string relativePath, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var path = ValidateRepositoryRelativePath(root, relativePath);
+        var hasHead = await HasHeadAsync(root, cancellationToken);
+        var result = hasHead
+            ? await RunGitAsync(root, cancellationToken, "restore", "--staged", "--", path)
+            : await RunGitAsync(root, cancellationToken, "rm", "--cached", "--force", "--ignore-unmatch", "--", path);
+        EnsureGitCommandSucceeded(result, "Не удалось убрать файл из индекса.");
+    }
+
+    public static Task RestoreFileFromHeadAsync(string repositoryRoot, string relativePath, CancellationToken cancellationToken) =>
+        RunGitMutationAsync(repositoryRoot, cancellationToken, "restore", "--source=HEAD", "--staged", "--worktree", "--",
+            ValidateRepositoryRelativePath(repositoryRoot, relativePath));
+
+    public static Task StageAllAsync(string repositoryRoot, CancellationToken cancellationToken) =>
+        RunGitMutationAsync(repositoryRoot, cancellationToken, "add", "--all", "--", ".");
+
+    public static async Task UnstageAllAsync(string repositoryRoot, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var hasHead = await HasHeadAsync(root, cancellationToken);
+        var result = hasHead
+            ? await RunGitAsync(root, cancellationToken, "restore", "--staged", "--", ".")
+            : await RunGitAsync(root, cancellationToken, "rm", "--cached", "-r", "--force", "--ignore-unmatch", "--", ".");
+        EnsureGitCommandSucceeded(result, "Не удалось убрать изменения из индекса.");
+    }
+
+    public static async Task<string> CommitStagedAsync(string repositoryRoot, string message, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            throw new ArgumentException("Укажите сообщение коммита.", nameof(message));
+
+        var root = Path.GetFullPath(repositoryRoot);
+        var result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(2), "commit", "-m", message.Trim());
+        EnsureGitCommandSucceeded(result, "Не удалось создать коммит.");
+        return result.Output.Trim();
+    }
+
+    public static async Task PushCurrentBranchAsync(string repositoryRoot, bool setUpstream, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        GitCommandResult result;
+        if (setUpstream)
+            result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(5),
+                "push", "--set-upstream", "origin", "HEAD");
+        else
+        {
+            var branchResult = await RunGitAsync(root, cancellationToken, "symbolic-ref", "--quiet", "--short", "HEAD");
+            var branch = branchResult.Output.Trim();
+            if (branchResult.ExitCode != 0 || branch.Length == 0)
+                throw new InvalidOperationException("Нельзя отправить detached HEAD: переключитесь на ветку.");
+
+            var remoteResult = await RunGitAsync(root, cancellationToken, "config", "--get", $"branch.{branch}.remote");
+            var mergeResult = await RunGitAsync(root, cancellationToken, "config", "--get", $"branch.{branch}.merge");
+            var remote = remoteResult.Output.Trim();
+            var mergeRef = mergeResult.Output.Trim();
+            if (remoteResult.ExitCode != 0 || remote.Length == 0
+                || mergeResult.ExitCode != 0 || !mergeRef.StartsWith("refs/heads/", StringComparison.Ordinal))
+                throw new InvalidDataException("Не удалось определить upstream текущей ветки.");
+
+            result = await RunGitAsync(root, cancellationToken, TimeSpan.FromMinutes(5),
+                "push", remote, $"HEAD:{mergeRef}");
+        }
+        EnsureGitCommandSucceeded(result, "Не удалось отправить ветку в удалённый репозиторий.");
     }
 
     public static async Task<string> CreateDetachedWorktreeAsync(string repositoryPath, string worktreePath,
@@ -140,13 +213,51 @@ internal static class GitRepositoryInspector
     }
 
     private static GitRepositorySnapshot EmptySnapshot(string path, string error) =>
-        new(false, path, "", null, 0, 0, null, [], error);
+        new(false, path, "", null, 0, 0, null, false, false, [], error);
+
+    private static string ValidateRepositoryRelativePath(string repositoryRoot, string relativePath)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+            throw new InvalidDataException("Git-путь должен быть относительным путём внутри репозитория.");
+
+        var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+        var rootPrefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Git-путь выходит за пределы репозитория.");
+        var gitPath = Path.GetRelativePath(root, fullPath).Replace(Path.DirectorySeparatorChar, '/');
+        return $":(literal){gitPath}";
+    }
+
+    private static async Task RunGitMutationAsync(string repositoryRoot, CancellationToken cancellationToken, params string[] arguments)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var result = await RunGitAsync(root, cancellationToken, arguments);
+        EnsureGitCommandSucceeded(result, "Не удалось выполнить Git-действие.");
+    }
+
+    private static void EnsureGitCommandSucceeded(GitCommandResult result, string fallbackMessage)
+    {
+        if (result.ExitCode == 0) return;
+        var detail = string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim();
+        throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail) ? fallbackMessage : detail);
+    }
+
+    private static async Task<bool> HasHeadAsync(string repositoryRoot, CancellationToken cancellationToken)
+    {
+        var result = await RunGitAsync(repositoryRoot, cancellationToken, "rev-parse", "--verify", "HEAD");
+        return result.ExitCode == 0;
+    }
 
     private static bool PathsEqual(string left, string right) =>
         string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)), StringComparison.OrdinalIgnoreCase);
 
-    private static async Task<GitCommandResult> RunGitAsync(string directory, CancellationToken cancellationToken, params string[] arguments)
+    private static Task<GitCommandResult> RunGitAsync(string directory, CancellationToken cancellationToken, params string[] arguments) =>
+        RunGitAsync(directory, cancellationToken, TimeSpan.FromSeconds(10), arguments);
+
+    private static async Task<GitCommandResult> RunGitAsync(string directory, CancellationToken cancellationToken,
+        TimeSpan timeout, params string[] arguments)
     {
         var startInfo = new ProcessStartInfo("git")
         {
@@ -168,13 +279,13 @@ internal static class GitRepositoryInspector
         var errorTask = process.StandardError.ReadToEndAsync();
         try
         {
-            await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cancellationToken).WaitAsync(timeout);
         }
         catch (TimeoutException)
         {
             if (!process.HasExited) process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync();
-            throw new TimeoutException("Git не ответил за 10 секунд.");
+            throw new TimeoutException($"Git не ответил за {timeout.TotalSeconds:0} секунд.");
         }
         catch (OperationCanceledException)
         {
@@ -186,12 +297,14 @@ internal static class GitRepositoryInspector
         return new GitCommandResult(process.ExitCode, await outputTask, await errorTask);
     }
 
-    private static (string Branch, string? Upstream, int Ahead, int Behind, IReadOnlyList<RepositoryFileStatus> Changes) ParseStatus(string output)
+    private static (string Branch, string? Upstream, int Ahead, int Behind,
+        IReadOnlyList<RepositoryFileStatus> Changes, bool HasHead) ParseStatus(string output)
     {
         var branch = "(detached)";
         string? upstream = null;
         var ahead = 0;
         var behind = 0;
+        var hasHead = true;
         var changes = new List<RepositoryFileStatus>();
 
         var records = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -201,6 +314,11 @@ internal static class GitRepositoryInspector
             if (record.StartsWith("# branch.head ", StringComparison.Ordinal))
             {
                 branch = record[14..];
+                continue;
+            }
+            if (record.StartsWith("# branch.oid ", StringComparison.Ordinal))
+            {
+                hasHead = !record.EndsWith("(initial)", StringComparison.Ordinal);
                 continue;
             }
             if (record.StartsWith("# branch.upstream ", StringComparison.Ordinal))
@@ -235,7 +353,7 @@ internal static class GitRepositoryInspector
             if (type == '2' && index + 1 < records.Length) index++;
         }
 
-        return (branch, upstream, ahead, behind, changes);
+        return (branch, upstream, ahead, behind, changes, hasHead);
     }
 
     private static string GetField(string record, int fieldIndex)

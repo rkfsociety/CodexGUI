@@ -61,6 +61,7 @@ public partial class MainWindow : Window
     private bool _isRefreshingRepository;
     private bool _repositoryRefreshPending;
     private bool _isReviewingChanges;
+    private bool _isGitCommandRunning;
     private string _updateProgressText = "Проверка обновлений…";
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
@@ -454,6 +455,16 @@ public partial class MainWindow : Window
         });
         Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
         Click("ReviewChangesButton", async (_, _) => await ReviewUncommittedChangesAsync());
+        Click("StageAllChangesButton", async (_, _) => await RunRepositoryGitCommandAsync(
+            "Добавляю изменения в индекс…", "Изменения добавлены в индекс Git.",
+            (root, token) => GitRepositoryInspector.StageAllAsync(root, token)));
+        Click("UnstageAllChangesButton", async (_, _) => await RunRepositoryGitCommandAsync(
+            "Снимаю изменения с индекса…", "Изменения убраны из индекса; файлы сохранены.",
+            (root, token) => GitRepositoryInspector.UnstageAllAsync(root, token)));
+        Click("CommitStagedButton", async (_, _) => await CommitStagedChangesAsync());
+        Click("PushBranchButton", async (_, _) => await PushCurrentBranchAsync());
+        if (Control<TextBox>("CommitMessageInput") is { } commitMessageInput)
+            commitMessageInput.TextChanged += (_, _) => UpdateGitActionButtons();
         Click("OpenFolderButton", (_, _) => OpenProjectFolder());
         Click("ProjectButton", (_, _) => ChooseProjectFolder());
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
@@ -1448,6 +1459,7 @@ public partial class MainWindow : Window
         {
             branch.Text = snapshot.Error ?? "Git-репозиторий не найден";
             summary.Text = "Нет данных о состоянии репозитория";
+            UpdateGitActionButtons();
             return;
         }
 
@@ -1468,6 +1480,7 @@ public partial class MainWindow : Window
         AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root);
         AddRepositoryFileGroup(changesPanel, "НЕ ОТСЛЕЖИВАЮТСЯ", untracked, snapshot.Root);
         reviewButton.Visibility = snapshot.Changes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateGitActionButtons();
         UpdateReviewChangesButton();
         if (snapshot.Changes.Count == 0)
             changesPanel.Children.Add(new TextBlock { Text = "Рабочее дерево чистое", FontSize = 10, Foreground = Brush("#777980"), Margin = new Thickness(0, 5, 0, 2) });
@@ -1475,15 +1488,110 @@ public partial class MainWindow : Window
 
     private void UpdateReviewChangesButton()
     {
+        UpdateGitActionButtons();
         if (Control<Button>("ReviewChangesButton") is not { } button) return;
-        button.IsEnabled = !_isReviewingChanges && !HasActiveRuns && _repositorySnapshot is { IsRepository: true, Changes.Count: > 0 };
+        button.IsEnabled = !_isReviewingChanges && !_isGitCommandRunning && !HasActiveRuns
+            && _repositorySnapshot is { IsRepository: true, Changes.Count: > 0 };
         button.Content = _isReviewingChanges ? "Codex проверяет…" : "Проверить изменения";
+    }
+
+    private void UpdateGitActionButtons()
+    {
+        var snapshot = _repositorySnapshot;
+        var isRepository = snapshot is { IsRepository: true };
+        var stagedCount = snapshot?.Changes.Count(file => !file.IsUntracked && file.IndexStatus != '.') ?? 0;
+        var unstagedCount = snapshot?.Changes.Count(file => file.IsUntracked || file.WorktreeStatus != '.') ?? 0;
+        var canMutate = isRepository && !_isGitCommandRunning && !_isReviewingChanges && !HasActiveRuns;
+
+        if (Control<Button>("StageAllChangesButton") is { } stageAll)
+        {
+            stageAll.Visibility = unstagedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            stageAll.IsEnabled = canMutate;
+        }
+        if (Control<Button>("UnstageAllChangesButton") is { } unstageAll)
+        {
+            unstageAll.Visibility = stagedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            unstageAll.IsEnabled = canMutate;
+        }
+        if (Control<StackPanel>("RepositoryCommitPanel") is { } commitPanel)
+            commitPanel.Visibility = stagedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (Control<Button>("PushBranchButton") is { } push)
+        {
+            var publishNewBranch = isRepository && snapshot!.HasHead && snapshot.HasOrigin
+                && snapshot.Upstream is null && snapshot.Branch != "(detached)";
+            var pushAhead = isRepository && snapshot!.HasHead && snapshot.Upstream is not null && snapshot.Ahead > 0;
+            push.Visibility = publishNewBranch || pushAhead ? Visibility.Visible : Visibility.Collapsed;
+            push.Content = publishNewBranch ? "Опубликовать ветку" : $"Отправить ↑{snapshot?.Ahead ?? 0}";
+            push.IsEnabled = canMutate;
+            push.ToolTip = publishNewBranch
+                ? "Опубликовать текущую ветку в origin и настроить upstream"
+                : "Отправить текущую ветку в настроенный upstream без force-push";
+        }
+        if (Control<TextBox>("CommitMessageInput") is { } message)
+            message.IsEnabled = canMutate && stagedCount > 0;
+        if (Control<Button>("CommitStagedButton") is { } commit)
+            commit.IsEnabled = canMutate && stagedCount > 0
+                && !string.IsNullOrWhiteSpace(Control<TextBox>("CommitMessageInput")?.Text);
+    }
+
+    private async Task<bool> RunRepositoryGitCommandAsync(string progress, string success,
+        Func<string, CancellationToken, Task> command)
+    {
+        if (_isGitCommandRunning || _isReviewingChanges || HasActiveRuns
+            || _repositorySnapshot is not { IsRepository: true } snapshot)
+            return false;
+
+        _isGitCommandRunning = true;
+        UpdateGitActionButtons();
+        UpdateReviewChangesButton();
+        SetStatus(progress, snapshot.Root);
+        try
+        {
+            await command(snapshot.Root, _repositoryRefreshCancellation.Token);
+            if (_isClosing) return false;
+            await RefreshRepositoryInfoAsync();
+            SetStatus(success, snapshot.Root);
+            return true;
+        }
+        catch (OperationCanceledException) when (_isClosing) { return false; }
+        catch (Exception error)
+        {
+            if (!_isClosing) SetStatus("Git-действие не выполнено", error.Message, isError: true);
+            return false;
+        }
+        finally
+        {
+            _isGitCommandRunning = false;
+            UpdateGitActionButtons();
+            UpdateReviewChangesButton();
+        }
+    }
+
+    private async Task CommitStagedChangesAsync()
+    {
+        var input = Control<TextBox>("CommitMessageInput");
+        var message = input?.Text.Trim();
+        if (string.IsNullOrWhiteSpace(message)) return;
+        var committed = await RunRepositoryGitCommandAsync("Создаю коммит…", "Коммит создан.",
+            async (root, token) => { _ = await GitRepositoryInspector.CommitStagedAsync(root, message, token); });
+        if (committed && input is not null) input.Clear();
+    }
+
+    private async Task PushCurrentBranchAsync()
+    {
+        if (_repositorySnapshot is not { IsRepository: true } snapshot) return;
+        var publishNewBranch = snapshot.Upstream is null;
+        var success = publishNewBranch ? "Ветка опубликована в origin." : "Ветка отправлена в настроенный upstream.";
+        await RunRepositoryGitCommandAsync(publishNewBranch ? "Публикую ветку…" : "Отправляю ветку…", success,
+            (root, token) => GitRepositoryInspector.PushCurrentBranchAsync(root, publishNewBranch, token));
     }
 
     private async Task ReviewUncommittedChangesAsync()
     {
-        if (_isReviewingChanges || HasActiveRuns || _repositorySnapshot is not { IsRepository: true, Changes.Count: > 0 } snapshot) return;
+        if (_isReviewingChanges || _isGitCommandRunning || HasActiveRuns
+            || _repositorySnapshot is not { IsRepository: true, Changes.Count: > 0 } snapshot) return;
         _isReviewingChanges = true;
+        UpdateGitActionButtons();
         UpdateReviewChangesButton();
         SetStatus("Проверяю изменения…", $"Codex анализирует незакоммиченные изменения в {snapshot.Root}.");
         try
@@ -1501,6 +1609,7 @@ public partial class MainWindow : Window
         finally
         {
             _isReviewingChanges = false;
+            UpdateGitActionButtons();
             UpdateReviewChangesButton();
         }
     }
@@ -1695,9 +1804,47 @@ public partial class MainWindow : Window
                 Padding = new Thickness(2, 2, 0, 2),
                 Background = Brushes.Transparent,
                 Foreground = Brush("#AEB0B5"),
-                ToolTip = $"Показать diff файла {file.Path}"
+                ToolTip = $"Левый клик — diff; правый клик — Git-действия для {file.Path}"
             };
             button.Click += async (_, _) => await ShowRepositoryFileDiffAsync(repositoryRoot, file);
+            var contextMenu = new ContextMenu();
+            if (file.IsUntracked || file.WorktreeStatus != '.')
+            {
+                var stage = new MenuItem { Header = "Добавить изменения в индекс" };
+                stage.Click += async (_, _) => await RunRepositoryGitCommandAsync(
+                    "Добавляю файл в индекс…", $"Изменения файла «{file.Path}» добавлены в индекс.",
+                    (root, token) => GitRepositoryInspector.StageFileAsync(root, file.Path, token));
+                contextMenu.Items.Add(stage);
+            }
+            if (!file.IsUntracked && file.IndexStatus != '.')
+            {
+                var unstage = new MenuItem { Header = "Убрать из индекса" };
+                unstage.Click += async (_, _) => await RunRepositoryGitCommandAsync(
+                    "Убираю файл из индекса…", $"Файл «{file.Path}» убран из индекса; изменения сохранены.",
+                    (root, token) => GitRepositoryInspector.UnstageFileAsync(root, file.Path, token));
+                contextMenu.Items.Add(unstage);
+            }
+            if (!file.IsUntracked)
+            {
+                if (contextMenu.Items.Count > 0) contextMenu.Items.Add(new Separator());
+                var restore = new MenuItem { Header = "Отменить все изменения файла…" };
+                restore.Click += async (_, _) =>
+                {
+                    var answer = MessageBox.Show(this,
+                        $"Отменить staged- и unstaged-изменения файла «{file.Path}» и восстановить версию из HEAD? Это действие удалит изменения этого файла.",
+                        "Отменить изменения файла", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (answer != MessageBoxResult.Yes) return;
+                    await RunRepositoryGitCommandAsync("Восстанавливаю файл из HEAD…", $"Файл «{file.Path}» восстановлен из HEAD.",
+                        (root, token) => GitRepositoryInspector.RestoreFileFromHeadAsync(root, file.Path, token));
+                };
+                contextMenu.Items.Add(restore);
+            }
+            contextMenu.Opened += (_, _) =>
+            {
+                var canMutate = !_isGitCommandRunning && !_isReviewingChanges && !HasActiveRuns;
+                foreach (var item in contextMenu.Items.OfType<MenuItem>()) item.IsEnabled = canMutate;
+            };
+            if (contextMenu.Items.Count > 0) button.ContextMenu = contextMenu;
             panel.Children.Add(button);
         }
 

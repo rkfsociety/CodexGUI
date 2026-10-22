@@ -2,6 +2,7 @@
 
 - `App.xaml.cs` handles startup, user installation, single-instance activation, app updates, App Server runtime setup, and first-run ChatGPT device-code login. `AppUpdater.cs` verifies downloaded release archives and signatures.
 - `MainWindow.xaml.cs` owns chat/project state, request queues, repository context, and the UI event loop. `Views/WorkspaceView.xaml` is the hot-reloaded layout.
+- `GitRepositoryInspector.cs` reads status/diffs and performs staged-file, commit, and branch push actions. The repository panel only offers these mutations when no Codex run is active; per-file restore prompts before replacing staged and working-tree contents from `HEAD`. In an unborn repository, unstaging uses `git rm --cached` so files stay in the working tree.
 - `DiffReviewerWindow.cs` renders syntax-colored diff paragraphs, maps selections back to old/new hunk line numbers, and groups comments with replies. Comment drafts become chat context only when the user attaches them to the composer.
 - Multi-agent activity uses App Server `collabToolCall` items. Read `receiverThreadIds` and `agentsStates` rather than assuming a single `newThreadId`; `CodexSubagentsWindow.cs` aggregates current-thread events and opens a child thread's full history.
 - `CodexTerminalWindow.cs` hosts PowerShell tabs via `CodexAppServerTerminalHost.cs`. On Windows, streaming `command/exec` is unavailable in the workspace sandbox; opening a terminal outside Full Access mode requires an explicit per-window consent prompt.

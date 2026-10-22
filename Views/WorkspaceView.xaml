@@ -190,8 +190,20 @@
           <TextBlock Text="РЕПОЗИТОРИЙ" FontSize="9" Foreground="{StaticResource TextFaint}" FontWeight="SemiBold" />
           <TextBlock x:Name="RepositoryBranch" Text="Проверяю состояние…" FontSize="10" Foreground="{StaticResource TextMain}" TextWrapping="Wrap" Margin="0,5,0,0" />
           <TextBlock x:Name="RepositorySummary" Text="" FontSize="9" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" Margin="0,3,0,0" />
-          <Button x:Name="ReviewChangesButton" Content="Проверить изменения" HorizontalAlignment="Left" Padding="7,4" Margin="0,4,0,2" Foreground="{StaticResource Accent}" Visibility="Collapsed" ToolTip="Проверить незакоммиченные изменения с помощью Codex CLI" />
+          <Button x:Name="ReviewChangesButton" Content="Проверить изменения" HorizontalAlignment="Left" Padding="7,4" Margin="0,4,0,2" Foreground="{StaticResource Accent}" Visibility="Collapsed" ToolTip="Проверить незакоммиченные изменения с помощью Codex App Server" />
           <Button x:Name="RepositoryRemoteButton" Content="Открыть origin ↗" HorizontalAlignment="Left" Padding="2,3" Foreground="{StaticResource Accent}" Visibility="Collapsed" ToolTip="Открыть удалённый репозиторий" />
+          <WrapPanel Margin="0,4,0,0">
+            <Button x:Name="StageAllChangesButton" Content="В индекс всё" Padding="7,4" Margin="0,0,5,0" Visibility="Collapsed" ToolTip="Добавить все незастейдженные изменения в индекс Git" />
+            <Button x:Name="UnstageAllChangesButton" Content="Снять индекс" Padding="7,4" Visibility="Collapsed" ToolTip="Убрать все изменения из индекса, сохранив файлы" />
+          </WrapPanel>
+          <StackPanel x:Name="RepositoryCommitPanel" Margin="0,5,0,0" Visibility="Collapsed">
+            <TextBlock Text="СООБЩЕНИЕ КОММИТА" FontSize="9" Foreground="{StaticResource TextFaint}" Margin="0,3,0,4" />
+            <DockPanel>
+              <Button x:Name="CommitStagedButton" DockPanel.Dock="Right" Content="Коммит" Padding="8,5" Margin="5,0,0,0" ToolTip="Зафиксировать только staged-изменения" />
+              <TextBox x:Name="CommitMessageInput" Height="30" Padding="7,4" Background="#1C2430" Foreground="#EEF3F8" BorderBrush="#34465A" ToolTip="Сообщение коммита" />
+            </DockPanel>
+          </StackPanel>
+          <Button x:Name="PushBranchButton" Content="Отправить ветку" HorizontalAlignment="Left" Padding="8,5" Margin="0,5,0,0" Visibility="Collapsed" ToolTip="Отправить текущую ветку в настроенный upstream без force-push" />
           <ScrollViewer MaxHeight="145" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="RepositoryChangesPanel" />
           </ScrollViewer>
