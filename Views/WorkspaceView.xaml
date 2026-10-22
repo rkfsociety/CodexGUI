@@ -99,7 +99,7 @@
     <ColumnDefinition Width="0" />
   </Grid.ColumnDefinitions>
 
-  <Border Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+  <Border x:Name="SidebarPanel" Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
     <Grid Margin="16,20,16,16">
       <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="52"/><RowDefinition Height="44"/><RowDefinition Height="40"/><RowDefinition Height="*" MaxHeight="132"/><RowDefinition Height="38"/><RowDefinition Height="3*" MinHeight="60"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="50"/></Grid.RowDefinitions>
       <DockPanel Grid.Row="0" LastChildFill="True">
@@ -131,6 +131,11 @@
       </Border>
       <Grid Grid.Row="9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ProjectButton" HorizontalContentAlignment="Left"><StackPanel Orientation="Horizontal"><Border Width="27" Height="27" CornerRadius="14" Background="#34363C" Margin="0,0,9,0"><TextBlock Text="⌘" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><StackPanel VerticalAlignment="Center"><TextBlock Text="Текущий проект" FontSize="11"/><TextBlock x:Name="ProjectPathShort" Text="Локальный проект" FontSize="10" Foreground="{StaticResource TextMuted}" Margin="0,2,0,0"/></StackPanel><TextBlock Text="···" FontSize="16" Foreground="{StaticResource TextMuted}" Margin="35,0,0,0" VerticalAlignment="Center"/></StackPanel></Button></Grid>
     </Grid>
+  </Border>
+  <Border x:Name="CollapsedSidebarRail" Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" Visibility="Collapsed">
+    <Button x:Name="ExpandSidebarButton" Width="32" Height="34" Margin="0,24,0,0" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Top" Background="#1B2935" Foreground="{StaticResource TextMuted}" ToolTip="Показать боковую панель" AutomationProperties.Name="Показать боковую панель">
+      <Path Width="8" Height="14" Stretch="Fill" Stroke="{StaticResource TextMuted}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M1,1 L6,7 L1,13" />
+    </Button>
   </Border>
 
   <Grid Grid.Column="1">

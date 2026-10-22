@@ -87,6 +87,7 @@ public partial class MainWindow : Window
     private bool _isPumpingPromptQueue;
     private bool _isEditingQueuedPrompt;
     private bool _sidebarCollapsed;
+    private bool _sidebarAutoHideOverridden;
     private bool _contextOpen;
     private bool _showArchivedChats;
     private string _projectPath = FindProjectRoot();
@@ -521,6 +522,7 @@ public partial class MainWindow : Window
         Click("NewChatButton", (_, _) => NewChat());
         Click("SearchButton", (_, _) => ShowSearch());
         Click("CollapseButton", (_, _) => ToggleSidebar());
+        Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
         Click("ContextButton", (_, _) => ToggleContext());
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
         Click("ChatDiffButton", (_, _) => ToggleContext(true));
@@ -4242,8 +4244,13 @@ public partial class MainWindow : Window
     {
         if (_activeView is not { ColumnDefinitions.Count: 3 } view) return;
         // Keep the conversation usable when repository details are open in a narrow window.
-        var hideSidebar = _sidebarCollapsed || (_contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120);
-        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 0 : 250);
+        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
+        var hideSidebar = _sidebarCollapsed || autoHideSidebar;
+        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 42 : 250);
+        if (Control<Border>("SidebarPanel") is { } sidebar)
+            sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
+        if (Control<Border>("CollapsedSidebarRail") is { } rail)
+            rail.Visibility = hideSidebar ? Visibility.Visible : Visibility.Collapsed;
         if (Control<Border>("ChatOverviewCard") is { } overview)
             overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 260 : 350;
         view.ColumnDefinitions[2].Width = new GridLength(_contextOpen ? 310 : 0);
@@ -4251,7 +4258,11 @@ public partial class MainWindow : Window
 
     private void ToggleSidebar()
     {
-        _sidebarCollapsed = !_sidebarCollapsed;
+        if (_activeView is not { } view) return;
+        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
+        var isHidden = _sidebarCollapsed || autoHideSidebar;
+        _sidebarCollapsed = !isHidden;
+        _sidebarAutoHideOverridden = isHidden;
         UpdatePanelLayout();
     }
 
