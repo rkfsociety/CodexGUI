@@ -4370,13 +4370,14 @@ public partial class MainWindow : Window
             }
 
             var lines = new List<string>();
+            var pendingBytes = CollectionsMarshal.AsSpan(tail.PendingBytes);
             var lineStart = 0;
-            for (var index = 0; index < tail.PendingBytes.Count; index++)
+            for (var index = 0; index < pendingBytes.Length; index++)
             {
-                if (tail.PendingBytes[index] != (byte)'\n') continue;
+                if (pendingBytes[index] != (byte)'\n') continue;
                 var length = index - lineStart;
-                if (length > 0 && tail.PendingBytes[index - 1] == (byte)'\r') length--;
-                lines.Add(Encoding.UTF8.GetString(tail.PendingBytes.GetRange(lineStart, length).ToArray()));
+                if (length > 0 && pendingBytes[index - 1] == (byte)'\r') length--;
+                lines.Add(Encoding.UTF8.GetString(pendingBytes.Slice(lineStart, length)));
                 lineStart = index + 1;
             }
             if (lineStart > 0) tail.PendingBytes.RemoveRange(0, lineStart);
