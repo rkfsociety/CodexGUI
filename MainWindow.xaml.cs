@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly List<ProjectEntry> _projects = [];
     private readonly List<ProjectEntry> _removedProjects = [];
     private readonly List<QueuedPrompt> _promptQueue = [];
+    private readonly List<CodexActionDefinition> _actions = [];
     private readonly List<string> _composerAttachments = [];
     private readonly Dictionary<string, CodexThreadGoal?> _threadGoalCache = new(StringComparer.Ordinal);
     private IReadOnlyList<ModelOption> _availableModels = [];
@@ -578,6 +579,7 @@ public partial class MainWindow : Window
         Click("AgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("ThreadGoalButton", async (_, _) => await ShowThreadGoalAsync());
+        Click("ActionsButton", (_, _) => ShowActionsWindow());
         Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
 
         if (Control<TextBox>("PromptInput") is { } prompt)
@@ -1450,11 +1452,11 @@ public partial class MainWindow : Window
         var outer = new StackPanel
         {
             HorizontalAlignment = message.IsUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            MaxWidth = 880,
-            Margin = new Thickness(0, 12, 0, 14)
+            MaxWidth = message.IsUser ? 760 : 900,
+            Margin = new Thickness(0, 14, 0, 18)
         };
         if (!message.IsUser)
-            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(3, 0, 0, 9) });
+            outer.Children.Add(new TextBlock { Text = "✳   CODEX", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), Margin = new Thickness(4, 0, 0, 7) });
 
         var text = new TextBlock
         {
@@ -1468,15 +1470,30 @@ public partial class MainWindow : Window
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
-            var bubble = new Border { Background = Brush("#1C3A32"), BorderBrush = Brush("#3D6B5A"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(18, 14, 18, 14), Child = text };
+            var bubble = new Border { Background = Brush("#1A332E"), BorderBrush = Brush("#35594F"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18, 18, 6, 18), Padding = new Thickness(19, 15, 19, 15), Child = text };
             outer.Children.Add(bubble);
         }
-        else outer.Children.Add(new Border
+        else
         {
-            Background = Brush("#16212B"), BorderBrush = Brush("#2A3946"),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(20, 18, 20, 18), Child = text
-        });
+            var response = new Grid();
+            response.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2) });
+            response.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            response.Children.Add(new Border
+            {
+                Background = Brush("#42695E"),
+                CornerRadius = new CornerRadius(2),
+                Margin = new Thickness(0, 3, 14, 3)
+            });
+            var body = new Border
+            {
+                Background = Brush("#121B23"), BorderBrush = Brush("#263541"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5, 16, 16, 16),
+                Padding = new Thickness(19, 16, 20, 17), Child = text
+            };
+            Grid.SetColumn(body, 1);
+            response.Children.Add(body);
+            outer.Children.Add(response);
+        }
         return outer;
     }
 
@@ -4904,10 +4921,11 @@ public partial class MainWindow : Window
             {
                 var state = JsonSerializer.Deserialize<StoredState>(File.ReadAllText(statePath))
                     ?? throw new InvalidDataException("Файл состояния пуст.");
-                if (state.Projects is null || state.RemovedProjects is null || state.Threads is null
+                if (state.Projects is null || state.RemovedProjects is null || state.Threads is null || state.Actions is null
                     || state.QueuedPrompts is null || state.Projects.Any(project => project is null)
                     || state.RemovedProjects.Any(project => project is null)
                     || state.Threads.Any(thread => thread is null)
+                    || state.Actions.Any(action => action is null)
                     || state.QueuedPrompts.Any(prompt => prompt is null))
                     throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
                 if (state is not null)
@@ -4917,6 +4935,11 @@ public partial class MainWindow : Window
                         !string.IsNullOrWhiteSpace(project.Id) &&
                         !string.IsNullOrWhiteSpace(project.Path) &&
                         !_projects.Any(active => active.Id == project.Id)));
+                    _actions.AddRange(state.Actions
+                        .Where(action => !string.IsNullOrWhiteSpace(action.Id)
+                            && !string.IsNullOrWhiteSpace(action.Name)
+                            && !string.IsNullOrWhiteSpace(action.Prompt))
+                        .DistinctBy(action => action.Id, StringComparer.Ordinal));
                     foreach (var stored in state.Threads)
                     {
                         if (string.IsNullOrWhiteSpace(stored.Id) || string.IsNullOrWhiteSpace(stored.ProjectPath)) continue;
@@ -4991,6 +5014,7 @@ public partial class MainWindow : Window
                 Projects = _projects,
                 RemovedProjects = _removedProjects,
                 QueuedPrompts = _promptQueue,
+                Actions = _actions,
                 Threads = _threads.Select(thread => new StoredThread
                 {
                     Id = thread.Id,
@@ -5041,6 +5065,24 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true || Control<TextBox>("PromptInput") is not { } input) return;
         AddComposerAttachments([dialog.FileName]);
         input.Focus();
+    }
+
+    private void ShowActionsWindow()
+    {
+        var window = new CodexActionsWindow(_actions, SaveState, InsertActionPrompt) { Owner = this };
+        window.ShowDialog();
+    }
+
+    private void InsertActionPrompt(string prompt)
+    {
+        if (Control<TextBox>("PromptInput") is not { } input) return;
+        var current = input.Text == PromptPlaceholder ? "" : input.Text;
+        input.Text = string.IsNullOrWhiteSpace(current)
+            ? prompt
+            : current.TrimEnd() + Environment.NewLine + Environment.NewLine + prompt;
+        input.Foreground = Brush("#ECF2F5");
+        input.Focus();
+        input.CaretIndex = input.Text.Length;
     }
 
     private async Task ShowAutomationsAsync()
@@ -5832,6 +5874,7 @@ public partial class MainWindow : Window
         public List<ProjectEntry> Projects { get; set; } = [];
         public List<ProjectEntry> RemovedProjects { get; set; } = [];
         public List<QueuedPrompt> QueuedPrompts { get; set; } = [];
+        public List<CodexActionDefinition> Actions { get; set; } = [];
         public List<StoredThread> Threads { get; set; } = [];
     }
 

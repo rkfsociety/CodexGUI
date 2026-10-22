@@ -3,9 +3,9 @@
 Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
-Loads App.xaml resources and renders either Views/WorkspaceView.xaml with local preview messages
-or the built-in Activity window in a standalone STA PowerShell process. It never starts CodexGUI
-or the App Server.
+Loads App.xaml resources and renders Views/WorkspaceView.xaml, the built-in Activity window, or
+the saved Actions window with local preview data in a standalone STA PowerShell process. It never
+starts CodexGUI or the App Server.
 
 .EXAMPLE
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1
@@ -16,10 +16,14 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -OutputPath .\pr
 .EXAMPLE
 dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Activity -OutputPath .\preview\activity.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Actions -OutputPath .\preview\actions.png
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Activity')]
+    [ValidateSet('Workspace', 'Activity', 'Actions')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -40,8 +44,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -eq 'Workspace') { 1440 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -eq 'Workspace') { 1000 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -eq 'Workspace') { 1440 } elseif ($View -eq 'Actions') { 760 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -eq 'Workspace') { 1000 } elseif ($View -eq 'Actions') { 560 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -71,16 +75,16 @@ $application.Resources.MergedDictionaries.Add([System.Windows.Markup.XamlReader]
 function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     $row = [System.Windows.Controls.StackPanel]::new()
     $row.HorizontalAlignment = if ($IsUser) { [System.Windows.HorizontalAlignment]::Right } else { [System.Windows.HorizontalAlignment]::Left }
-    $row.MaxWidth = 880
-    $row.Margin = [System.Windows.Thickness]::new(0, 12, 0, 14)
+    $row.MaxWidth = if ($IsUser) { 760 } else { 900 }
+    $row.Margin = [System.Windows.Thickness]::new(0, 14, 0, 18)
 
     if (-not $IsUser) {
         $label = [System.Windows.Controls.TextBlock]::new()
         $label.Text = '✳   CODEX'
-        $label.FontSize = 12
+        $label.FontSize = 11
         $label.FontWeight = [System.Windows.FontWeights]::SemiBold
         $label.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#92E5C7')
-        $label.Margin = [System.Windows.Thickness]::new(3, 0, 0, 9)
+        $label.Margin = [System.Windows.Thickness]::new(4, 0, 0, 7)
         [void]$row.Children.Add($label)
     }
 
@@ -92,13 +96,35 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     $body.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#EAF4F0' } else { '#ECF2F5' }))
 
     $bubble = [System.Windows.Controls.Border]::new()
-    $bubble.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#1C3A32' } else { '#16212B' }))
-    $bubble.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#3D6B5A' } else { '#2A3946' }))
+    $bubble.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#1A332E' } else { '#121B23' }))
+    $bubble.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#35594F' } else { '#263541' }))
     $bubble.BorderThickness = [System.Windows.Thickness]::new(1)
-    $bubble.CornerRadius = [System.Windows.CornerRadius]::new(17)
-    $bubble.Padding = if ($IsUser) { [System.Windows.Thickness]::new(18, 14, 18, 14) } else { [System.Windows.Thickness]::new(20, 18, 20, 18) }
-    $bubble.Child = $body
-    [void]$row.Children.Add($bubble)
+    if ($IsUser) {
+        $bubble.CornerRadius = [System.Windows.CornerRadius]::new(18, 18, 6, 18)
+        $bubble.Padding = [System.Windows.Thickness]::new(19, 15, 19, 15)
+        $bubble.Child = $body
+        [void]$row.Children.Add($bubble)
+    }
+    else {
+        $response = [System.Windows.Controls.Grid]::new()
+        [void]$response.ColumnDefinitions.Add([System.Windows.Controls.ColumnDefinition]::new())
+        $response.ColumnDefinitions[0].Width = [System.Windows.GridLength]::new(2)
+        $bodyColumn = [System.Windows.Controls.ColumnDefinition]::new()
+        $bodyColumn.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+        [void]$response.ColumnDefinitions.Add($bodyColumn)
+        $accent = [System.Windows.Controls.Border]::new()
+        $accent.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#42695E')
+        $accent.CornerRadius = [System.Windows.CornerRadius]::new(2)
+        $accent.Margin = [System.Windows.Thickness]::new(0, 3, 14, 3)
+        [void]$response.Children.Add($accent)
+        $bubble.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#121B23')
+        $bubble.CornerRadius = [System.Windows.CornerRadius]::new(5, 16, 16, 16)
+        $bubble.Padding = [System.Windows.Thickness]::new(19, 16, 20, 17)
+        $bubble.Child = $body
+        [System.Windows.Controls.Grid]::SetColumn($bubble, 1)
+        [void]$response.Children.Add($bubble)
+        [void]$row.Children.Add($response)
+    }
     return $row
 }
 
@@ -120,7 +146,7 @@ if ($View -eq 'Workspace') {
     [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text 'Я посмотрю на структуру проекта и интерфейс. Сначала соберу картину, затем предложу точечные улучшения с понятным результатом.'))
     $visual = $workspace
 }
-else {
+elseif ($View -eq 'Activity') {
     $assemblyCandidates = @(
         (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
         (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
@@ -158,6 +184,51 @@ else {
     $windowContent = $window.Content
     if ($null -eq $windowContent) {
         throw "The Activity window has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
+}
+else {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the Actions window.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $windowType = $assembly.GetType('CodexGUI.CodexActionsWindow', $true)
+    $itemType = $assembly.GetType('CodexGUI.CodexActionDefinition', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $itemListType = [System.Collections.Generic.List``1].MakeGenericType($itemType)
+    $items = [Activator]::CreateInstance($itemListType)
+    foreach ($previewAction in @(
+        @('Проверить изменения', 'Изучи текущие изменения, найди ошибки и предложи точечные исправления. Проверь diff и релевантные сценарии.'),
+        @('Объяснить файл', 'Объясни назначение файла, его основные части и связи с остальным проектом.')
+    )) {
+        $item = [Activator]::CreateInstance($itemType)
+        $itemType.GetProperty('Name').SetValue($item, $previewAction[0])
+        $itemType.GetProperty('Prompt').SetValue($item, $previewAction[1])
+        $itemListType.GetMethod('Add').Invoke($items, [object[]]@($item)) | Out-Null
+    }
+    $save = [Func[bool]]{ $true }
+    $insert = [System.Action[string]]{ param([string]$prompt) }
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 3 } | Select-Object -First 1
+    if ($null -eq $constructor) {
+        throw 'The Actions window preview constructor was not found in the built assembly.'
+    }
+    $window = $constructor.Invoke([object[]]@($items, $save, $insert))
+    $window.Width = $Width
+    $window.Height = $Height
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The Actions window has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
     }
     $window.Content = $null
     $visual = [System.Windows.Controls.Grid]::new()
