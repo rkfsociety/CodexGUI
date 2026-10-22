@@ -5939,8 +5939,12 @@ public partial class MainWindow : Window
             IsEnabled = false,
             IsDefault = true
         };
+        var searchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        searchDebounce.Tick += (_, _) => UpdateMatches();
+
         void UpdateMatches()
         {
+            searchDebounce.Stop();
             var normalizedQuery = query.Text.Trim();
             var matchingThreads = FindChatSearchMatches(_threads, normalizedQuery);
             var titleMatches = matchingThreads.Select(thread =>
@@ -5967,6 +5971,16 @@ public partial class MainWindow : Window
                     : searchCurrentMessages.IsChecked == true
                         ? $"Найдено совпадений: чаты — {titleMatches.Length}, сообщения — {messageMatches.Count}."
                         : $"Найдено совпадений: {titleMatches.Length}. Последние чаты сверху.";
+            matches.IsEnabled = true;
+        }
+
+        void ScheduleMatches()
+        {
+            searchDebounce.Stop();
+            matches.IsEnabled = false;
+            open.IsEnabled = false;
+            status.Text = "Поиск…";
+            searchDebounce.Start();
         }
 
         void UpdateOpenButton()
@@ -5976,7 +5990,7 @@ public partial class MainWindow : Window
             open.Content = selectedMatch?.Message is null ? "Открыть чат" : "Перейти к сообщению";
         }
 
-        query.TextChanged += (_, _) => UpdateMatches();
+        query.TextChanged += (_, _) => ScheduleMatches();
         searchCurrentMessages.Checked += (_, _) => UpdateMatches();
         searchCurrentMessages.Unchecked += (_, _) => UpdateMatches();
         matches.SelectionChanged += (_, _) => UpdateOpenButton();
@@ -5999,6 +6013,7 @@ public partial class MainWindow : Window
         layout.Children.Add(open);
         dialog.Content = layout;
         dialog.Loaded += (_, _) => query.Focus();
+        dialog.Closed += (_, _) => searchDebounce.Stop();
         UpdateMatches();
         dialog.ShowDialog();
     }
