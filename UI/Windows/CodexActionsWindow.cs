@@ -35,8 +35,9 @@ internal sealed class CodexActionsWindow : Window
     private readonly Button _editButton = new() { Content = "Изменить", IsEnabled = false };
     private readonly Button _deleteButton = new() { Content = "Удалить", IsEnabled = false };
     private readonly Button _insertButton = new() { Content = "Вставить в черновик", IsEnabled = false };
-    private readonly Button _addLocalButton = MakeButton("＋  Личное действие");
-    private readonly Button _addProjectButton = MakeButton("＋  Действие проекта");
+    private readonly Button _copyButton = MakeButton("Копировать");
+    private readonly Button _addLocalButton = MakeButton("＋  Личное");
+    private readonly Button _addProjectButton = MakeButton("＋  Проект");
     private readonly TextBlock _empty = new()
     {
         Text = "Пока нет сохранённых личных или проектных действий.",
@@ -89,7 +90,7 @@ internal sealed class CodexActionsWindow : Window
         });
         var note = new TextBlock
         {
-            Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавьте этот файл в Git, чтобы передать шаблоны коллегам. Выбор только вставляет текст в черновик.",
+            Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавьте этот файл в Git, чтобы передать шаблоны коллегам. Копирование создаёт действие в другой библиотеке, сохраняя оригинал; выбор вставляет текст в черновик.",
             FontSize = 11,
             Foreground = Brush("#A7B5C0"),
             TextWrapping = TextWrapping.Wrap,
@@ -123,12 +124,16 @@ internal sealed class CodexActionsWindow : Window
         _editButton.Margin = new Thickness(8, 0, 0, 0);
         _editButton.Click += (_, _) => EditSelected();
         buttons.Children.Add(_editButton);
+        _copyButton.Margin = new Thickness(8, 0, 0, 0);
+        _copyButton.Click += (_, _) => CopySelected();
+        buttons.Children.Add(_copyButton);
         _addProjectButton.IsEnabled = _projectActionsAvailable;
         _addProjectButton.ToolTip = _projectActionsAvailable
             ? "Сохранить действие в .codex/codexgui-actions.json выбранного проекта"
             : "Папка выбранного проекта недоступна";
         _addProjectButton.Click += (_, _) => AddAction(isProject: true);
         buttons.Children.Add(_addProjectButton);
+        _addLocalButton.ToolTip = "Сохранить действие в личной библиотеке CodexGUI";
         _addLocalButton.Click += (_, _) => AddAction(isProject: false);
         buttons.Children.Add(_addLocalButton);
         Grid.SetRow(buttons, 3);
@@ -198,7 +203,7 @@ internal sealed class CodexActionsWindow : Window
     {
         var editor = new CodexActionEditorWindow(null) { Owner = this };
         if (editor.ShowDialog() != true || editor.Result is not { } result) return;
-        if (NameExists(result.Name, null)) return;
+        if (NameExists(result.Name, isProject, null)) return;
         var action = new CodexActionDefinition { Name = result.Name, Prompt = result.Prompt };
         var actions = isProject ? _projectActions : _actions;
         actions.Add(action);
@@ -216,7 +221,7 @@ internal sealed class CodexActionsWindow : Window
         var action = entry.Action;
         var editor = new CodexActionEditorWindow(action) { Owner = this };
         if (editor.ShowDialog() != true || editor.Result is not { } result) return;
-        if (NameExists(result.Name, action)) return;
+        if (NameExists(result.Name, entry.IsProject, action)) return;
         var oldName = action.Name;
         var oldPrompt = action.Prompt;
         action.Name = result.Name;
@@ -247,12 +252,31 @@ internal sealed class CodexActionsWindow : Window
         RefreshList();
     }
 
-    private bool NameExists(string name, CodexActionDefinition? exceptAction)
+    private void CopySelected()
     {
-        if (!GetActionEntries().Any(entry => !ReferenceEquals(entry.Action, exceptAction)
-            && string.Equals(entry.Action.Name, name, StringComparison.OrdinalIgnoreCase)))
+        if (SelectedEntry() is not { } entry) return;
+        var targetIsProject = !entry.IsProject;
+        if (targetIsProject && !_projectActionsAvailable) return;
+        if (NameExists(entry.Action.Name, targetIsProject, exceptAction: null)) return;
+
+        var targetActions = targetIsProject ? _projectActions : _actions;
+        var copy = new CodexActionDefinition { Name = entry.Action.Name, Prompt = entry.Action.Prompt };
+        targetActions.Add(copy);
+        if (!SaveActions(targetIsProject))
+        {
+            targetActions.Remove(copy);
+            return;
+        }
+        RefreshList(copy.Id, targetIsProject);
+    }
+
+    private bool NameExists(string name, bool isProject, CodexActionDefinition? exceptAction)
+    {
+        var actions = isProject ? _projectActions : _actions;
+        if (!actions.Any(action => !ReferenceEquals(action, exceptAction)
+            && string.Equals(action.Name, name, StringComparison.OrdinalIgnoreCase)))
             return false;
-        CodexMessageDialog.Show(this, "Действие с таким названием уже есть.", "Переименуйте действие",
+        CodexMessageDialog.Show(this, "Действие с таким названием уже есть в этой библиотеке.", "Переименуйте действие",
             MessageBoxButton.OK, MessageBoxImage.Information);
         return true;
     }
@@ -288,10 +312,23 @@ internal sealed class CodexActionsWindow : Window
 
     private void UpdateButtons()
     {
-        var hasSelection = SelectedEntry() is not null;
+        var selected = SelectedEntry();
+        var hasSelection = selected is not null;
         _editButton.IsEnabled = hasSelection;
         _deleteButton.IsEnabled = hasSelection;
         _insertButton.IsEnabled = hasSelection;
+        _copyButton.Content = selected is { IsProject: true }
+            ? "Копия в личные"
+            : selected is not null ? "Копия в проект" : "Копировать";
+        _copyButton.IsEnabled = selected is { IsProject: true }
+            || selected is { IsProject: false } && _projectActionsAvailable;
+        _copyButton.ToolTip = selected is null
+            ? "Выберите действие для копирования"
+            : selected.IsProject
+                ? "Создать личную копию выбранного проектного действия"
+                : _projectActionsAvailable
+                    ? "Создать копию выбранного личного действия в текущем проекте"
+                    : "Папка выбранного проекта недоступна";
     }
 
     private void ShowSaveError(bool isProject, string? detail = null)

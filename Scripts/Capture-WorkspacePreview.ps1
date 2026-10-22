@@ -358,13 +358,61 @@ elseif ($View -eq 'Actions') {
     $actionList = $windowType.GetField('_list', $flags).GetValue($window)
     for ($index = 0; $index -lt $actionList.Items.Count; $index++) {
         $actionList.SelectedIndex = $index
-        foreach ($buttonName in @('_editButton', '_deleteButton', '_insertButton')) {
+        foreach ($buttonName in @('_editButton', '_deleteButton', '_insertButton', '_copyButton')) {
             if (-not $windowType.GetField($buttonName, $flags).GetValue($window).IsEnabled) {
                 throw "Selecting action $index did not enable $buttonName."
             }
         }
     }
     $actionList.SelectedIndex = -1
+
+    $copyMethod = $windowType.GetMethod('CopySelected', $flags)
+    $testSave = [Func[bool]]{ $true }
+    $testInsert = [System.Action[string]]{ param([string]$prompt) }
+    $testLocalItems = [Activator]::CreateInstance($itemListType)
+    $testProjectItems = [Activator]::CreateInstance($itemListType)
+    $testLocalAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($testLocalAction, 'Personal smoke action')
+    $itemType.GetProperty('Prompt').SetValue($testLocalAction, 'Verify a local action can be copied to a project.')
+    $itemListType.GetMethod('Add').Invoke($testLocalItems, [object[]]@($testLocalAction)) | Out-Null
+    $testWindow = $constructor.Invoke([object[]]@($testLocalItems, $testProjectItems, $testSave, $testSave, $true, $testInsert))
+    $testList = $windowType.GetField('_list', $flags).GetValue($testWindow)
+    $testList.SelectedIndex = 0
+    $copyButton = $windowType.GetField('_copyButton', $flags).GetValue($testWindow)
+    if (-not $copyButton.IsEnabled -or $copyButton.Content -ne 'Копия в проект') {
+        throw 'A personal action did not offer copying to the project.'
+    }
+    $copyMethod.Invoke($testWindow, [object[]]@()) | Out-Null
+    if ($testLocalItems.Count -ne 1 -or
+        $testProjectItems.Count -ne 1 -or
+        $testProjectItems[0].Id -eq $testLocalAction.Id -or
+        $testProjectItems[0].Name -ne $testLocalAction.Name -or
+        $testProjectItems[0].Prompt -ne $testLocalAction.Prompt) {
+        throw 'Copying a personal action to the project did not preserve both independent entries.'
+    }
+
+    $reverseLocalItems = [Activator]::CreateInstance($itemListType)
+    $reverseProjectItems = [Activator]::CreateInstance($itemListType)
+    $testProjectAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($testProjectAction, 'Project smoke action')
+    $itemType.GetProperty('Prompt').SetValue($testProjectAction, 'Verify a project action can be copied to personal.')
+    $itemListType.GetMethod('Add').Invoke($reverseProjectItems, [object[]]@($testProjectAction)) | Out-Null
+    $reverseWindow = $constructor.Invoke([object[]]@($reverseLocalItems, $reverseProjectItems, $testSave, $testSave, $true, $testInsert))
+    $reverseList = $windowType.GetField('_list', $flags).GetValue($reverseWindow)
+    $reverseList.SelectedIndex = 0
+    $reverseCopyButton = $windowType.GetField('_copyButton', $flags).GetValue($reverseWindow)
+    if (-not $reverseCopyButton.IsEnabled -or $reverseCopyButton.Content -ne 'Копия в личные') {
+        throw 'A project action did not offer copying to the personal library.'
+    }
+    $copyMethod.Invoke($reverseWindow, [object[]]@()) | Out-Null
+    if ($reverseProjectItems.Count -ne 1 -or
+        $reverseLocalItems.Count -ne 1 -or
+        $reverseLocalItems[0].Id -eq $testProjectAction.Id -or
+        $reverseLocalItems[0].Name -ne $testProjectAction.Name -or
+        $reverseLocalItems[0].Prompt -ne $testProjectAction.Prompt) {
+        throw 'Copying a project action to the personal library did not preserve both independent entries.'
+    }
+
     $window.Width = $Width
     $window.Height = $Height
     $windowContent = $window.Content
