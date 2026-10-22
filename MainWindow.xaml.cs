@@ -707,30 +707,16 @@ public partial class MainWindow : Window
             var hasUnreadResponse = thread.HasUnreadResponse;
             var button = new Button
             {
-                Content = new StackPanel
+                Content = new Grid
                 {
-                    Orientation = Orientation.Horizontal,
-                    Children =
+                    ColumnDefinitions =
                     {
-                        new Ellipse
-                        {
-                            Width = 6,
-                            Height = 6,
-                            Margin = new Thickness(0, 0, 8, 0),
-                            Fill = Brush(isWaiting ? "#E6BC70" : isActive || hasUnreadResponse ? "#92E5C7" : "#00000000"),
-                            VerticalAlignment = VerticalAlignment.Center
-                        },
-                        new TextBlock
-                        {
-                            Text = thread.Title,
-                            TextTrimming = TextTrimming.CharacterEllipsis,
-                            MaxWidth = 180,
-                            FontWeight = hasUnreadResponse ? FontWeights.SemiBold : FontWeights.Normal
-                        }
+                        new ColumnDefinition { Width = GridLength.Auto },
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
                     }
                 },
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(12, 10, 7, 10),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(12, 10, 58, 10),
                 Margin = new Thickness(0, 2, 0, 2),
                 Background = thread == _currentThread ? Brush("#29453F") : Brushes.Transparent,
                 BorderBrush = thread == _currentThread ? Brush("#3E6C5A") : Brushes.Transparent,
@@ -742,6 +728,24 @@ public partial class MainWindow : Window
                     : hasUnreadResponse ? "Новый ответ · " + thread.Title
                     : thread.Title
             };
+            var content = (Grid)button.Content;
+            content.Children.Add(new Ellipse
+            {
+                Width = 6,
+                Height = 6,
+                Margin = new Thickness(0, 0, 8, 0),
+                Fill = Brush(isWaiting ? "#E6BC70" : isActive || hasUnreadResponse ? "#92E5C7" : "#00000000"),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var title = new TextBlock
+            {
+                Text = thread.Title,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = hasUnreadResponse ? FontWeights.SemiBold : FontWeights.Normal
+            };
+            Grid.SetColumn(title, 1);
+            content.Children.Add(title);
             AutomationProperties.SetName(button, isWaiting
                 ? $"{thread.Title}, ожидает вашего ответа"
                 : isActive
@@ -753,7 +757,35 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 ShowThreadContextMenu(button, thread);
             };
-            list.Children.Add(button);
+            var row = new Grid();
+            row.Children.Add(button);
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0)
+            };
+            var pin = CreateThreadIconButton(thread.IsPinned ? "Открепить" : "Закрепить",
+                "M12,2 L14,8 L20,9 L15,13 L16,20 L12,16 L8,20 L9,13 L4,9 L10,8 Z",
+                thread.IsPinned ? "#E6BC70" : "#A5B5C3");
+            pin.Click += (_, _) => ToggleThreadPinned(thread);
+            var archive = CreateThreadIconButton(thread.IsArchived ? "Вернуть из архива" : "Архивировать",
+                thread.IsArchived
+                    ? "M3,7 H21 V21 H3 Z M2,3 H22 V7 H2 Z M12,17 V10 M9,13 L12,10 L15,13"
+                    : "M3,7 H21 V21 H3 Z M2,3 H22 V7 H2 Z M9,11 H15",
+                "#A5B5C3");
+            archive.IsEnabled = !isActive;
+            archive.Click += async (_, _) =>
+            {
+                archive.IsEnabled = false;
+                try { await SetThreadArchivedAsync(thread, !thread.IsArchived); }
+                finally { archive.IsEnabled = thread.ActiveRun is null; }
+            };
+            actions.Children.Add(pin);
+            actions.Children.Add(archive);
+            row.Children.Add(actions);
+            list.Children.Add(row);
         }
 
         if (_showArchivedChats)
@@ -870,6 +902,44 @@ public partial class MainWindow : Window
         RenderThreads();
     }
 
+    private void ToggleThreadPinned(ChatThread thread)
+    {
+        thread.IsPinned = !thread.IsPinned;
+        if (!SaveState())
+        {
+            thread.IsPinned = !thread.IsPinned;
+            RenderThreads();
+            SetStatus("Не удалось сохранить закрепление", _startupIssue ?? "Состояние CodexGUI не сохранено.", isError: true);
+            return;
+        }
+        RenderThreads();
+        SetStatus(thread.IsPinned ? "Чат закреплён" : "Чат откреплён",
+            "Порядок закрепления хранится в CodexGUI на этом компьютере.");
+    }
+
+    private Button CreateThreadIconButton(string title, string iconData, string color)
+    {
+        var button = new Button
+        {
+            Width = 24,
+            Height = 26,
+            Padding = new Thickness(5),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            ToolTip = title,
+            Content = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse(iconData),
+                Stretch = Stretch.Uniform,
+                Stroke = Brush(color),
+                StrokeThickness = 1.5,
+                StrokeLineJoin = PenLineJoin.Round
+            }
+        };
+        AutomationProperties.SetName(button, title);
+        return button;
+    }
+
     private void ShowThreadContextMenu(Button target, ChatThread thread)
     {
         var popup = new Popup
@@ -888,17 +958,7 @@ public partial class MainWindow : Window
         pin.Click += (_, _) =>
         {
             popup.IsOpen = false;
-            thread.IsPinned = !thread.IsPinned;
-            if (!SaveState())
-            {
-                thread.IsPinned = !thread.IsPinned;
-                RenderThreads();
-                SetStatus("Не удалось сохранить закрепление", _startupIssue ?? "Состояние CodexGUI не сохранено.", isError: true);
-                return;
-            }
-            RenderThreads();
-            SetStatus(thread.IsPinned ? "Чат закреплён" : "Чат откреплён",
-                "Порядок закрепления хранится в CodexGUI на этом компьютере.");
+            ToggleThreadPinned(thread);
         };
         var archive = CreateThreadActionButton(
             thread.IsArchived ? "Вернуть из архива" : "Архивировать",
