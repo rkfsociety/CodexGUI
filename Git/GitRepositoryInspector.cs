@@ -52,7 +52,9 @@ internal static class GitRepositoryInspector
 
             var status = await statusTask;
             if (status.ExitCode != 0)
-                return EmptySnapshot(root, status.Error.Trim());
+                return EmptySnapshot(root, string.IsNullOrWhiteSpace(status.Error)
+                    ? "Не удалось прочитать Git status."
+                    : status.Error.Trim());
 
             var (branch, upstream, ahead, behind, changes, hasHead) = ParseStatus(status.Output);
             var remoteResult = await remoteTask;
@@ -64,8 +66,11 @@ internal static class GitRepositoryInspector
             if (comparisonBase is not null)
             {
                 var lineCounts = await ReadUnpushedLineCountsAsync(root, changes, comparisonBase, cancellationToken);
-                addedLines = lineCounts.Added;
-                removedLines = lineCounts.Removed;
+                if (lineCounts is { } counts)
+                {
+                    addedLines = counts.Added;
+                    removedLines = counts.Removed;
+                }
             }
             return new GitRepositorySnapshot(true, root, branch, upstream, ahead, behind, remoteUrl,
                 remoteResult.ExitCode == 0, hasHead, changes, null)
@@ -112,21 +117,20 @@ internal static class GitRepositoryInspector
 
     // Compare the complete working tree with the last common remote commit. This includes local
     // commits and staged/unstaged edits without double-counting; untracked text files are added below.
-    private static async Task<(long Added, long Removed)> ReadUnpushedLineCountsAsync(
+    private static async Task<(long Added, long Removed)?> ReadUnpushedLineCountsAsync(
         string root, IReadOnlyList<RepositoryFileStatus> changes, string comparisonBase, CancellationToken cancellationToken)
     {
         var diff = await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", comparisonBase);
         long added = 0;
         long removed = 0;
-        if (diff.ExitCode == 0)
+        if (diff.ExitCode != 0) return null;
+
+        foreach (var line in diff.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            foreach (var line in diff.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var parts = line.Split('\t', 3);
-                if (parts.Length < 3) continue; // Binary files have '-' rather than line counts.
-                if (long.TryParse(parts[0], out var insertions)) added += insertions;
-                if (long.TryParse(parts[1], out var deletions)) removed += deletions;
-            }
+            var parts = line.Split('\t', 3);
+            if (parts.Length < 3) continue; // Binary files have '-' rather than line counts.
+            if (long.TryParse(parts[0], out var insertions)) added += insertions;
+            if (long.TryParse(parts[1], out var deletions)) removed += deletions;
         }
 
         foreach (var file in changes.Where(item => item.IsUntracked))

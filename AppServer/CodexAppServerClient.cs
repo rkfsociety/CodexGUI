@@ -56,7 +56,7 @@ internal sealed class CodexAppServerClient(string executablePath)
             mergeStrategy = "replace"
         });
 
-    public async Task<JsonElement> ReadThreadAsync(string sessionId)
+    public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>
         {
@@ -91,7 +91,7 @@ internal sealed class CodexAppServerClient(string executablePath)
                 .ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
             threadFields["turns"] = JsonSerializer.SerializeToElement(turns);
             return JsonSerializer.SerializeToElement(new { thread = threadFields });
-        });
+        }, cancellationToken);
     }
 
     public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null)
@@ -111,7 +111,7 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     public Task<JsonElement> DeleteThreadAsync(string sessionId) => SendRequestAsync("thread/delete", new { threadId = sessionId });
 
-    public async Task<IReadOnlyList<ModelOption>> ReadModelCatalogAsync(string defaultEffort)
+    public async Task<IReadOnlyList<ModelOption>> ReadModelCatalogAsync(string defaultEffort, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>
         {
@@ -152,7 +152,7 @@ internal sealed class CodexAppServerClient(string executablePath)
             while (!string.IsNullOrEmpty(cursor));
 
             return models;
-        });
+        }, cancellationToken);
     }
 
     private Task<JsonElement> SendRequestAsync(string method, object parameters) =>
@@ -160,8 +160,11 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     // Keep one App Server process alive for multi-page reads instead of restarting it for every page.
     private async Task<T> RunWithSessionAsync<T>(
-        Func<Func<string, object, Task<JsonElement>>, Task<T>> operation)
+        Func<Func<string, object, Task<JsonElement>>, Task<T>> operation,
+        CancellationToken cancellationToken = default)
     {
+        using var sessionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        sessionDeadline.CancelAfter(TimeSpan.FromMinutes(10));
         var startInfo = new ProcessStartInfo(executablePath)
         {
             UseShellExecute = false,
@@ -179,20 +182,24 @@ internal sealed class CodexAppServerClient(string executablePath)
         var errorsTask = process.StandardError.ReadToEndAsync();
         try
         {
-            await process.StandardInput.WriteLineAsync(InitializeRequest);
-            _ = await ReadRpcResultAsync(process.StandardOutput, 1);
-            await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\",\"params\":{}}");
+            await WriteRpcLineAsync(process.StandardInput, InitializeRequest, sessionDeadline.Token);
+            _ = await ReadRpcResultAsync(process.StandardOutput, 1, sessionDeadline.Token);
+            await WriteRpcLineAsync(process.StandardInput, "{\"method\":\"initialized\",\"params\":{}}", sessionDeadline.Token);
 
             var nextRequestId = 1;
             async Task<JsonElement> SendAsync(string requestMethod, object requestParameters)
             {
                 var id = ++nextRequestId;
                 var request = JsonSerializer.Serialize(new { id, method = requestMethod, @params = requestParameters });
-                await process.StandardInput.WriteLineAsync(request);
-                return await ReadRpcResultAsync(process.StandardOutput, id);
+                await WriteRpcLineAsync(process.StandardInput, request, sessionDeadline.Token);
+                return await ReadRpcResultAsync(process.StandardOutput, id, sessionDeadline.Token);
             }
 
             return await operation(SendAsync);
+        }
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && sessionDeadline.IsCancellationRequested)
+        {
+            throw new TimeoutException("Операция Codex app-server не завершилась за 10 минут.", error);
         }
         finally
         {
@@ -215,10 +222,27 @@ internal sealed class CodexAppServerClient(string executablePath)
         }
     }
 
-    private static async Task<JsonElement> ReadRpcResultAsync(StreamReader reader, int requestId)
+    private static async Task WriteRpcLineAsync(StreamWriter writer, string line, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            await writer.WriteLineAsync(line.AsMemory(), timeout.Token);
+            await writer.FlushAsync(timeout.Token);
+        }
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Не удалось отправить запрос Codex app-server за 20 секунд.", error);
+        }
+    }
+
+    private static async Task<JsonElement> ReadRpcResultAsync(StreamReader reader, int requestId,
+        CancellationToken cancellationToken)
     {
         // A single deadline prevents unrelated notifications from keeping an RPC alive forever.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
         try
         {
             while (await reader.ReadLineAsync(timeout.Token) is { } line)
@@ -242,7 +266,7 @@ internal sealed class CodexAppServerClient(string executablePath)
                 throw new InvalidDataException("Codex app-server вернул пустой ответ.");
             }
         }
-        catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
         {
             throw new TimeoutException("Codex app-server не ответил на запрос за 20 секунд.", error);
         }

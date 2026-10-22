@@ -357,12 +357,7 @@ internal static class CodexAppServerTurnWorker
         await writer.FlushAsync();
     }
 
-    private static async Task WriteJsonFileAsync(string path, object value)
-    {
-        var temporaryPath = path + ".tmp";
-        await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(value), new UTF8Encoding(false));
-        File.Move(temporaryPath, path, overwrite: true);
-    }
+    private static Task WriteJsonFileAsync(string path, object value) => AtomicJsonFile.WriteAsync(path, value);
 
     private static string? ReadString(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
@@ -455,7 +450,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         {
             if (Volatile.Read(ref _readerCompleted) != 0)
                 throw new EndOfStreamException("Codex app-server уже закрыл соединение.");
-            await WriteMessageAsync(new { id, method, @params = parameters });
+            await WriteMessageAsync(new { id, method, @params = parameters }, cancellationToken);
             return timeout is { } responseTimeout
                 ? await completion.Task.WaitAsync(responseTimeout, cancellationToken)
                 : await completion.Task.WaitAsync(cancellationToken);
@@ -475,17 +470,23 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     public Task SendErrorAsync(JsonElement requestId, int code, string message) =>
         WriteMessageAsync(new { id = requestId, error = new { code, message } });
 
-    private async Task WriteMessageAsync(object message)
+    private async Task WriteMessageAsync(object message, CancellationToken cancellationToken = default)
     {
-        await _writeLock.WaitAsync();
+        using var writeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        writeTimeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            await _writer.WriteLineAsync(JsonSerializer.Serialize(message));
-            await _writer.FlushAsync();
+            await _writeLock.WaitAsync(writeTimeout.Token);
+            try
+            {
+                await _writer.WriteLineAsync(JsonSerializer.Serialize(message).AsMemory(), writeTimeout.Token);
+                await _writer.FlushAsync(writeTimeout.Token);
+            }
+            finally { _writeLock.Release(); }
         }
-        finally
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
         {
-            _writeLock.Release();
+            throw new TimeoutException("Не удалось отправить запрос Codex app-server за 10 секунд.", error);
         }
     }
 

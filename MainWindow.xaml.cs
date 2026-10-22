@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private const string PromptPlaceholder = "Спросите Codex о задаче или попросите изменить проект…";
     private const string DefaultModel = "gpt-6-luna";
     private const string DefaultEffort = "high";
+    private static readonly JsonSerializerOptions StateSerializerOptions = new() { WriteIndented = true };
     private readonly ObservableCollection<ChatThread> _threads = [];
     private readonly List<ProjectEntry> _projects = [];
     private readonly List<ProjectEntry> _removedProjects = [];
@@ -126,8 +127,11 @@ public partial class MainWindow : Window
         _usageRefreshTimer.Tick += async (_, _) => await RefreshUsageLimitsAsync();
         _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
         _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
-        _repositoryRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-        _repositoryRefreshTimer.Tick += async (_, _) => await RefreshRepositoryInfoAsync();
+        _repositoryRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _repositoryRefreshTimer.Tick += async (_, _) =>
+        {
+            if (IsVisible) await RefreshRepositoryInfoAsync();
+        };
         _automationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _automationTimer.Tick += async (_, _) => await ProcessAutomationsAsync();
         LoadState();
@@ -166,6 +170,7 @@ public partial class MainWindow : Window
             _updateCheckTimer.Stop();
             _automationTimer.Stop();
             _repositoryRefreshTimer.Stop();
+            _reloadDebounce.Stop();
             _isClosing = true;
             _updateCheckCancellation.Cancel();
             _updateCheckCancellation.Dispose();
@@ -429,6 +434,7 @@ public partial class MainWindow : Window
         if (!IsVisible) Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
+        _ = RefreshRepositoryInfoAsync();
     }
 
     private void ApplyDarkTitleBar()
@@ -4878,7 +4884,6 @@ public partial class MainWindow : Window
         {
             var path = FindProjectRoot();
             _projects.Add(new ProjectEntry { Id = Guid.NewGuid().ToString("N"), Name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), Path = path });
-            SaveState();
         }
         _selectedProject ??= _projects[0];
         _projectPath = _selectedProject.Path;
@@ -4921,10 +4926,10 @@ public partial class MainWindow : Window
                     ActiveRun = thread.ActiveRun
                 }).ToList()
             };
-            AtomicJsonFile.Write(statePath, state, new JsonSerializerOptions { WriteIndented = true });
+            AtomicJsonFile.Write(statePath, state, StateSerializerOptions);
             return true;
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
             _startupIssue = "Не удалось сохранить список проектов: " + error.Message;
             return false;

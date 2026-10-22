@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CodexGUI;
 
@@ -14,12 +16,26 @@ internal static class AtomicJsonFile
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(value, options));
             File.Move(temporaryPath, path, overwrite: true);
         }
-        finally
+        finally { TryDeleteTemporaryFile(temporaryPath); }
+    }
+
+    public static async Task WriteAsync(string path, object value, JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            try { File.Delete(temporaryPath); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(value, options), cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
         }
+        finally { TryDeleteTemporaryFile(temporaryPath); }
+    }
+
+    private static void TryDeleteTemporaryFile(string temporaryPath)
+    {
+        try { File.Delete(temporaryPath); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     public static string BackupUnreadable(string path)

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
@@ -244,14 +245,27 @@ internal static class AppUpdater
         {
             try
             {
-                return await client.GetAsync(uri, completionOption, cancellationToken);
+                var response = await client.GetAsync(uri, completionOption, cancellationToken);
+                if (attempt < 2 && response.StatusCode is HttpStatusCode.TooManyRequests
+                    or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+                {
+                    var retryAfter = response.Headers.RetryAfter?.Delta;
+                    response.Dispose();
+                    var delay = retryAfter is { } requested && requested > TimeSpan.Zero
+                        ? TimeSpan.FromSeconds(Math.Min(requested.TotalSeconds, 10))
+                        : TimeSpan.FromMilliseconds(500 * (attempt + 1));
+                    await Task.Delay(delay, cancellationToken);
+                    continue;
+                }
+
+                return response;
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
-                // GET is safe to repeat once after a transient timeout.
+                // GET is idempotent: retry once if request headers time out.
                 if (attempt == 0) continue;
-                throw new TimeoutException($"Сервер {uri.Host} не ответил вовремя после двух попыток. "
-                    + "Проверьте подключение к GitHub и повторите проверку обновлений позже.", error);
+                throw new TimeoutException($"Сервер {uri.Host} не ответил вовремя после повторной попытки. "
+                    + "Проверьте подключение к интернету и повторите операцию позже.", error);
             }
         }
     }
