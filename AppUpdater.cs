@@ -142,7 +142,7 @@ internal static class AppUpdater
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CodexGUI", CurrentVersion));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
