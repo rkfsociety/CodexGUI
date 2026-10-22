@@ -72,7 +72,7 @@
 ## Store chat goals in App Server thread state
 
 - Status: active.
-- Decision: manage a chat's persistent goal with App Server `thread/goal/get`, `thread/goal/set`, and `thread/goal/clear`; label explicit UI and slash-command mutations with `origin: "user"` and do not duplicate goal state in CodexGUI's local chat metadata.
+- Decision: manage a chat's persistent goal with App Server `thread/goal/get`, `thread/goal/set`, and `thread/goal/clear`; label explicit UI and slash-command mutations with `origin: "user"`. Before a new chat has an App Server thread ID, keep its goal as a local draft and apply it before the first `turn/start`; App Server remains canonical after synchronization.
 - Reason: the pinned protocol defines these stable methods as the same goal state exposed by Codex's `/goal` command, so other Codex clients can continue the goal.
-- Constraint: only offer goal management after the chat has a persisted App Server thread ID. Keep the local button label as an ephemeral cache and re-read canonical state when opening the editor.
+- Constraint: show and edit a pending local draft before the chat has a persisted App Server thread ID. For synchronized goals, keep the button label as an ephemeral cache and re-read canonical state when opening the editor.
 - Source: pinned `rust-v0.163.0` `ThreadGoal*` schemas and official App Server and slash-command docs; implementation is in `AppServer/CodexAppServerClient.cs`, `UI/Windows/CodexThreadGoalWindow.cs`, and `MainWindow.xaml.cs`.

@@ -25,10 +25,18 @@ internal sealed class CodexAppServerWorkerRequest
     public bool Unattended { get; set; }
     public string? ThreadId { get; set; }
     public string? ForkFromThreadId { get; set; }
+    public CodexAppServerGoalDraft? InitialGoal { get; set; }
     public string StartedPath { get; set; } = "";
     public string OutputPath { get; set; } = "";
     public string ErrorPath { get; set; } = "";
     public string CompletionPath { get; set; } = "";
+}
+
+internal sealed class CodexAppServerGoalDraft
+{
+    public string Objective { get; set; } = "";
+    public string Status { get; set; } = "active";
+    public ulong? TokenBudget { get; set; }
 }
 
 internal sealed class CodexAppServerWorkerCompletion
@@ -75,6 +83,20 @@ internal static class CodexAppServerTurnWorker
             await connection.InitializeAsync();
             completion.SessionId = await StartOrResumeThreadAsync(connection, request);
             await WriteOutputEventAsync(request.OutputPath, "thread.started", new { thread_id = completion.SessionId });
+            if (request.InitialGoal is { } initialGoal)
+            {
+                var goalResponse = await connection.SendRequestAsync("thread/goal/set", new
+                {
+                    threadId = completion.SessionId,
+                    origin = "user",
+                    objective = initialGoal.Objective,
+                    status = initialGoal.Status,
+                    tokenBudget = initialGoal.TokenBudget
+                });
+                if (!goalResponse.TryGetProperty("goal", out var savedGoal) || savedGoal.ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException("Codex app-server не вернул сохранённую цель чата.");
+                await WriteOutputEventAsync(request.OutputPath, "thread.goal.applied", new { thread_id = completion.SessionId });
+            }
             var sandboxPolicy = request.FullAccess
                 ? new Dictionary<string, object> { ["type"] = "dangerFullAccess" }
                 : new Dictionary<string, object> { ["type"] = "workspaceWrite", ["networkAccess"] = false };

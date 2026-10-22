@@ -13,6 +13,7 @@ internal sealed record CodexThreadGoal(string Objective, string Status, ulong? T
 internal sealed class CodexThreadGoalWindow : Window
 {
     private readonly CodexThreadGoal? _source;
+    private readonly bool _isPending;
     private readonly TextBox _objective = new();
     private readonly ComboBox _status = new();
     private readonly TextBox _tokenBudget = new();
@@ -23,9 +24,11 @@ internal sealed class CodexThreadGoalWindow : Window
     public string? GoalStatus { get; private set; }
     public ulong? TokenBudget { get; private set; }
 
-    public CodexThreadGoalWindow(CodexThreadGoal? existing, string? initialObjective = null, string? initialStatus = null)
+    public CodexThreadGoalWindow(CodexThreadGoal? existing, string? initialObjective = null, string? initialStatus = null,
+        bool isPending = false)
     {
         _source = existing;
+        _isPending = isPending;
         Title = "Цель чата";
         Width = 560;
         Height = 570;
@@ -69,7 +72,9 @@ internal sealed class CodexThreadGoalWindow : Window
         root.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = form });
         form.Children.Add(new TextBlock
         {
-            Text = "Цель сохраняется в истории App Server и доступна другим клиентам Codex для этого чата.",
+            Text = _isPending
+                ? "Черновик пока хранится в CodexGUI на этом компьютере. Перед ближайшим ходом он будет отправлен в App Server и станет доступен другим клиентам Codex."
+                : "Цель сохраняется в истории App Server и доступна другим клиентам Codex для этого чата.",
             Foreground = Brush("#A6B1BF"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -108,6 +113,8 @@ internal sealed class CodexThreadGoalWindow : Window
         _tokenBudget.Text = _source?.TokenBudget?.ToString(CultureInfo.InvariantCulture) ?? "";
         _usage.Text = _source is null
             ? "Цель ещё не задана."
+            : _isPending
+                ? "Черновик ещё не отправлен в App Server."
             : $"Использовано: {_source.TokensUsed:N0} токенов · время: {FormatDuration(_source.TimeUsedSeconds)}";
     }
 
@@ -148,7 +155,8 @@ internal sealed class CodexThreadGoalWindow : Window
 
     private void ClearGoal()
     {
-        var answer = CodexMessageDialog.Show(this, "Удалить сохранённую цель этого чата?", "Очистить цель",
+        var answer = CodexMessageDialog.Show(this,
+            _isPending ? "Удалить черновик цели этого чата?" : "Удалить сохранённую цель этого чата?", "Очистить цель",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.Yes) return;
         ClearRequested = true;

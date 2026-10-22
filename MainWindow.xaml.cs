@@ -2004,12 +2004,38 @@ public partial class MainWindow : Window
     private void UpdateThreadGoalButton()
     {
         if (Control<Button>("ThreadGoalButton") is not { } button) return;
-        var threadId = _currentThread?.CodexSessionId;
-        if (string.IsNullOrWhiteSpace(threadId))
+        var thread = _currentThread;
+        if (thread is null)
         {
             button.IsEnabled = false;
             SetThreadGoalButtonText(button, "Цель");
-            button.ToolTip = "Поставить цель можно после первого запроса в чате";
+            button.ToolTip = "Выберите чат, чтобы поставить цель";
+            return;
+        }
+
+        if (thread.PendingGoal is { } pendingGoal)
+        {
+            var summary = CreateThreadGoalSummary(pendingGoal.Objective);
+            button.IsEnabled = thread.ActiveRun is null;
+            SetThreadGoalButtonText(button, thread.ActiveRun is not null
+                ? "Цель · применяется…"
+                : thread.CodexSessionId is null
+                    ? $"Цель · черновик · {ThreadGoalStatusLabel(pendingGoal.Status)} · {summary}"
+                    : $"Цель · синхронизировать · {ThreadGoalStatusLabel(pendingGoal.Status)} · {summary}");
+            button.ToolTip = thread.ActiveRun is not null
+                ? $"Цель будет сохранена в App Server перед первым ходом.\n{pendingGoal.Objective}"
+                : $"Цель пока хранится в CodexGUI и будет синхронизирована перед следующим ходом.\n{pendingGoal.Objective}";
+            return;
+        }
+
+        var threadId = thread.CodexSessionId;
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            button.IsEnabled = thread.ActiveRun is null;
+            SetThreadGoalButtonText(button, thread.ActiveRun is null ? "Поставить цель" : "Цель · создаётся…");
+            button.ToolTip = thread.ActiveRun is null
+                ? "Сохранить цель в CodexGUI и отправить её в App Server перед первым запросом"
+                : "Сессия чата создаётся; цель можно поставить после этого хода";
             return;
         }
 
@@ -2089,30 +2115,64 @@ public partial class MainWindow : Window
 
     private async Task ShowThreadGoalAsync(string? initialObjective = null, string? initialStatus = null)
     {
-        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        var thread = _currentThread;
+        if (thread is null)
         {
-            CodexMessageDialog.Show(this, "Сначала отправьте первый запрос, чтобы создать сессию чата.",
+            CodexMessageDialog.Show(this, "Сначала выберите или создайте чат.",
                 "Цель чата", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (thread.ActiveRun is not null)
+        {
+            SetStatus("Цель сейчас недоступна", "Дождитесь завершения текущего хода Codex.");
             return;
         }
 
         try
         {
-            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
-            var response = await client.ReadThreadGoalAsync(threadId);
-            if (_isClosing) return;
-            var existing = ReadThreadGoal(response);
-            _threadGoalCache[threadId] = existing;
-            _threadGoalLoadFailures.Remove(threadId);
-            UpdateThreadGoalButton();
+            var threadId = thread.CodexSessionId;
+            var isPending = thread.PendingGoal is not null || string.IsNullOrWhiteSpace(threadId);
+            CodexAppServerClient? client = null;
+            CodexThreadGoal? existing;
+            if (thread.PendingGoal is { } pendingGoal)
+                existing = new CodexThreadGoal(pendingGoal.Objective, pendingGoal.Status, pendingGoal.TokenBudget, 0, 0);
+            else if (!string.IsNullOrWhiteSpace(threadId))
+            {
+                client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                var response = await client.ReadThreadGoalAsync(threadId);
+                if (_isClosing) return;
+                existing = ReadThreadGoal(response);
+                _threadGoalCache[threadId] = existing;
+                _threadGoalLoadFailures.Remove(threadId);
+                UpdateThreadGoalButton();
+            }
+            else existing = null;
 
-            var editor = new CodexThreadGoalWindow(existing, initialObjective, initialStatus) { Owner = this };
+            var editor = new CodexThreadGoalWindow(existing, initialObjective, initialStatus, isPending) { Owner = this };
             if (editor.ShowDialog() != true) return;
             if (editor.ClearRequested)
             {
+                if (string.IsNullOrWhiteSpace(threadId))
+                {
+                    var previous = thread.PendingGoal;
+                    thread.PendingGoal = null;
+                    if (!SaveState())
+                    {
+                        thread.PendingGoal = previous;
+                        SetStatus("Не удалось удалить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
+                        return;
+                    }
+                    UpdateThreadGoalButton();
+                    SetStatus("Черновик цели удалён", "Изменение сохранено в CodexGUI на этом компьютере.");
+                    return;
+                }
+
+                client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
                 var cleared = await client.ClearThreadGoalAsync(threadId);
+                thread.PendingGoal = null;
                 _threadGoalCache[threadId] = null;
                 _threadGoalLoadFailures.Remove(threadId);
+                SaveState();
                 UpdateThreadGoalButton();
                 var didClear = cleared.TryGetProperty("cleared", out var clearedValue)
                     && clearedValue.ValueKind == JsonValueKind.True;
@@ -2120,14 +2180,36 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var saved = await client.SetThreadGoalAsync(threadId,
-                editor.Objective ?? throw new InvalidDataException("Укажите цель чата."),
-                editor.GoalStatus ?? "active",
-                editor.TokenBudget);
+            var objective = editor.Objective ?? throw new InvalidDataException("Укажите цель чата.");
+            var status = editor.GoalStatus ?? "active";
+            if (string.IsNullOrWhiteSpace(threadId))
+            {
+                var previous = thread.PendingGoal;
+                thread.PendingGoal = new CodexAppServerGoalDraft
+                {
+                    Objective = objective,
+                    Status = status,
+                    TokenBudget = editor.TokenBudget
+                };
+                if (!SaveState())
+                {
+                    thread.PendingGoal = previous;
+                    SetStatus("Не удалось сохранить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
+                    return;
+                }
+                UpdateThreadGoalButton();
+                SetStatus("Черновик цели сохранён", "Цель будет отправлена в App Server перед первым ходом.");
+                return;
+            }
+
+            client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var saved = await client.SetThreadGoalAsync(threadId, objective, status, editor.TokenBudget);
             var updatedGoal = ReadThreadGoal(saved)
                 ?? throw new InvalidDataException("Codex App Server не вернул сохранённую цель.");
+            thread.PendingGoal = null;
             _threadGoalCache[threadId] = updatedGoal;
             _threadGoalLoadFailures.Remove(threadId);
+            SaveState();
             UpdateThreadGoalButton();
             SetStatus("Цель чата сохранена", ThreadGoalStatusLabel(updatedGoal.Status));
         }
@@ -2166,7 +2248,56 @@ public partial class MainWindow : Window
 
     private async Task SetThreadGoalStatusAsync(string status)
     {
-        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        var thread = _currentThread;
+        if (thread is null)
+        {
+            SetStatus("Цель недоступна", "Сначала выберите чат.");
+            return;
+        }
+        if (thread.ActiveRun is not null)
+        {
+            SetStatus("Цель сейчас недоступна", "Дождитесь завершения текущего хода Codex.");
+            return;
+        }
+        if (thread.PendingGoal is { } pendingGoal)
+        {
+            var threadIdForPending = thread.CodexSessionId;
+            if (string.IsNullOrWhiteSpace(threadIdForPending))
+            {
+                var previousStatus = pendingGoal.Status;
+                pendingGoal.Status = status;
+                if (!SaveState())
+                {
+                    pendingGoal.Status = previousStatus;
+                    SetStatus("Не удалось изменить статус цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
+                    return;
+                }
+                UpdateThreadGoalButton();
+                SetStatus("Статус черновика цели изменён", ThreadGoalStatusLabel(status));
+                return;
+            }
+            try
+            {
+                var pendingClient = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                var response = await pendingClient.SetThreadGoalAsync(threadIdForPending,
+                    pendingGoal.Objective, status, pendingGoal.TokenBudget);
+                var updated = ReadThreadGoal(response)
+                    ?? throw new InvalidDataException("Codex App Server не вернул обновлённую цель.");
+                thread.PendingGoal = null;
+                _threadGoalCache[threadIdForPending] = updated;
+                _threadGoalLoadFailures.Remove(threadIdForPending);
+                SaveState();
+                UpdateThreadGoalButton();
+                SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
+                return;
+            }
+            catch (Exception error)
+            {
+                if (!_isClosing) SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
+                return;
+            }
+        }
+        if (thread.CodexSessionId is not { Length: > 0 } threadId)
         {
             SetStatus("Цель недоступна", "Сначала отправьте первый запрос, чтобы создать сессию чата.");
             return;
@@ -2196,7 +2327,35 @@ public partial class MainWindow : Window
 
     private async Task ClearThreadGoalAsync()
     {
-        if (_currentThread?.CodexSessionId is not { Length: > 0 } threadId)
+        var thread = _currentThread;
+        if (thread is null)
+        {
+            SetStatus("Цель недоступна", "Сначала выберите чат.");
+            return;
+        }
+        if (thread.ActiveRun is not null)
+        {
+            SetStatus("Цель сейчас недоступна", "Дождитесь завершения текущего хода Codex.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(thread.CodexSessionId) && thread.PendingGoal is not null)
+        {
+            var answer = CodexMessageDialog.Show(this, "Удалить черновик цели этого чата?", "Очистить цель",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+            var pending = thread.PendingGoal;
+            thread.PendingGoal = null;
+            if (!SaveState())
+            {
+                thread.PendingGoal = pending;
+                SetStatus("Не удалось удалить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
+                return;
+            }
+            UpdateThreadGoalButton();
+            SetStatus("Черновик цели удалён", "Изменение сохранено в CodexGUI на этом компьютере.");
+            return;
+        }
+        if (thread.CodexSessionId is not { Length: > 0 } threadId)
         {
             SetStatus("Цель недоступна", "Сначала отправьте первый запрос, чтобы создать сессию чата.");
             return;
@@ -2204,8 +2363,9 @@ public partial class MainWindow : Window
         try
         {
             var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
-            var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
-            if (current is null)
+            var hasPending = thread.PendingGoal is not null;
+            var current = hasPending ? null : ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            if (current is null && !hasPending)
             {
                 _threadGoalCache[threadId] = null;
                 UpdateThreadGoalButton();
@@ -2217,10 +2377,12 @@ public partial class MainWindow : Window
             if (answer != MessageBoxResult.Yes) return;
             var result = await client.ClearThreadGoalAsync(threadId);
             var cleared = result.TryGetProperty("cleared", out var value) && value.ValueKind == JsonValueKind.True;
+            thread.PendingGoal = null;
             _threadGoalCache[threadId] = null;
             _threadGoalLoadFailures.Remove(threadId);
+            SaveState();
             UpdateThreadGoalButton();
-            SetStatus(cleared ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
+            SetStatus(cleared || hasPending ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
         }
         catch (Exception error)
         {
@@ -3537,7 +3699,8 @@ public partial class MainWindow : Window
             ErrorPath = Path.Combine(runDirectory, "stderr.txt"),
             CompletionPath = Path.Combine(runDirectory, "completed.json"),
             WorkingDirectory = thread.WorktreePath ?? thread.ProjectPath,
-            AppServerMode = true
+            AppServerMode = true,
+            InitialGoal = thread.PendingGoal
         };
     }
 
@@ -3736,14 +3899,33 @@ public partial class MainWindow : Window
                 var eventType = GetString(root, "type");
                 if (eventType == "thread.started" && GetString(root, "thread_id") is { } id)
                 {
-                    _ = Dispatcher.BeginInvoke(() =>
+                    Dispatcher.Invoke(() =>
                     {
                         thread.CodexSessionId = id;
                         thread.ForkFromSessionId = null;
                         if (thread.UseWorktree) thread.WorktreeSessionStarted = true;
                         SaveState();
                         if (_currentThread == thread) UpdateChatInfoPanel();
-                    }, DispatcherPriority.Background);
+                    });
+                }
+
+                if (eventType == "thread.goal.applied")
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (thread.ActiveRun?.RunId != activeRun.RunId || activeRun.InitialGoal is not { } appliedGoal)
+                            return;
+                        var appliedThreadId = thread.CodexSessionId;
+                        if (string.IsNullOrWhiteSpace(appliedThreadId)) return;
+                        thread.PendingGoal = null;
+                        activeRun.InitialGoal = null;
+                        _threadGoalCache[appliedThreadId] = new CodexThreadGoal(
+                            appliedGoal.Objective, appliedGoal.Status, appliedGoal.TokenBudget, 0, 0);
+                        _threadGoalLoadFailures.Remove(appliedThreadId);
+                        SaveState();
+                        if (_currentThread == thread) UpdateChatInfoPanel();
+                    });
+                    return;
                 }
 
                 if ((eventType is "approval.request" or "interactive.request") && GetString(root, "request_id") is { } requestKey &&
@@ -4306,6 +4488,7 @@ public partial class MainWindow : Window
                 FullAccess = run.FullAccess,
                 ThreadId = thread.ForkFromSessionId is null ? thread.CodexSessionId : null,
                 ForkFromThreadId = thread.ForkFromSessionId,
+                InitialGoal = run.InitialGoal,
                 StartedPath = run.StartedPath,
                 OutputPath = run.OutputPath,
                 ErrorPath = run.ErrorPath,
@@ -5213,6 +5396,7 @@ public partial class MainWindow : Window
                             WorktreeSetupComplete = stored.WorktreeSetupComplete,
                             ContextTokens = stored.ContextTokens,
                             ContextWindowTokens = stored.ContextWindowTokens,
+                            PendingGoal = stored.PendingGoal,
                             ActiveRun = stored.ActiveRun
                         });
                     }
@@ -5278,6 +5462,7 @@ public partial class MainWindow : Window
                     WorktreePath = thread.WorktreePath,
                     CodexSessionId = thread.CodexSessionId,
                     ForkFromSessionId = thread.ForkFromSessionId,
+                    PendingGoal = thread.PendingGoal,
                     IsArchived = thread.IsArchived,
                     IsPinned = thread.IsPinned,
                     HasUnreadResponse = thread.HasUnreadResponse,
@@ -6239,6 +6424,7 @@ public partial class MainWindow : Window
         public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
+        public CodexAppServerGoalDraft? PendingGoal { get; set; }
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
@@ -6276,6 +6462,7 @@ public partial class MainWindow : Window
         public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
+        public CodexAppServerGoalDraft? PendingGoal { get; set; }
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
@@ -6316,6 +6503,7 @@ public partial class MainWindow : Window
         public bool StopRequested { get; set; }
         public List<string> ResolvedApprovalRequestIds { get; set; } = [];
         public string? CompletionStatus { get; set; }
+        public CodexAppServerGoalDraft? InitialGoal { get; set; }
         public string? WorkerRuntimeDirectory { get; set; }
         public string? AppServerRuntimeDirectory { get; set; }
         public int WorkerProcessId { get; set; }
