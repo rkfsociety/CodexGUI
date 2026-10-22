@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -21,6 +23,7 @@ internal sealed class ExtensionsWindow : Window
     private readonly CheckBox _installedOnly = new() { Content = "Только установленные", IsChecked = true, Margin = new Thickness(0, 4, 0, 10) };
     private readonly TextBlock _details = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Color("#A7B5C0"), Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Button _upgradeMarketplaces = new() { Content = "Обновить каталоги", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _refresh = new() { Content = "Обновить", Margin = new Thickness(8, 0, 0, 0) };
     private readonly Button _install = new() { Content = "Установить", Margin = new Thickness(0, 0, 8, 0) };
     private readonly Button _toggle = new() { Content = "Включить", Margin = new Thickness(0, 0, 8, 0) };
@@ -47,6 +50,9 @@ internal sealed class ExtensionsWindow : Window
         var header = new DockPanel();
         DockPanel.SetDock(_refresh, Dock.Right);
         header.Children.Add(_refresh);
+        DockPanel.SetDock(_upgradeMarketplaces, Dock.Right);
+        _upgradeMarketplaces.ToolTip = "Обновить все настроенные Git-маркетплейсы через Codex App Server";
+        header.Children.Add(_upgradeMarketplaces);
         header.Children.Add(new TextBlock { Text = "Плагины и скиллы", FontSize = 21, FontWeight = FontWeights.SemiBold });
         Add(layout, header, 0);
         Add(layout, _search, 1);
@@ -70,6 +76,7 @@ internal sealed class ExtensionsWindow : Window
         _plugins.SelectionChanged += (_, _) => UpdateSelection();
         _skills.SelectionChanged += (_, _) => UpdateSelection();
         _refresh.Click += async (_, _) => await ReloadAsync();
+        _upgradeMarketplaces.Click += async (_, _) => await UpgradeMarketplacesAsync();
         _install.Click += async (_, _) => await ChangeAsync(install: true);
         _toggle.Click += async (_, _) => await ChangeAsync(install: false);
         _use.Click += (_, _) =>
@@ -86,9 +93,9 @@ internal sealed class ExtensionsWindow : Window
     private bool ShowingSkills => _tabs.SelectedIndex == 1;
     private CodexExtension? Selected => (ShowingSkills ? _skills : _plugins).SelectedItem as CodexExtension;
 
-    private async Task ReloadAsync(string? notice = null)
+    private async Task ReloadAsync(string? notice = null, bool keepBusy = false)
     {
-        SetBusy(true);
+        if (!keepBusy) SetBusy(true);
         _status.Text = "Загрузка каталогов Codex…";
         var errors = new List<string>();
         async Task LoadPlugins()
@@ -108,11 +115,13 @@ internal sealed class ExtensionsWindow : Window
         }
         await Task.WhenAll(LoadPlugins(), LoadSkills());
         Filter();
-        _status.Text = string.Join("\n", errors.Count > 0 ? errors : new[]
-        {
-            notice ?? $"Плагинов: {_pluginItems.Count}; скиллов: {_skillItems.Count}. Imagegen и Computer Use используют инструменты и runtime установленного Codex. Изменения применяются к следующим запросам; активные запуски продолжают работать с прежней конфигурацией."
-        });
-        SetBusy(false);
+        var messages = new List<string>();
+        if (!string.IsNullOrWhiteSpace(notice)) messages.Add(notice);
+        messages.AddRange(errors);
+        _status.Text = messages.Count > 0
+            ? string.Join("\n", messages)
+            : $"Плагинов: {_pluginItems.Count}; скиллов: {_skillItems.Count}. Imagegen и Computer Use используют инструменты и runtime установленного Codex. Изменения применяются к следующим запросам; активные запуски продолжают работать с прежней конфигурацией.";
+        if (!keepBusy) SetBusy(false);
     }
 
     private void Filter()
@@ -176,10 +185,62 @@ internal sealed class ExtensionsWindow : Window
         finally { SetBusy(false); }
     }
 
+    private async Task UpgradeMarketplacesAsync()
+    {
+        if (_busy) return;
+        SetBusy(true);
+        _status.Text = "Обновление Git-маркетплейсов…";
+        try
+        {
+            var response = await _client.UpgradeMarketplacesAsync();
+            var notice = FormatMarketplaceUpgradeResult(response);
+            await ReloadAsync(notice, keepBusy: true);
+        }
+        catch (Exception error)
+        {
+            _status.Text = "Не удалось обновить каталоги маркетплейсов: " + error.Message;
+        }
+        finally { SetBusy(false); }
+    }
+
+    private static string FormatMarketplaceUpgradeResult(JsonElement response)
+    {
+        var selectedCount = ReadArrayLength(response, "selectedMarketplaces");
+        var upgradedCount = ReadArrayLength(response, "upgradedRoots");
+        var errorsLength = ReadArrayLength(response, "errors");
+        if (errorsLength == 0)
+            return selectedCount == 0
+                ? "Нет настроенных Git-маркетплейсов для обновления."
+                : $"Обновление каталогов завершено. Выбрано: {selectedCount}; обновлено корней: {upgradedCount}.";
+
+        var errors = response.GetProperty("errors").EnumerateArray()
+            .Select(error => $"{ReadJsonString(error, "marketplaceName")}: {ReadJsonString(error, "message")}")
+            .ToArray();
+        var partialSummary = selectedCount == 0
+            ? "Обновление каталогов завершилось с ошибками."
+            : $"Обновление каталогов завершилось с ошибками. Выбрано: {selectedCount}; обновлено корней: {upgradedCount}.";
+        return partialSummary + Environment.NewLine + string.Join(Environment.NewLine, errors);
+    }
+
+    private static int ReadArrayLength(JsonElement value, string propertyName)
+    {
+        if (!value.TryGetProperty(propertyName, out var array) || array.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException($"Codex App Server вернул некорректное поле {propertyName} для обновления маркетплейсов.");
+        return array.GetArrayLength();
+    }
+
+    private static string ReadJsonString(JsonElement value, string propertyName)
+    {
+        if (!value.TryGetProperty(propertyName, out var text) || text.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"Codex App Server вернул некорректное поле {propertyName} в ошибке обновления маркетплейса.");
+        return text.GetString()!;
+    }
+
     private void SetBusy(bool busy)
     {
         _busy = busy;
         _refresh.IsEnabled = !busy;
+        _upgradeMarketplaces.IsEnabled = !busy;
         _tabs.IsEnabled = !busy;
         UpdateSelection();
     }

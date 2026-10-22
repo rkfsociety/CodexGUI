@@ -56,6 +56,9 @@ internal sealed class CodexAppServerClient(string executablePath)
             mergeStrategy = "replace"
         });
 
+    public Task<JsonElement> UpgradeMarketplacesAsync() =>
+        SendRequestAsync("marketplace/upgrade", new { });
+
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>
