@@ -13,6 +13,31 @@
     <SolidColorBrush x:Key="TextFaint" Color="#8494A2" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
     <SolidColorBrush x:Key="AccentSoft" Color="#204139" />
+    <Style x:Key="SidebarRailIconButton" TargetType="Button">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Margin" Value="0,3" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="10" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#26333D" /></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#33434F" /></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#203B37" /></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45" /></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="ComposerDropdownButton" TargetType="Button">
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="BorderBrush" Value="#344B5B" />
@@ -94,12 +119,13 @@
     </Style>
   </Grid.Resources>
   <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="250" />
+    <ColumnDefinition Width="42" />
+    <ColumnDefinition Width="208" />
     <ColumnDefinition Width="*" />
     <ColumnDefinition Width="0" />
   </Grid.ColumnDefinitions>
 
-  <Border x:Name="SidebarPanel" Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+  <Border x:Name="SidebarPanel" Grid.Column="1" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
     <Grid Margin="16,20,16,16">
       <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="52"/><RowDefinition Height="44"/><RowDefinition Height="40"/><RowDefinition Height="*" MaxHeight="132"/><RowDefinition Height="38"/><RowDefinition Height="3*" MinHeight="60"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="50"/></Grid.RowDefinitions>
       <DockPanel Grid.Row="0" LastChildFill="True">
@@ -112,7 +138,7 @@
       <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" Margin="0,2,0,4"><StackPanel x:Name="ProjectList" /></ScrollViewer>
       <Grid Grid.Row="5" Margin="10,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ChatSectionLabel" Text="ИСТОРИЯ ЧАТОВ" Foreground="{StaticResource TextFaint}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="ArchivedChatsButton" Grid.Column="1" Padding="5,2" Content="Архив" FontSize="10" Foreground="{StaticResource TextMuted}" ToolTip="Открыть архив чатов"/></Grid>
       <ScrollViewer Grid.Row="6" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0"><StackPanel x:Name="ChatList" /></ScrollViewer>
-      <StackPanel Grid.Row="7"><Button x:Name="ActivityButton" Content="Активность" HorizontalContentAlignment="Left" Padding="12,7" Margin="0,4,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Активные чаты, запросы на подтверждение и непрочитанные ответы"/><Button x:Name="AutomationsButton" Content="Расписания и результаты" HorizontalContentAlignment="Left" Padding="12,7" Margin="0,0,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Локальные расписания Codex и очередь результатов на проверку"/><Button x:Name="AgentsButton" Content="Субагенты текущего чата" HorizontalContentAlignment="Left" Padding="12,7" Margin="0,0,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Список вызванных субагентов, их состояние и переход к полной истории"/><Button x:Name="PluginsButton" Content="Плагины и скиллы" HorizontalContentAlignment="Left" Padding="12,7" Margin="0,0,0,0" Foreground="{StaticResource TextMuted}" ToolTip="Плагины Codex, imagegen, computer-use и все доступные скиллы"/><Button x:Name="McpServersButton" Content="MCP-серверы" HorizontalContentAlignment="Left" Padding="12,7" Margin="0,0,0,7" Foreground="{StaticResource TextMuted}" ToolTip="Состояние серверов из общего профиля Codex; проверка может запускать их процессы"/><Border Background="#1B2935" BorderBrush="#314454" BorderThickness="1" CornerRadius="10" Padding="13" Margin="0,4,0,11"><StackPanel><StackPanel Orientation="Horizontal" Margin="0,0,0,7"><Ellipse Width="7" Height="7" Fill="{StaticResource Green}" Margin="0,0,8,0"/><TextBlock x:Name="ConnectionStatus" Text="Codex готов" FontSize="11" FontWeight="SemiBold" /></StackPanel><TextBlock x:Name="ConnectionDetail" Text="Запросы выполняются в выбранной папке." FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" LineHeight="16" /></StackPanel></Border></StackPanel>
+      <StackPanel Grid.Row="7"><Border Background="#1B2935" BorderBrush="#314454" BorderThickness="1" CornerRadius="10" Padding="13" Margin="0,4,0,11"><StackPanel><StackPanel Orientation="Horizontal" Margin="0,0,0,7"><Ellipse Width="7" Height="7" Fill="{StaticResource Green}" Margin="0,0,8,0"/><TextBlock x:Name="ConnectionStatus" Text="Codex готов" FontSize="11" FontWeight="SemiBold" /></StackPanel><TextBlock x:Name="ConnectionDetail" Text="Запросы выполняются в выбранной папке." FontSize="10" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" LineHeight="16" /></StackPanel></Border></StackPanel>
       <Border x:Name="UpdateStatusPanel" Grid.Row="8" Visibility="Collapsed" Background="#1A302E" BorderBrush="#365C53" BorderThickness="1" CornerRadius="13" Padding="10,9" Margin="0,2,0,10">
         <Grid>
           <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -132,13 +158,54 @@
       <Grid Grid.Row="9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ProjectButton" HorizontalContentAlignment="Left"><StackPanel Orientation="Horizontal"><Border Width="27" Height="27" CornerRadius="14" Background="#34363C" Margin="0,0,9,0"><TextBlock Text="⌘" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><StackPanel VerticalAlignment="Center"><TextBlock Text="Текущий проект" FontSize="11"/><TextBlock x:Name="ProjectPathShort" Text="Локальный проект" FontSize="10" Foreground="{StaticResource TextMuted}" Margin="0,2,0,0"/></StackPanel><TextBlock Text="···" FontSize="16" Foreground="{StaticResource TextMuted}" Margin="35,0,0,0" VerticalAlignment="Center"/></StackPanel></Button></Grid>
     </Grid>
   </Border>
-  <Border x:Name="CollapsedSidebarRail" Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" Visibility="Collapsed">
-    <Button x:Name="ExpandSidebarButton" Width="32" Height="34" Margin="0,24,0,0" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Top" Background="#1B2935" Foreground="{StaticResource TextMuted}" ToolTip="Показать боковую панель" AutomationProperties.Name="Показать боковую панель">
-      <Path Width="8" Height="14" Stretch="Fill" Stroke="{StaticResource TextMuted}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M1,1 L6,7 L1,13" />
-    </Button>
+  <Border x:Name="SidebarIconRail" Grid.Column="0" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+    <DockPanel LastChildFill="True" Margin="4,12,4,10">
+      <StackPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center">
+        <Border Height="1" Background="{StaticResource Line}" Margin="4,5,4,8" />
+        <Button x:Name="RailContextButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Данные и Git-изменения" AutomationProperties.Name="Данные и Git-изменения">
+          <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5,2 V16 M5,6 H12 C15,6 15,9 15,11 V15 M12,12 L15,15 L18,12" />
+        </Button>
+        <Button x:Name="RailActionsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Действия" AutomationProperties.Name="Действия">
+          <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeLineJoin="Round" Data="M2,2 H8 V8 H2 Z M12,2 H18 V8 H12 Z M2,12 H8 V18 H2 Z M12,12 H18 V18 H12 Z" />
+        </Button>
+      </StackPanel>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel HorizontalAlignment="Center">
+          <Button x:Name="ExpandSidebarButton" Style="{StaticResource SidebarRailIconButton}" Margin="0,2,0,7" Background="#252B30" ToolTip="Свернуть или развернуть список чатов" AutomationProperties.Name="Свернуть или развернуть список чатов">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="#E2E8EC" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M2,8 L10,2 L18,8 M4.5,7.5 V17 H8.5 V12 H11.5 V17 H15.5 V7.5" />
+          </Button>
+          <Button x:Name="RailNewChatButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Новый чат" AutomationProperties.Name="Новый чат">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3,3 H15 C16.7,3 18,4.3 18,6 V12 C18,13.7 16.7,15 15,15 H8 L4,18 V15 H3 C1.3,15 0,13.7 0,12 V6 C0,4.3 1.3,3 3,3 Z M9,6 V12 M6,9 H12" />
+          </Button>
+          <Button x:Name="RailSearchButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Поиск чатов" AutomationProperties.Name="Поиск чатов">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.6" StrokeStartLineCap="Round" Data="M12.5,12.5 L17,17 M14,8 A6,6 0 1 1 2,8 A6,6 0 1 1 14,8 Z" />
+          </Button>
+          <Button x:Name="RailActivityButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Активность" AutomationProperties.Name="Активность">
+            <Grid Width="20" Height="20">
+              <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M10,2 A8,8 0 1 1 9.99,2 M10,5 V10 L14,12" />
+              <Border x:Name="ActivityNotificationBadge" Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="7" Background="#92E5C7" BorderBrush="{StaticResource Sidebar}" BorderThickness="1" Visibility="Collapsed">
+                <TextBlock x:Name="ActivityNotificationCount" Text="0" FontSize="8" FontWeight="Bold" Foreground="#0B1117" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+            </Grid>
+          </Button>
+          <Button x:Name="RailAutomationsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Расписания и результаты" AutomationProperties.Name="Расписания и результаты">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3,4 H17 V17 H3 Z M6,2 V6 M14,2 V6 M3,8 H17 M6,11 H9 M6,14 H9 M13,11 L15,13 L13,15" />
+          </Button>
+          <Button x:Name="RailAgentsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Субагенты текущего чата" AutomationProperties.Name="Субагенты текущего чата">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4,3 V15 M4,7 H13 V4 M4,11 H13 V15 M13,4 H17 M13,15 H17" />
+          </Button>
+          <Button x:Name="RailExtensionsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Плагины и скиллы" AutomationProperties.Name="Плагины и скиллы">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeLineJoin="Round" Data="M2,4 H5 V16 H2 Z M7,3 H11 V17 H7 Z M13,5 H16 V18 H13 Z M3,7 H4 M8,6 H10 M14,8 H15" />
+          </Button>
+          <Button x:Name="RailMcpServersButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="MCP-серверы" AutomationProperties.Name="MCP-серверы">
+            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M10,2 V7 M10,11 V16 M2,9 H7 M13,9 H18 M4,4 L7.5,7.5 M12.5,12.5 L16,16 M16,4 L12.5,7.5 M7.5,12.5 L4,16 M10,7 A2,2 0 1 1 9.99,7 M10,11 A2,2 0 1 1 9.99,11" />
+          </Button>
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
   </Border>
 
-  <Grid Grid.Column="1">
+  <Grid Grid.Column="2">
     <Grid.RowDefinitions><RowDefinition Height="86"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Border Grid.Row="0" Background="{StaticResource Canvas}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
       <Grid Margin="30,0,28,0">
@@ -262,7 +329,7 @@
       </StackPanel>
     </Grid>
   </Grid>
-  <Border x:Name="ContextPanel" Grid.Column="2" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed">
+  <Border x:Name="ContextPanel" Grid.Column="3" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed">
     <Grid Margin="15,16">
       <Grid.RowDefinitions>
         <RowDefinition Height="32" />

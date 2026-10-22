@@ -539,7 +539,15 @@ public partial class MainWindow : Window
         Click("SearchButton", (_, _) => ShowSearch());
         Click("CollapseButton", (_, _) => ToggleSidebar());
         Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
-        Click("ActivityButton", (_, _) => ShowActivityWindow());
+        Click("RailNewChatButton", (_, _) => NewChat());
+        Click("RailSearchButton", (_, _) => ShowSearch());
+        Click("RailActivityButton", (_, _) => ShowActivityWindow());
+        Click("RailAutomationsButton", async (_, _) => await ShowAutomationsAsync());
+        Click("RailAgentsButton", async (_, _) => await ShowSubagentsAsync());
+        Click("RailExtensionsButton", (_, _) => ShowExtensions(showSkills: false));
+        Click("RailMcpServersButton", (_, _) => ShowMcpServers());
+        Click("RailContextButton", (_, _) => ToggleContext());
+        Click("RailActionsButton", (_, _) => ShowActionsWindow());
         Click("ContextButton", (_, _) => ToggleContext());
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
         Click("ChatDiffButton", (_, _) => ToggleContext(true));
@@ -578,10 +586,6 @@ public partial class MainWindow : Window
         Click("WorktreeButton", async (_, _) => await ToggleWorktreeModeAsync());
         Click("AddContextButton", (_, _) => AddFileContext());
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
-        Click("PluginsButton", (_, _) => ShowExtensions(showSkills: false));
-        Click("McpServersButton", (_, _) => ShowMcpServers());
-        Click("AutomationsButton", async (_, _) => await ShowAutomationsAsync());
-        Click("AgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("ThreadGoalButton", async (_, _) => await ShowThreadGoalAsync());
         Click("ActionsButton", (_, _) => ShowActionsWindow());
@@ -818,10 +822,17 @@ public partial class MainWindow : Window
     private void UpdateActivityView()
     {
         var items = BuildActivityItems();
-        if (Control<Button>("ActivityButton") is { } button)
+        if (Control<Button>("RailActivityButton") is { } button)
         {
-            button.Content = items.Count == 0 ? "Активность" : $"Активность · {items.Count}";
-            button.ToolTip = "Активные чаты, запросы на подтверждение и непрочитанные ответы";
+            if (Control<Border>("ActivityNotificationBadge") is { } badge)
+                badge.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            if (Control<TextBlock>("ActivityNotificationCount") is { } count)
+                count.Text = items.Count > 9 ? "9+" : items.Count.ToString(CultureInfo.InvariantCulture);
+            var activityName = items.Count == 0 ? "Активность" : $"Активность: {items.Count}";
+            button.ToolTip = items.Count == 0
+                ? "Активные чаты, запросы на подтверждение и непрочитанные ответы"
+                : $"Активность: элементов {items.Count}";
+            AutomationProperties.SetName(button, activityName);
         }
         _activityWindow?.UpdateItems(items);
     }
@@ -4918,18 +4929,17 @@ public partial class MainWindow : Window
 
     private void UpdatePanelLayout()
     {
-        if (_activeView is not { ColumnDefinitions.Count: 3 } view) return;
+        if (_activeView is not { ColumnDefinitions.Count: 4 } view) return;
         // Keep the conversation usable when repository details are open in a narrow window.
         var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
         var hideSidebar = _sidebarCollapsed || autoHideSidebar;
-        view.ColumnDefinitions[0].Width = new GridLength(hideSidebar ? 42 : 250);
+        view.ColumnDefinitions[0].Width = new GridLength(42);
+        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : 208);
         if (Control<Border>("SidebarPanel") is { } sidebar)
             sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
-        if (Control<Border>("CollapsedSidebarRail") is { } rail)
-            rail.Visibility = hideSidebar ? Visibility.Visible : Visibility.Collapsed;
         if (Control<Border>("ChatOverviewCard") is { } overview)
             overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 280 : 390;
-        view.ColumnDefinitions[2].Width = new GridLength(_contextOpen ? 310 : 0);
+        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? 310 : 0);
     }
 
     private void ToggleSidebar()

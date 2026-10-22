@@ -76,3 +76,11 @@
 - Reason: the pinned protocol defines these stable methods as the same goal state exposed by Codex's `/goal` command, so other Codex clients can continue the goal.
 - Constraint: show and edit a pending local draft before the chat has a persisted App Server thread ID. For synchronized goals, keep the button label as an ephemeral cache and re-read canonical state when opening the editor.
 - Source: pinned `rust-v0.163.0` `ThreadGoal*` schemas and official App Server and slash-command docs; implementation is in `AppServer/CodexAppServerClient.cs`, `UI/Windows/CodexThreadGoalWindow.cs`, and `MainWindow.xaml.cs`.
+
+## Keep the navigation icon rail visible
+
+- Status: active.
+- Decision: keep a fixed 42-pixel icon rail at the left edge while the project and chat list panel expands or collapses beside it.
+- Reason: the user wants one-click navigation to remain available when the sidebar list is collapsed.
+- Constraint: the rail has no hide control; its buttons must reuse existing feature handlers, and responsive auto-hide may collapse only the neighboring list panel.
+- Source: `Views/WorkspaceView.xaml` and `MainWindow.UpdatePanelLayout`.
