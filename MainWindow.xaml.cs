@@ -85,6 +85,7 @@ public partial class MainWindow : Window
     private CodexTerminalWindow? _terminalWindow;
     private bool _isProcessingAutomationTick;
     private bool _isPumpingPromptQueue;
+    private bool _isEditingQueuedPrompt;
     private bool _sidebarCollapsed;
     private bool _contextOpen;
     private bool _showArchivedChats;
@@ -1545,6 +1546,24 @@ public partial class MainWindow : Window
         return attachmentText.Length == 0 ? text : text + Environment.NewLine + attachmentText;
     }
 
+    private static (string Text, string[] Attachments) SplitPromptWithAttachments(string prompt)
+    {
+        const string prefix = "Файл для контекста: ";
+        var lines = prompt.ReplaceLineEndings("\n").Split('\n').ToList();
+        var attachments = new List<string>();
+        while (lines.Count > 0)
+        {
+            var line = lines[^1].Trim();
+            if (!line.StartsWith(prefix, StringComparison.Ordinal)) break;
+            var path = line[prefix.Length..].Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(path)) break;
+            attachments.Add(path);
+            lines.RemoveAt(lines.Count - 1);
+        }
+        attachments.Reverse();
+        return (string.Join(Environment.NewLine, lines).TrimEnd(), attachments.ToArray());
+    }
+
     private void AddComposerAttachments(IEnumerable<string> paths)
     {
         var changed = false;
@@ -2523,13 +2542,20 @@ public partial class MainWindow : Window
         foreach (var queued in _promptQueue)
         {
             var threadTitle = _threads.FirstOrDefault(thread => thread.Id == queued.ThreadId)?.Title;
-            var text = queued.Text.ReplaceLineEndings(" ").Trim();
+            var (messageText, attachments) = SplitPromptWithAttachments(queued.Text);
+            var text = messageText.ReplaceLineEndings(" ").Trim();
+            if (attachments.Length > 0)
+            {
+                var attachmentSummary = string.Join(", ", attachments.Select(Path.GetFileName));
+                text = text.Length == 0 ? attachmentSummary : $"{text} · {attachmentSummary}";
+            }
             if (text.Length > 100) text = text[..97] + "…";
             if (_currentThread?.Id != queued.ThreadId && !string.IsNullOrWhiteSpace(threadTitle))
                 text = $"{threadTitle}: {text}";
 
             var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.Children.Add(new TextBlock
             {
@@ -2540,6 +2566,19 @@ public partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = queued.Text
             });
+            var edit = new Button
+            {
+                Content = "✎",
+                Width = 24,
+                Height = 22,
+                Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Foreground = Brush("#AFC5D3"),
+                ToolTip = "Редактировать сообщение"
+            };
+            edit.Click += (_, _) => EditQueuedPrompt(queued);
+            Grid.SetColumn(edit, 1);
+            row.Children.Add(edit);
             var remove = new Button
             {
                 Content = "×",
@@ -2551,7 +2590,7 @@ public partial class MainWindow : Window
                 ToolTip = "Убрать из очереди"
             };
             remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
-            Grid.SetColumn(remove, 1);
+            Grid.SetColumn(remove, 2);
             row.Children.Add(remove);
             list.Children.Add(row);
         }
@@ -2698,6 +2737,142 @@ public partial class MainWindow : Window
             : "Ответвлённый чат продолжится в отдельном Git worktree.");
     }
 
+    private void EditQueuedPrompt(QueuedPrompt queued)
+    {
+        if (_isEditingQueuedPrompt || !_promptQueue.Contains(queued)) return;
+
+        var (messageText, attachments) = SplitPromptWithAttachments(queued.Text);
+        var dialog = new Window
+        {
+            Owner = this,
+            Title = "Редактировать сообщение в очереди",
+            Width = 620,
+            Height = 520,
+            MinWidth = 460,
+            MinHeight = 330,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.CanResize,
+            Background = Brush("#18212C"),
+            Foreground = Brush("#F0F0F1")
+        };
+        var layout = new StackPanel { Margin = new Thickness(18) };
+        layout.Children.Add(new TextBlock
+        {
+            Text = "Текст сообщения",
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+        var input = new TextBox
+        {
+            Text = messageText,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Height = 250,
+            MinHeight = 180,
+            MaxHeight = 270,
+            Padding = new Thickness(10, 8, 10, 8),
+            Background = Brush("#202D39"),
+            Foreground = Brush("#EAF3F6"),
+            BorderBrush = Brush("#405869"),
+            BorderThickness = new Thickness(1),
+            FontSize = 13
+        };
+        layout.Children.Add(input);
+
+        if (attachments.Length > 0)
+        {
+            layout.Children.Add(new TextBlock
+            {
+                Text = $"Вложения сохранятся · {attachments.Length}",
+                FontSize = 10,
+                Foreground = Brush("#9FB2C3"),
+                Margin = new Thickness(0, 11, 0, 5)
+            });
+            var attachmentPanel = new WrapPanel { Orientation = Orientation.Horizontal };
+            foreach (var path in attachments)
+            {
+                attachmentPanel.Children.Add(new Border
+                {
+                    Background = Brush("#263A49"),
+                    BorderBrush = Brush("#405869"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(5),
+                    Padding = new Thickness(7, 3, 7, 3),
+                    Margin = new Thickness(0, 0, 5, 4),
+                    ToolTip = path,
+                    Child = new TextBlock
+                    {
+                        Text = Path.GetFileName(path),
+                        FontSize = 10,
+                        Foreground = Brush("#DCE7ED"),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        MaxWidth = 220
+                    }
+                });
+            }
+            layout.Children.Add(new ScrollViewer
+            {
+                Content = attachmentPanel,
+                MaxHeight = 66,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            });
+        }
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        var cancel = new Button
+        {
+            Content = "Отмена",
+            IsCancel = true,
+            MinWidth = 84,
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            Background = Brush("#26333F"),
+            Foreground = Brush("#DCE7ED")
+        };
+        var save = new Button
+        {
+            Content = "Сохранить",
+            MinWidth = 100,
+            Padding = new Thickness(10, 6, 10, 6),
+            Background = Brush("#92E5C7"),
+            Foreground = Brush("#121D27")
+        };
+        save.Click += (_, _) => dialog.DialogResult = true;
+        input.TextChanged += (_, _) => save.IsEnabled = !string.IsNullOrWhiteSpace(input.Text) || attachments.Length > 0;
+        save.IsEnabled = !string.IsNullOrWhiteSpace(input.Text) || attachments.Length > 0;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(save);
+        layout.Children.Add(buttons);
+        dialog.Content = layout;
+        dialog.Loaded += (_, _) =>
+        {
+            input.Focus();
+            input.CaretIndex = input.Text.Length;
+        };
+
+        _isEditingQueuedPrompt = true;
+        try
+        {
+            if (dialog.ShowDialog() != true || !_promptQueue.Contains(queued)) return;
+            queued.Text = FormatPromptWithAttachments(input.Text.Trim(), attachments);
+            SaveState();
+            RenderPromptQueue();
+        }
+        finally
+        {
+            _isEditingQueuedPrompt = false;
+            _ = ProcessQueuedPromptsAsync();
+        }
+    }
+
     private void RemovePromptFromQueue(string promptId)
     {
         if (_promptQueue.RemoveAll(prompt => prompt.Id == promptId) == 0) return;
@@ -2826,7 +3001,7 @@ public partial class MainWindow : Window
 
     private async Task ProcessQueuedPromptsAsync()
     {
-        if (_isPumpingPromptQueue || _isClosing) return;
+        if (_isPumpingPromptQueue || _isClosing || _isEditingQueuedPrompt) return;
         _isPumpingPromptQueue = true;
         try
         {
@@ -2850,6 +3025,7 @@ public partial class MainWindow : Window
                 if (thread.IsArchived)
                 {
                     await SetThreadArchivedAsync(thread, archived: false);
+                    if (_isEditingQueuedPrompt) break;
                     if (thread.IsArchived) continue;
                 }
                 try
@@ -2863,6 +3039,7 @@ public partial class MainWindow : Window
                     RenderPromptQueue();
                     break;
                 }
+                if (_isEditingQueuedPrompt) break;
                 var activeRun = CreateActiveCliRun(thread, queued);
                 thread.ActiveRun = activeRun;
                 _promptQueue.Remove(queued);
