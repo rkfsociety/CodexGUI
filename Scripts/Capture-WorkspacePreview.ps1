@@ -600,18 +600,24 @@ elseif ($View -eq 'McpServers') {
     $windowType.GetMethod('RefreshList', $flags).Invoke($window, [object[]]@($null)) | Out-Null
     $list = $windowType.GetField('_servers', $flags).GetValue($window)
     $login = $windowType.GetField('_login', $flags).GetValue($window)
+    $isVirtualizing = [System.Windows.Controls.VirtualizingPanel]::GetIsVirtualizing($list)
+    $virtualizationMode = [System.Windows.Controls.VirtualizingPanel]::GetVirtualizationMode($list)
+    if (-not $isVirtualizing -or $virtualizationMode -ne [System.Windows.Controls.VirtualizationMode]::Recycling) {
+        throw 'The MCP server list is not configured for virtualized container recycling.'
+    }
     $search = $windowType.GetField('_search', $flags).GetValue($window)
     $search.Text = 'create_event'
-    if ($list.Items.Count -ne 1 -or $list.SelectedItem.Tag.Name -ne 'calendar') {
+    if ($list.Items.Count -ne 1 -or $list.SelectedItem.Name -ne 'calendar') {
         throw 'Searching for an MCP tool did not filter to its server.'
     }
     $search.Text = 'issues'
-    if ($list.Items.Count -ne 1 -or $list.SelectedItem.Tag.Name -ne 'issues' -or -not $login.IsEnabled) {
+    if ($list.Items.Count -ne 1 -or $list.SelectedItem.Name -ne 'issues' -or -not $login.IsEnabled) {
         throw 'The MCP server filter did not preserve the sign-in action for the matching server.'
     }
     $search.Clear()
     $list.SelectedIndex = 1
     if (-not $login.IsEnabled) { throw 'Selecting a server that requires OAuth did not enable its sign-in action.' }
+    $windowType.GetMethod('ShowSelectedDetails', $flags).Invoke($window, [object[]]@()) | Out-Null
     $windowType.GetField('_status', $flags).GetValue($window).Text = 'Проверка завершена. Серверов: 2.'
     $window.Width = $Width
     $window.Height = $Height

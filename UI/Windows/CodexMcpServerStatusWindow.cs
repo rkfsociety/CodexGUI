@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Markup;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -61,6 +62,10 @@ internal sealed class CodexMcpServerStatusWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        VirtualizingPanel.SetIsVirtualizing(_servers, true);
+        VirtualizingPanel.SetVirtualizationMode(_servers, VirtualizationMode.Recycling);
+        ScrollViewer.SetCanContentScroll(_servers, true);
+        ScrollViewer.SetHorizontalScrollBarVisibility(_servers, ScrollBarVisibility.Disabled);
         _servers.SelectionChanged += (_, _) =>
         {
             ShowSelectedDetails();
@@ -127,6 +132,14 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
+        _servers.ItemTemplate = (DataTemplate)XamlReader.Parse("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+              <StackPanel>
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding ListSummary}" Foreground="#A7B5C0" FontSize="10" Margin="0,3,0,0" />
+              </StackPanel>
+            </DataTemplate>
+            """);
         var listArea = new Grid { Margin = new Thickness(0, 0, 10, 0) };
         listArea.Children.Add(_servers);
         listArea.Children.Add(_empty);
@@ -284,39 +297,12 @@ internal sealed class CodexMcpServerStatusWindow : Window
 
     private void RefreshList(string? preferredName = null)
     {
-        _servers.Items.Clear();
         var query = _search.Text.Trim();
         var visibleItems = _items.Where(status => query.Length == 0 ||
             $"{status.Name} {status.ServerTitle} {status.ServerVersion} {status.StateLabel} {status.AuthenticationLabel} {status.HttpOrigin} {status.ToolsError} {string.Join(" ", status.ToolNames)}"
                 .Contains(query, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        foreach (var status in visibleItems)
-        {
-            var labels = new StackPanel();
-            labels.Children.Add(new TextBlock
-            {
-                Text = status.Name,
-                FontWeight = FontWeights.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-            labels.Children.Add(new TextBlock
-            {
-                Text = $"{status.StateLabel} · инструментов: {status.ToolNames.Count}",
-                Foreground = Brush("#A7B5C0"),
-                FontSize = 10,
-                Margin = new Thickness(0, 3, 0, 0)
-            });
-            _servers.Items.Add(new ListBoxItem
-            {
-                Tag = status,
-                Content = labels,
-                Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 0, 0, 5),
-                Background = Brush("#16212B"),
-                BorderBrush = Brush("#2A3946"),
-                BorderThickness = new Thickness(1)
-            });
-        }
+        _servers.ItemsSource = visibleItems;
         _empty.Text = _loadFailed
             ? "Список MCP-серверов не загружен."
             : _items.Count == 0
@@ -348,7 +334,11 @@ internal sealed class CodexMcpServerStatusWindow : Window
 
     private void ShowSelectedDetails()
     {
-        if ((_servers.SelectedItem as ListBoxItem)?.Tag is not CodexMcpServerStatus status) return;
+        if (_servers.SelectedItem is not CodexMcpServerStatus status)
+        {
+            _details.Text = "Выберите сервер, чтобы посмотреть его авторизацию и инструменты.";
+            return;
+        }
         var lines = new List<string>
         {
             status.ServerTitle is { Length: > 0 } title ? $"{title} · {status.Name}" : status.Name,
@@ -374,7 +364,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
     }
 
     private CodexMcpServerStatus? SelectedServer()
-        => (_servers.SelectedItem as ListBoxItem)?.Tag as CodexMcpServerStatus;
+        => _servers.SelectedItem as CodexMcpServerStatus;
 
     private static bool RequiresLogin(CodexMcpServerStatus status)
         => status.RuntimeStatus != "disabled"

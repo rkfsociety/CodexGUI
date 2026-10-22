@@ -17,6 +17,8 @@ internal sealed record CodexMcpServerStatus(
     string? ServerVersion,
     string? HttpOrigin)
 {
+    public string ListSummary => $"{StateLabel} · инструментов: {ToolNames.Count}";
+
     public string StateLabel
     {
         get
