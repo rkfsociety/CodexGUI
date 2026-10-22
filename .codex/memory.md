@@ -5,6 +5,7 @@
 - `CodexWindowTheme` applies the shared WPF window palette, font, and dark caption; `CodexMessageDialog` replaces system `MessageBox` calls. `Scripts/Capture-WorkspacePreview.ps1` renders workspace XAML with preview conversation fixtures or the built Activity and Actions windows to PNG without starting CodexGUI.
 - Composer dropdown triggers use the shared `ComposerDropdownButton` style and vector chevron paths in `Views/WorkspaceView.xaml`; app-wide `ComboBox` and `ComboBoxItem` visuals are defined in `App.xaml`. The Codex brand label is not a dropdown.
 - The sidebar collapses to a 42-pixel rail with `ExpandSidebarButton`; `ToggleSidebar` also overrides responsive auto-hide when the context panel is open in a narrow window.
+- `UI/Chat/ChatMarkdownRenderer.cs` formats finalized assistant replies; active streaming keeps its plain TextBlock so chunks can be appended without reparsing the whole message.
 - Conversation scrolling follows new content only when the same thread is already within 72 pixels of the bottom; rerendering preserves the reader's prior offset, and switching threads opens at the latest message.
 - Consecutive Codex activity items such as reasoning, commands, tool calls, and file changes render in one collapsed expander; opening it shows per-item details and subagent links.
 - Live assistant text is coalesced at 80 ms intervals and appended to the active `TextBlock` as inline runs; activity-triggered conversation rebuilds use the same cadence to keep composer input responsive.

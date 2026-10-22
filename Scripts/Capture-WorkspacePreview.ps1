@@ -72,6 +72,22 @@ $($resourceNode.InnerXml)
 "@
 $application.Resources.MergedDictionaries.Add([System.Windows.Markup.XamlReader]::Parse($resourcesXaml))
 
+$script:markdownRenderer = $null
+$debugAssembly = Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'
+$releaseAssembly = Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll'
+$rendererAssembly = @($debugAssembly, $releaseAssembly) | Where-Object { Test-Path -LiteralPath $_ } |
+    ForEach-Object { Get-Item -LiteralPath $_ } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$markdownSource = Join-Path $projectRoot 'UI\Chat\ChatMarkdownRenderer.cs'
+if ($rendererAssembly -and (Test-Path -LiteralPath $markdownSource) -and
+    $rendererAssembly.LastWriteTime -ge (Get-Item -LiteralPath $markdownSource).LastWriteTime) {
+    $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
+    $rendererType = $assembly.GetType('CodexGUI.ChatMarkdownRenderer', $false)
+    if ($rendererType) {
+        $script:markdownRenderer = $rendererType.GetMethod(
+            'Render', [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public)
+    }
+}
+
 function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     $row = [System.Windows.Controls.StackPanel]::new()
     $row.HorizontalAlignment = if ($IsUser) { [System.Windows.HorizontalAlignment]::Right } else { [System.Windows.HorizontalAlignment]::Left }
@@ -106,6 +122,10 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     $body.LineHeight = 27
     $body.TextWrapping = [System.Windows.TextWrapping]::Wrap
     $body.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#EAF4F0' } else { '#ECF2F5' }))
+    $displayBody = $body
+    if (-not $IsUser -and $script:markdownRenderer) {
+        $displayBody = $script:markdownRenderer.Invoke($null, [object[]]@($Text))
+    }
 
     $bubble = [System.Windows.Controls.Border]::new()
     $bubble.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($IsUser) { '#1A332E' } else { '#121B23' }))
@@ -114,7 +134,7 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
     if ($IsUser) {
         $bubble.CornerRadius = [System.Windows.CornerRadius]::new(18, 18, 6, 18)
         $bubble.Padding = [System.Windows.Thickness]::new(19, 15, 19, 15)
-        $bubble.Child = $body
+        $bubble.Child = $displayBody
         [void]$row.Children.Add($bubble)
     }
     else {
@@ -132,7 +152,7 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
         $bubble.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#121B23')
         $bubble.CornerRadius = [System.Windows.CornerRadius]::new(5, 16, 16, 16)
         $bubble.Padding = [System.Windows.Thickness]::new(19, 16, 20, 17)
-        $bubble.Child = $body
+        $bubble.Child = $displayBody
         [System.Windows.Controls.Grid]::SetColumn($bubble, 1)
         [void]$response.Children.Add($bubble)
         [void]$row.Children.Add($response)
@@ -155,7 +175,18 @@ if ($View -eq 'Workspace') {
     }
     $conversation.Children.Clear()
     [void]$conversation.Children.Add((New-PreviewMessage -IsUser $true -Text 'Проверь экран чата и предложи, как сделать его удобнее для долгой работы.'))
-    [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text 'Я посмотрю на структуру проекта и интерфейс. Сначала соберу картину, затем предложу точечные улучшения с понятным результатом.'))
+    $previewResponse = @'
+Проверил структуру проекта.
+
+### Что изменил
+- Упростил обработку сообщений.
+- Добавил обработку ошибок.
+
+```csharp
+await SaveAsync();
+```
+'@
+    [void]$conversation.Children.Add((New-PreviewMessage -IsUser $false -Text $previewResponse))
     $visual = $workspace
 }
 elseif ($View -eq 'Activity') {

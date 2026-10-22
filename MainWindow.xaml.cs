@@ -1498,7 +1498,9 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brush(message.IsUser ? "#EAF4F0" : "#ECF2F5")
         };
-        if (!message.IsUser && IsCurrentThreadRunning && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message))
+        var isStreaming = !message.IsUser && IsCurrentThreadRunning
+            && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message);
+        if (isStreaming)
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
@@ -1520,7 +1522,8 @@ public partial class MainWindow : Window
             {
                 Background = Brush("#121B23"), BorderBrush = Brush("#263541"),
                 BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5, 16, 16, 16),
-                Padding = new Thickness(19, 16, 20, 17), Child = text
+                Padding = new Thickness(19, 16, 20, 17),
+                Child = isStreaming ? text : ChatMarkdownRenderer.Render(message.Text)
             };
             Grid.SetColumn(body, 1);
             response.Children.Add(body);
