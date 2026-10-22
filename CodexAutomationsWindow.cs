@@ -217,9 +217,12 @@ internal sealed class CodexAutomationsWindow : Window
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock { Text = definition.Name, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
         var project = _projects.FirstOrDefault(item => item.Id == definition.ProjectId)?.Name ?? definition.ProjectPath;
-        var cadence = definition.Cadence == "weekly"
-            ? $"Еженедельно · {DayName(definition.DayOfWeek)} в {definition.TimeOfDay}"
-            : $"Ежедневно · {definition.TimeOfDay}";
+        var cadence = definition.Cadence switch
+        {
+            "weekly" => $"Еженедельно · {DayName(definition.DayOfWeek)} в {definition.TimeOfDay}",
+            "monthly" => $"Ежемесячно · {definition.DayOfMonth}-е число в {definition.TimeOfDay}",
+            _ => $"Ежедневно · {definition.TimeOfDay}"
+        };
         stack.Children.Add(new TextBlock
         {
             Text = $"{(definition.Enabled ? "Включено" : "Выключено")} · {cadence} · {project}",
@@ -399,6 +402,8 @@ internal sealed class CodexAutomationEditorWindow : Window
     private readonly ComboBox _cadence = new();
     private readonly TextBox _time = new();
     private readonly ComboBox _day = new();
+    private readonly ComboBox _monthDay = new();
+    private TextBlock _monthDayLabel = new();
     private readonly ComboBox _model = new();
     private readonly ComboBox _effort = new();
     private readonly TextBox _prompt = new();
@@ -479,6 +484,10 @@ internal sealed class CodexAutomationEditorWindow : Window
         _dayRow.Children.Add(_day);
         form.Children.Add(_dayLabel);
         form.Children.Add(_dayRow);
+        _monthDay.ItemsSource = Enumerable.Range(1, 31)
+            .Select(day => new MonthDayChoice(day, $"{day}-е число")).ToArray();
+        _monthDay.DisplayMemberPath = nameof(MonthDayChoice.Label);
+        _monthDayLabel = AddField(form, "Число месяца", _monthDay);
         AddField(form, "Модель", _model);
         AddField(form, "Уровень усилий", _effort);
         AddField(form, "Задача для Codex", _prompt);
@@ -493,14 +502,19 @@ internal sealed class CodexAutomationEditorWindow : Window
         _cadence.ItemsSource = new[]
         {
             new CadenceChoice("daily", "Каждый день"),
-            new CadenceChoice("weekly", "Каждую неделю")
+            new CadenceChoice("weekly", "Каждую неделю"),
+            new CadenceChoice("monthly", "Каждый месяц")
         };
         _cadence.DisplayMemberPath = nameof(CadenceChoice.Label);
         _cadence.SelectionChanged += (_, _) =>
         {
-            var visibility = SelectedCadence() == "weekly" ? Visibility.Visible : Visibility.Collapsed;
-            _dayLabel.Visibility = visibility;
-            _dayRow.Visibility = visibility;
+            var cadence = SelectedCadence();
+            var weeklyVisibility = cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
+            var monthlyVisibility = cadence == "monthly" ? Visibility.Visible : Visibility.Collapsed;
+            _dayLabel.Visibility = weeklyVisibility;
+            _dayRow.Visibility = weeklyVisibility;
+            _monthDayLabel.Visibility = monthlyVisibility;
+            _monthDay.Visibility = monthlyVisibility;
         };
         _project.ItemsSource = _projects;
         _project.DisplayMemberPath = nameof(CodexAutomationProject.Name);
@@ -527,6 +541,8 @@ internal sealed class CodexAutomationEditorWindow : Window
         _time.Text = _source.TimeOfDay;
         _day.SelectedItem = _day.Items.Cast<DayChoice>().FirstOrDefault(item => item.Day == _source.DayOfWeek);
         if (_day.SelectedItem is null) _day.SelectedIndex = 0;
+        _monthDay.SelectedItem = _monthDay.Items.Cast<MonthDayChoice>()
+            .FirstOrDefault(item => item.Day == _source.DayOfMonth) ?? _monthDay.Items[0];
         foreach (var model in _models)
             _model.Items.Add(new ModelChoice(model.Slug, model.DisplayName, model.DefaultReasoningLevel, model.ReasoningLevels));
         if (_model.Items.Count == 0)
@@ -538,8 +554,12 @@ internal sealed class CodexAutomationEditorWindow : Window
         _prompt.Text = _source.Prompt;
         _worktree.IsChecked = _source.UseWorktree;
         _enabled.IsChecked = _source.Enabled;
-        _dayRow.Visibility = _source.Cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
-        _dayLabel.Visibility = _dayRow.Visibility;
+        var weeklyVisibility = _source.Cadence == "weekly" ? Visibility.Visible : Visibility.Collapsed;
+        var monthlyVisibility = _source.Cadence == "monthly" ? Visibility.Visible : Visibility.Collapsed;
+        _dayRow.Visibility = weeklyVisibility;
+        _dayLabel.Visibility = weeklyVisibility;
+        _monthDayLabel.Visibility = monthlyVisibility;
+        _monthDay.Visibility = monthlyVisibility;
         UpdateExistingThreadUi();
     }
 
@@ -606,9 +626,10 @@ internal sealed class CodexAutomationEditorWindow : Window
         if (_project.SelectedItem is not CodexAutomationProject project
             || _model.SelectedItem is not ModelChoice model
             || _day.SelectedItem is not DayChoice day
+            || SelectedCadence() == "monthly" && _monthDay.SelectedItem is not MonthDayChoice
             || _effort.SelectedItem is not string effort)
         {
-            MessageBox.Show(this, "Выберите проект, модель, усилия и день запуска.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "Выберите проект, модель, усилия и параметры периодичности.", "Проверьте расписание", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var name = _name.Text.Trim();
@@ -640,6 +661,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             Cadence = cadence,
             TimeOfDay = _time.Text.Trim(),
             DayOfWeek = day.Day,
+            DayOfMonth = (_monthDay.SelectedItem as MonthDayChoice)?.Day ?? _source.DayOfMonth,
             UseWorktree = (_existingThread.SelectedItem as ExistingThreadChoice)?.ThreadId is null && _worktree.IsChecked == true,
             Enabled = _enabled.IsChecked == true,
             NextRunAtUtc = _source.NextRunAtUtc
@@ -650,16 +672,17 @@ internal sealed class CodexAutomationEditorWindow : Window
 
     private string SelectedCadence() => (_cadence.SelectedItem as CadenceChoice)?.Id ?? "daily";
 
-    private static void AddField(Panel panel, string label, UIElement input)
+    private static TextBlock AddField(Panel panel, string label, UIElement input)
     {
-        panel.Children.Add(new TextBlock
+        var labelBlock = new TextBlock
         {
             Text = label,
             FontSize = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(166, 177, 191)),
             Margin = new Thickness(0, 11, 0, 5)
-        });
+        };
+        panel.Children.Add(labelBlock);
         if (input is Control control)
         {
             control.Padding = new Thickness(8, 6, 8, 6);
@@ -668,6 +691,7 @@ internal sealed class CodexAutomationEditorWindow : Window
             control.BorderBrush = new SolidColorBrush(Color.FromRgb(52, 70, 90));
         }
         panel.Children.Add(input);
+        return labelBlock;
     }
 
     private static CodexAutomationDefinition Copy(CodexAutomationDefinition source) => new()
@@ -685,6 +709,7 @@ internal sealed class CodexAutomationEditorWindow : Window
         Cadence = source.Cadence,
         TimeOfDay = source.TimeOfDay,
         DayOfWeek = source.DayOfWeek,
+        DayOfMonth = source.DayOfMonth,
         UseWorktree = source.UseWorktree,
         Enabled = source.Enabled,
         NextRunAtUtc = source.NextRunAtUtc
@@ -695,4 +720,5 @@ internal sealed class CodexAutomationEditorWindow : Window
         string? WorkingDirectory, string? WorktreePath, string Label);
     private sealed record CadenceChoice(string Id, string Label);
     private sealed record DayChoice(DayOfWeek Day, string Label);
+    private sealed record MonthDayChoice(int Day, string Label);
 }

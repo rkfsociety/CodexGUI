@@ -22,6 +22,7 @@ internal sealed class CodexAutomationDefinition
     public string Cadence { get; set; } = "daily";
     public string TimeOfDay { get; set; } = "09:00";
     public DayOfWeek DayOfWeek { get; set; } = DayOfWeek.Monday;
+    public int DayOfMonth { get; set; } = 1;
     public bool UseWorktree { get; set; } = true;
     public bool Enabled { get; set; } = true;
     public DateTimeOffset NextRunAtUtc { get; set; }
@@ -114,18 +115,40 @@ internal static class CodexAutomationStore
             throw new InvalidDataException("Время автоматизации должно быть в формате ЧЧ:ММ.");
 
         var localNow = nowUtc.ToLocalTime().DateTime;
-        var date = localNow.Date;
-        if (definition.Cadence == "weekly")
+        DateTime candidate;
+        if (definition.Cadence == "monthly")
         {
-            var days = ((int)definition.DayOfWeek - (int)localNow.DayOfWeek + 7) % 7;
-            date = date.AddDays(days);
-        }
-        else if (definition.Cadence != "daily")
-            throw new InvalidDataException("Неизвестная периодичность автоматизации.");
+            if (definition.DayOfMonth is < 1 or > 31)
+                throw new InvalidDataException("Число месяца должно быть от 1 до 31.");
 
-        var candidate = DateTime.SpecifyKind(date.Add(time.ToTimeSpan()), DateTimeKind.Local);
+            var month = new DateTime(localNow.Year, localNow.Month, 1);
+            while (true)
+            {
+                if (definition.DayOfMonth <= DateTime.DaysInMonth(month.Year, month.Month))
+                {
+                    var date = month.AddDays(definition.DayOfMonth - 1);
+                    candidate = DateTime.SpecifyKind(date.Add(time.ToTimeSpan()), DateTimeKind.Local);
+                    if (candidate > localNow) break;
+                }
+                month = month.AddMonths(1);
+            }
+        }
+        else
+        {
+            var date = localNow.Date;
+            if (definition.Cadence == "weekly")
+            {
+                var days = ((int)definition.DayOfWeek - (int)localNow.DayOfWeek + 7) % 7;
+                date = date.AddDays(days);
+            }
+            else if (definition.Cadence != "daily")
+                throw new InvalidDataException("Неизвестная периодичность автоматизации.");
+
+            candidate = DateTime.SpecifyKind(date.Add(time.ToTimeSpan()), DateTimeKind.Local);
+        }
+
         while (TimeZoneInfo.Local.IsInvalidTime(candidate)) candidate = candidate.AddMinutes(1);
-        if (candidate <= localNow)
+        if (definition.Cadence != "monthly" && candidate <= localNow)
             candidate = candidate.AddDays(definition.Cadence == "weekly" ? 7 : 1);
         return new DateTimeOffset(candidate).ToUniversalTime();
     }
