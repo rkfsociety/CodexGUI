@@ -223,9 +223,10 @@ internal static class CodexAutomationStore
             candidate = DateTime.SpecifyKind(date.Add(time.ToTimeSpan()), DateTimeKind.Local);
         }
 
-        while (TimeZoneInfo.Local.IsInvalidTime(candidate)) candidate = candidate.AddMinutes(1);
         if (definition.Cadence != "monthly" && candidate <= localNow)
             candidate = candidate.AddDays(definition.Cadence == "weekly" ? 7 : 1);
+        // A schedule can cross into a DST gap when advancing to tomorrow or next week.
+        while (TimeZoneInfo.Local.IsInvalidTime(candidate)) candidate = candidate.AddMinutes(1);
         return new DateTimeOffset(candidate).ToUniversalTime();
     }
 

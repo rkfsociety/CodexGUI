@@ -57,39 +57,40 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     public async Task<JsonElement> ReadThreadAsync(string sessionId)
     {
-        var metadata = await SendRequestAsync("thread/read", new { threadId = sessionId });
-        if (!metadata.TryGetProperty("thread", out var thread) || thread.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Codex App Server не вернул метаданные чата.");
-
-        var turns = new List<JsonElement>();
-        string? cursor = null;
-        var page = 0;
-        do
+        return await RunWithSessionAsync(async send =>
         {
-            var response = await SendRequestAsync("thread/turns/list", new
-            {
-                threadId = sessionId,
-                limit = 50,
-                sortDirection = "desc",
-                itemsView = "full",
-                cursor
-            });
-            if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
-            turns.AddRange(data.EnumerateArray().Select(item => item.Clone()));
-            cursor = Text(response, "nextCursor");
-            if (++page >= 200 && cursor.Length > 0)
-                throw new InvalidDataException("История чата слишком велика для восстановления в одном окне.");
-        }
-        while (cursor.Length > 0);
+            var metadata = await send("thread/read", new { threadId = sessionId });
+            if (!metadata.TryGetProperty("thread", out var thread) || thread.ValueKind != JsonValueKind.Object)
+                throw new InvalidDataException("Codex App Server не вернул метаданные чата.");
 
-        turns.Reverse();
-        using var turnsDocument = JsonDocument.Parse(JsonSerializer.Serialize(turns));
-        var threadFields = thread.EnumerateObject()
-            .ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
-        threadFields["turns"] = turnsDocument.RootElement.Clone();
-        using var historyDocument = JsonDocument.Parse(JsonSerializer.Serialize(new { thread = threadFields }));
-        return historyDocument.RootElement.Clone();
+            var turns = new List<JsonElement>();
+            string? cursor = null;
+            var page = 0;
+            do
+            {
+                var response = await send("thread/turns/list", new
+                {
+                    threadId = sessionId,
+                    limit = 50,
+                    sortDirection = "desc",
+                    itemsView = "full",
+                    cursor
+                });
+                if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                    throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
+                turns.AddRange(data.EnumerateArray().Select(item => item.Clone()));
+                cursor = Text(response, "nextCursor");
+                if (++page >= 200 && cursor.Length > 0)
+                    throw new InvalidDataException("История чата слишком велика для восстановления в одном окне.");
+            }
+            while (cursor.Length > 0);
+
+            turns.Reverse();
+            var threadFields = thread.EnumerateObject()
+                .ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
+            threadFields["turns"] = JsonSerializer.SerializeToElement(turns);
+            return JsonSerializer.SerializeToElement(new { thread = threadFields });
+        });
     }
 
     public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null)
@@ -111,46 +112,54 @@ internal sealed class CodexAppServerClient(string executablePath)
 
     public async Task<IReadOnlyList<ModelOption>> ReadModelCatalogAsync(string defaultEffort)
     {
-        var models = new List<ModelOption>();
-        string? cursor = null;
-        var page = 0;
-        do
+        return await RunWithSessionAsync(async send =>
         {
-            var response = await SendRequestAsync("model/list", new { limit = 100, includeHidden = false, cursor });
-            if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                throw new InvalidDataException("Codex App Server вернул неизвестный формат каталога моделей.");
-
-            foreach (var item in data.EnumerateArray())
+            var models = new List<ModelOption>();
+            string? cursor = null;
+            var page = 0;
+            do
             {
-                var slug = Text(item, "id");
-                if (slug.Length == 0) slug = Text(item, "model");
-                if (slug.Length == 0 || item.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
-                    continue;
-                var effort = Text(item, "defaultReasoningEffort");
-                if (effort.Length == 0) effort = defaultEffort;
-                var reasoningLevels = item.TryGetProperty("supportedReasoningEfforts", out var efforts) && efforts.ValueKind == JsonValueKind.Array
-                    ? efforts.EnumerateArray().Select(value => Text(value, "reasoningEffort"))
-                        .Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToArray()
-                    : [];
-                if (reasoningLevels.Length == 0) reasoningLevels = [effort];
-                models.Add(new ModelOption(
-                    slug,
-                    Text(item, "displayName") is { Length: > 0 } displayName ? displayName : slug,
-                    effort,
-                    reasoningLevels,
-                    models.Count));
+                var response = await send("model/list", new { limit = 100, includeHidden = false, cursor });
+                if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                    throw new InvalidDataException("Codex App Server вернул неизвестный формат каталога моделей.");
+
+                foreach (var item in data.EnumerateArray())
+                {
+                    var slug = Text(item, "id");
+                    if (slug.Length == 0) slug = Text(item, "model");
+                    if (slug.Length == 0 || item.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
+                        continue;
+                    var effort = Text(item, "defaultReasoningEffort");
+                    if (effort.Length == 0) effort = defaultEffort;
+                    var reasoningLevels = item.TryGetProperty("supportedReasoningEfforts", out var efforts) && efforts.ValueKind == JsonValueKind.Array
+                        ? efforts.EnumerateArray().Select(value => Text(value, "reasoningEffort"))
+                            .Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToArray()
+                        : [];
+                    if (reasoningLevels.Length == 0) reasoningLevels = [effort];
+                    models.Add(new ModelOption(
+                        slug,
+                        Text(item, "displayName") is { Length: > 0 } displayName ? displayName : slug,
+                        effort,
+                        reasoningLevels,
+                        models.Count));
+                }
+
+                cursor = Text(response, "nextCursor");
+                if (++page >= 20 && cursor.Length > 0)
+                    throw new InvalidDataException("Каталог моделей Codex App Server содержит слишком много страниц.");
             }
+            while (cursor.Length > 0);
 
-            cursor = Text(response, "nextCursor");
-            if (++page >= 20 && cursor.Length > 0)
-                throw new InvalidDataException("Каталог моделей Codex App Server содержит слишком много страниц.");
-        }
-        while (cursor.Length > 0);
-
-        return models;
+            return models;
+        });
     }
 
-    private async Task<JsonElement> SendRequestAsync(string method, object parameters)
+    private Task<JsonElement> SendRequestAsync(string method, object parameters) =>
+        RunWithSessionAsync(send => send(method, parameters));
+
+    // Keep one App Server process alive for multi-page reads instead of restarting it for every page.
+    private async Task<T> RunWithSessionAsync<T>(
+        Func<Func<string, object, Task<JsonElement>>, Task<T>> operation)
     {
         var startInfo = new ProcessStartInfo(executablePath)
         {
@@ -172,9 +181,17 @@ internal sealed class CodexAppServerClient(string executablePath)
             await process.StandardInput.WriteLineAsync(InitializeRequest);
             _ = await ReadRpcResultAsync(process.StandardOutput, 1);
             await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\",\"params\":{}}");
-            var request = JsonSerializer.Serialize(new { id = 2, method, @params = parameters });
-            await process.StandardInput.WriteLineAsync(request);
-            return await ReadRpcResultAsync(process.StandardOutput, 2);
+
+            var nextRequestId = 1;
+            async Task<JsonElement> SendAsync(string requestMethod, object requestParameters)
+            {
+                var id = ++nextRequestId;
+                var request = JsonSerializer.Serialize(new { id, method = requestMethod, @params = requestParameters });
+                await process.StandardInput.WriteLineAsync(request);
+                return await ReadRpcResultAsync(process.StandardOutput, id);
+            }
+
+            return await operation(SendAsync);
         }
         finally
         {
