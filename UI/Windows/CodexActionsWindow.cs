@@ -250,6 +250,7 @@ internal sealed class CodexActionsWindow : Window
             actions.Remove(action);
             return;
         }
+        ClearSearchFilter();
         RefreshList(action.Id, isProject);
     }
 
@@ -270,6 +271,7 @@ internal sealed class CodexActionsWindow : Window
             action.Prompt = oldPrompt;
             return;
         }
+        ClearSearchFilter();
         RefreshList(action.Id, entry.IsProject);
     }
 
@@ -305,6 +307,7 @@ internal sealed class CodexActionsWindow : Window
             targetActions.Remove(copy);
             return;
         }
+        ClearSearchFilter();
         RefreshList(copy.Id, targetIsProject);
     }
 
@@ -329,6 +332,11 @@ internal sealed class CodexActionsWindow : Window
     private IEnumerable<ActionEntry> GetActionEntries()
         => _actions.Select(action => new ActionEntry(action, IsProject: false))
             .Concat(_projectActions.Select(action => new ActionEntry(action, IsProject: true)));
+
+    private void ClearSearchFilter()
+    {
+        if (_search.Text.Length > 0) _search.Clear();
+    }
 
     private ActionEntry? SelectedEntry() => (_list.SelectedItem as ListBoxItem)?.Tag as ActionEntry;
 

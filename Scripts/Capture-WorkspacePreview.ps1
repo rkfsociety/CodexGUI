@@ -426,6 +426,29 @@ elseif ($View -eq 'Actions') {
         throw 'Copying a project action to the personal library did not preserve both independent entries.'
     }
 
+    $filterLocalItems = [Activator]::CreateInstance($itemListType)
+    $filterProjectItems = [Activator]::CreateInstance($itemListType)
+    $filteredAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($filteredAction, 'Existing action')
+    $itemType.GetProperty('Prompt').SetValue($filteredAction, 'Searchable phrase')
+    $itemListType.GetMethod('Add').Invoke($filterLocalItems, [object[]]@($filteredAction)) | Out-Null
+    $filterWindow = $constructor.Invoke([object[]]@($filterLocalItems, $filterProjectItems, $testSave, $testSave, $true, $testInsert))
+    $filterBox = $windowType.GetField('_search', $flags).GetValue($filterWindow)
+    $filterBox.Text = 'Searchable phrase'
+    $filterList = $windowType.GetField('_list', $flags).GetValue($filterWindow)
+    if ($filterList.Items.Count -ne 1) { throw 'The pre-mutation Actions filter did not match its existing item.' }
+    $newAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($newAction, 'New project action')
+    $itemType.GetProperty('Prompt').SetValue($newAction, 'A different phrase')
+    $itemListType.GetMethod('Add').Invoke($filterProjectItems, [object[]]@($newAction)) | Out-Null
+    $windowType.GetMethod('ClearSearchFilter', $flags).Invoke($filterWindow, [object[]]@()) | Out-Null
+    $windowType.GetMethod('RefreshList', $flags).Invoke($filterWindow, [object[]]@($newAction.Id, $true)) | Out-Null
+    $selectedEntry = $filterList.SelectedItem.Tag
+    $selectedAction = $selectedEntry.GetType().GetProperty('Action').GetValue($selectedEntry)
+    if ($filterBox.Text.Length -ne 0 -or $filterList.Items.Count -ne 2 -or $selectedAction.Id -ne $newAction.Id) {
+        throw 'Saving a new action did not clear the filter and reveal the saved item.'
+    }
+
     $window.Width = $Width
     $window.Height = $Height
     $windowContent = $window.Content
