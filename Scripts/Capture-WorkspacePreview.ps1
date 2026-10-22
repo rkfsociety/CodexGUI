@@ -231,8 +231,17 @@ if ($View -in @('Workspace', 'Welcome')) {
     if ($conversation -isnot [System.Windows.Controls.StackPanel]) {
         throw 'The Conversation panel could not be found in WorkspaceView.xaml.'
     }
+    $goalButton = $workspace.FindName('ThreadGoalButton')
+    $goalLabel = $workspace.FindName('ThreadGoalLabel')
+    if ($goalButton -isnot [System.Windows.Controls.Button] -or
+        $goalLabel -isnot [System.Windows.Controls.TextBlock]) {
+        throw 'The current thread goal control could not be found in WorkspaceView.xaml.'
+    }
     $conversation.Children.Clear()
     if ($View -eq 'Workspace') {
+        $goalButton.IsEnabled = $true
+        $goalButton.ToolTip = "Активна`nНепрерывно улучшать CodexGUI"
+        $goalLabel.Text = 'Цель · активна · Улучшать CodexGUI'
         [void]$conversation.Children.Add((New-PreviewMessage -IsUser $true -Text 'Проверь экран чата и предложи, как сделать его удобнее для долгой работы.'))
         $previewResponse = @'
 Готово — подробности в [документации проекта](https://learn.chatgpt.com/docs/developers).
