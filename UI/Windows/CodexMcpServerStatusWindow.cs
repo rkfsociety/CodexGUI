@@ -105,7 +105,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
 
         var note = new TextBlock
         {
-            Text = "Состояние загружается из общего профиля Codex. App Server может запустить настроенные серверы и запросить список инструментов. Для входа выберите сервер, нажмите «Войти» и отдельно откройте страницу авторизации.",
+            Text = "Состояние загружается из общего профиля Codex. App Server может запустить настроенные серверы и запросить список инструментов. Кнопка «Войти» появляется для HTTP-серверов, которым требуется авторизация; страницу входа нужно открыть отдельно.",
             Foreground = Brush("#A7B5C0"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
@@ -384,7 +384,8 @@ internal sealed class CodexMcpServerStatusWindow : Window
         => _servers.SelectedItem as CodexMcpServerStatus;
 
     private static bool RequiresLogin(CodexMcpServerStatus status)
-        => status.RuntimeStatus != "disabled"
+        => !string.IsNullOrWhiteSpace(status.HttpOrigin)
+           && status.RuntimeStatus != "disabled"
            && (status.AuthStatus == "notLoggedIn" || status.RuntimeStatus == "authenticationRequired");
 
     private static string ReadRequiredString(JsonElement value, string name)

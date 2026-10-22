@@ -578,12 +578,13 @@ elseif ($View -eq 'McpServers') {
     $staticFlags = [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
     $fixtures = @(
         @{ name = 'calendar'; runtimeStatus = 'connected'; authStatus = 'oAuth'; tools = @{ create_event = @{}; find_events = @{} }; toolsError = $null; serverInfo = @{ title = 'Calendar'; version = '1.2.0' }; httpOrigin = 'https://calendar.example.test' },
-        @{ name = 'issues'; runtimeStatus = 'failed'; authStatus = 'notLoggedIn'; tools = @{}; toolsError = 'MCP startup failed'; serverInfo = $null; httpOrigin = $null }
+        @{ name = 'issues'; runtimeStatus = 'failed'; authStatus = 'notLoggedIn'; tools = @{}; toolsError = 'MCP startup failed'; serverInfo = $null; httpOrigin = 'https://issues.example.test' },
+        @{ name = 'local-worker'; runtimeStatus = $null; authStatus = 'notLoggedIn'; tools = @{}; toolsError = $null; serverInfo = @{ title = 'Local worker'; version = '1.0' }; httpOrigin = $null }
     )
     $fixtureJson = [string]($fixtures | ConvertTo-Json -Depth 6)
     $parseMethod = $catalogType.GetMethod('Parse', $staticFlags)
     $statuses = $parseMethod.Invoke($null, [object[]]@($fixtureJson))
-    if ($statuses.Count -ne 2 -or $statuses[0].Name -ne 'calendar' -or $statuses[1].StateLabel -ne 'Ошибка проверки') {
+    if ($statuses.Count -ne 3 -or $statuses[0].Name -ne 'calendar' -or $statuses[1].StateLabel -ne 'Ошибка проверки') {
         throw 'MCP server status preview could not parse and sort its local fixtures.'
     }
 
@@ -614,11 +615,15 @@ elseif ($View -eq 'McpServers') {
     if ($list.Items.Count -ne 1 -or $list.SelectedItem.Name -ne 'issues' -or -not $login.IsEnabled) {
         throw 'The MCP server filter did not preserve the sign-in action for the matching server.'
     }
+    $search.Text = 'local-worker'
+    if ($list.Items.Count -ne 1 -or $list.SelectedItem.Name -ne 'local-worker' -or $login.IsEnabled) {
+        throw 'OAuth sign-in was offered for a non-HTTP MCP server.'
+    }
     $search.Clear()
     $list.SelectedIndex = 1
     if (-not $login.IsEnabled) { throw 'Selecting a server that requires OAuth did not enable its sign-in action.' }
     $windowType.GetMethod('ShowSelectedDetails', $flags).Invoke($window, [object[]]@()) | Out-Null
-    $windowType.GetField('_status', $flags).GetValue($window).Text = 'Проверка завершена. Серверов: 2.'
+    $windowType.GetField('_status', $flags).GetValue($window).Text = 'Проверка завершена. Серверов: 3.'
     $window.Width = $Width
     $window.Height = $Height
     $windowContent = $window.Content
