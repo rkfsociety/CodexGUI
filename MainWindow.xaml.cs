@@ -4385,7 +4385,7 @@ public partial class MainWindow : Window
             foreach (var definition in _automationDefinitions.Where(item => item.Enabled && item.NextRunAtUtc <= now).ToArray())
             {
                 if (IsAutomationBusy(definition)) continue;
-                definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(definition, now);
+                definition.NextRunAtUtc = CodexAutomationStore.CalculateNextRun(definition, now, definition.NextRunAtUtc);
                 PersistAutomationDefinitions();
                 await StartAutomationAsync(definition);
                 changed = true;
@@ -4424,14 +4424,30 @@ public partial class MainWindow : Window
             return;
         }
 
+        var projects = ResolveAutomationProjects(definition);
+        if (projects.Count == 0)
+            throw new InvalidDataException("В расписании не выбран ни один проект.");
+        if (definition.ExistingThreadId is { Length: > 0 } && projects.Count != 1)
+            throw new InvalidDataException("Продолжение существующего чата поддерживается для одного проекта.");
+
+        foreach (var project in projects)
+            await StartAutomationForProjectAsync(definition, project);
+    }
+
+    private IReadOnlyList<CodexAutomationProject> ResolveAutomationProjects(CodexAutomationDefinition definition)
+        => CodexAutomationStore.ResolveAutomationProjects(definition,
+            _projects.Select(project => new CodexAutomationProject(project.Id, project.Name, project.Path)).ToArray());
+
+    private async Task StartAutomationForProjectAsync(CodexAutomationDefinition definition, CodexAutomationProject project)
+    {
         var workerRunId = Guid.NewGuid().ToString("N");
         using var coordinatorProcess = Process.GetCurrentProcess();
         var run = new CodexAutomationRun
         {
             AutomationId = definition.Id,
             AutomationName = definition.Name,
-            ProjectId = definition.ProjectId,
-            ProjectPath = definition.ProjectPath,
+            ProjectId = project.Id,
+            ProjectPath = project.Path,
             ThreadId = definition.ExistingThreadId,
             WorkerRunId = workerRunId,
             CoordinatorProcessId = coordinatorProcess.Id,
@@ -4445,22 +4461,22 @@ public partial class MainWindow : Window
 
         try
         {
-            if (!Directory.Exists(definition.ProjectPath))
-                throw new DirectoryNotFoundException($"Папка проекта больше не существует: {definition.ProjectPath}");
+            if (!Directory.Exists(project.Path))
+                throw new DirectoryNotFoundException($"Папка проекта больше не существует: {project.Path}");
 
-            var workingDirectory = Path.GetFullPath(definition.ProjectPath);
+            var workingDirectory = Path.GetFullPath(project.Path);
             if (definition.ExistingThreadId is { Length: > 0 })
             {
                 var existingThreadDirectory = Path.GetFullPath(
                     string.IsNullOrWhiteSpace(definition.ExistingThreadWorkingDirectory)
-                        ? definition.ProjectPath
+                        ? project.Path
                         : definition.ExistingThreadWorkingDirectory);
                 if (definition.ExistingThreadWorktreePath is { Length: > 0 } storedWorktree)
                 {
                     var fullWorktree = Path.GetFullPath(storedWorktree);
                     if (!string.Equals(existingThreadDirectory, fullWorktree, StringComparison.OrdinalIgnoreCase)
                         || !Directory.Exists(fullWorktree)
-                        || !await GitRepositoryInspector.IsRegisteredWorktreeAsync(definition.ProjectPath, fullWorktree, CancellationToken.None))
+                        || !await GitRepositoryInspector.IsRegisteredWorktreeAsync(project.Path, fullWorktree, CancellationToken.None))
                         throw new InvalidDataException("Выбранный чат ссылается на недоступный Git worktree.");
                     run.WorktreePath = fullWorktree;
                 }
@@ -4470,7 +4486,7 @@ public partial class MainWindow : Window
             }
             else if (definition.UseWorktree)
             {
-                if (!Guid.TryParseExact(definition.ProjectId, "N", out var projectId))
+                if (!Guid.TryParseExact(project.Id, "N", out var projectId))
                     throw new InvalidDataException("Не удалось проверить идентификатор проекта для изолированной копии.");
                 var worktreePath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

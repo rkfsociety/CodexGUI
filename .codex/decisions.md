@@ -11,9 +11,9 @@
 ## Run local scheduled tasks through the detached worker
 
 - Status: active.
-- Decision: keep daily/weekly/monthly schedules in CodexGUI's LocalAppData store and check due times while the desktop app is open. Launch each run through the existing detached App Server worker; use `approvalPolicy=never` only with `workspaceWrite` and sandbox network access disabled, with a managed Git worktree enabled by default for isolation.
+- Decision: keep minute-interval and daily/weekly/monthly schedules in CodexGUI's LocalAppData store and check due times while the desktop app is open. A standalone schedule may target several projects; create one independent run and worktree per project. Launch each run through the existing detached App Server worker; use `approvalPolicy=never` only with `workspaceWrite` and sandbox network access disabled, with a managed Git worktree enabled by default for isolation.
 - Reason: scheduled tasks cannot wait for an interactive approval prompt. The bounded sandbox lets a run proceed unattended while limiting writes to its working directory; a managed worktree keeps the project checkout separate.
-- Constraint: closing CodexGUI stops schedule polling, though already launched workers continue and are reconciled on next launch. Local schedules are not an OS background service. User-input requests receive empty answers and permission/MCP elicitations are cancelled in unattended runs.
+- Constraint: closing CodexGUI stops schedule polling, though already launched workers continue and are reconciled on next launch. Local schedules are not an OS background service. Existing-thread continuation is limited to one project because a Codex thread has one working directory. User-input requests receive empty answers and permission/MCP elicitations are cancelled in unattended runs.
 - Source: `CodexAutomationStore.cs`, `CodexAppServerTurnWorker.cs`, `MainWindow.xaml.cs`, and user workflow in `README.md`.
 
 ## Allow scheduled tasks to resume an existing thread

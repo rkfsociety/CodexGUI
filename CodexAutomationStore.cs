@@ -7,12 +7,16 @@ using System.Text.Json;
 
 namespace CodexGUI;
 
+internal sealed record CodexAutomationProject(string Id, string Name, string Path, bool IsRegistered = true);
+
 internal sealed class CodexAutomationDefinition
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "Новая автоматизация";
     public string ProjectId { get; set; } = "";
     public string ProjectPath { get; set; } = "";
+    public List<string> ProjectIds { get; set; } = [];
+    public Dictionary<string, string> ProjectPaths { get; set; } = new(StringComparer.Ordinal);
     public string? ExistingThreadId { get; set; }
     public string? ExistingThreadWorkingDirectory { get; set; }
     public string? ExistingThreadWorktreePath { get; set; }
@@ -21,6 +25,7 @@ internal sealed class CodexAutomationDefinition
     public string Effort { get; set; } = "high";
     public string Cadence { get; set; } = "daily";
     public string TimeOfDay { get; set; } = "09:00";
+    public int IntervalMinutes { get; set; } = 60;
     public DayOfWeek DayOfWeek { get; set; } = DayOfWeek.Monday;
     public int DayOfMonth { get; set; } = 1;
     public bool UseWorktree { get; set; } = true;
@@ -66,9 +71,43 @@ internal static class CodexAutomationStore
         if (!File.Exists(DefinitionsPath)) return [];
         var definitions = JsonSerializer.Deserialize<List<CodexAutomationDefinition>>(File.ReadAllText(DefinitionsPath)) ?? [];
         foreach (var definition in definitions)
+        {
+            NormalizeDefinition(definition);
             if (definition.NextRunAtUtc == default)
                 definition.NextRunAtUtc = CalculateNextRun(definition, DateTimeOffset.UtcNow);
+        }
         return definitions;
+    }
+
+    internal static void NormalizeDefinition(CodexAutomationDefinition definition)
+    {
+        definition.ProjectIds ??= [];
+        definition.ProjectPaths ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        if (definition.ProjectIds.Count == 0 && !string.IsNullOrWhiteSpace(definition.ProjectId))
+            definition.ProjectIds.Add(definition.ProjectId);
+        if (!string.IsNullOrWhiteSpace(definition.ProjectId) && !string.IsNullOrWhiteSpace(definition.ProjectPath))
+            definition.ProjectPaths.TryAdd(definition.ProjectId, definition.ProjectPath);
+    }
+
+    internal static IReadOnlyList<CodexAutomationProject> ResolveAutomationProjects(
+        CodexAutomationDefinition definition, IReadOnlyList<CodexAutomationProject> registeredProjects)
+    {
+        NormalizeDefinition(definition);
+        var projects = new List<CodexAutomationProject>();
+        foreach (var id in definition.ProjectIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal))
+        {
+            var registered = registeredProjects.FirstOrDefault(project => project.Id == id);
+            var path = registered?.Path ?? (definition.ProjectPaths.TryGetValue(id, out var savedPath)
+                ? savedPath
+                : id == definition.ProjectId ? definition.ProjectPath : "");
+            if (string.IsNullOrWhiteSpace(path))
+                throw new InvalidDataException($"Для проекта {id} в расписании не сохранён путь.");
+            var trimmedPath = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var name = registered?.Name ?? Path.GetFileName(trimmedPath);
+            projects.Add(new CodexAutomationProject(id, name.Length > 0 ? name : path, path,
+                IsRegistered: registered is not null));
+        }
+        return projects;
     }
 
     public static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions)
@@ -108,8 +147,20 @@ internal static class CodexAutomationStore
         SaveRun(run);
     }
 
-    public static DateTimeOffset CalculateNextRun(CodexAutomationDefinition definition, DateTimeOffset nowUtc)
+    public static DateTimeOffset CalculateNextRun(CodexAutomationDefinition definition, DateTimeOffset nowUtc,
+        DateTimeOffset? previousOccurrenceUtc = null)
     {
+        if (definition.Cadence == "interval")
+        {
+            if (definition.IntervalMinutes < 1)
+                throw new InvalidDataException("Интервал должен быть положительным числом минут.");
+            var period = TimeSpan.FromMinutes(definition.IntervalMinutes);
+            var anchor = previousOccurrenceUtc is { } previous && previous <= nowUtc ? previous : nowUtc;
+            var elapsedTicks = (nowUtc - anchor).Ticks;
+            var intervalCount = elapsedTicks / period.Ticks + 1;
+            return anchor.AddTicks(intervalCount * period.Ticks);
+        }
+
         if (!TimeOnly.TryParseExact(definition.TimeOfDay, "HH:mm", CultureInfo.InvariantCulture,
                 DateTimeStyles.None, out var time))
             throw new InvalidDataException("Время автоматизации должно быть в формате ЧЧ:ММ.");
