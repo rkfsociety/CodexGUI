@@ -70,6 +70,13 @@ internal sealed class CodexAppServerClient(string executablePath)
         return SendRequestAsync("marketplace/add", parameters);
     }
 
+    public Task<JsonElement> RemoveMarketplaceAsync(string marketplaceName)
+    {
+        if (string.IsNullOrWhiteSpace(marketplaceName))
+            throw new ArgumentException("Не указано имя маркетплейса.", nameof(marketplaceName));
+        return SendRequestAsync("marketplace/remove", new { marketplaceName = marketplaceName.Trim() });
+    }
+
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         return await RunWithSessionAsync(async send =>

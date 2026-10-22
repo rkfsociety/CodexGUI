@@ -5,8 +5,8 @@ Renders a CodexGUI interface view to PNG without launching CodexGUI.
 .DESCRIPTION
 Loads App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
 the built-in Activity and Actions windows, the dark file, folder, or save picker, the automation
-editor and its calendar, the marketplace-add dialog, the worktree setup window, or the Pull Request
-editor with local preview data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
+editor and its calendar, the marketplace-add dialog and source manager, the worktree setup window,
+or the Pull Request editor with local preview data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
 
 .EXAMPLE
 dotnet build --no-restore
@@ -30,6 +30,10 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Actions -O
 .EXAMPLE
 dotnet build --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View MarketplaceAdd -OutputPath .\preview\marketplace-add.png
+
+.EXAMPLE
+dotnet build --no-restore
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View MarketplaceManager -OutputPath .\preview\marketplace-manager.png
 
 .EXAMPLE
 dotnet build --no-restore
@@ -60,7 +64,7 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View SavePicker
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'MarketplaceAdd', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
+    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'MarketplaceAdd', 'MarketplaceManager', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [int]$Width = 0,
@@ -81,8 +85,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'App.xaml was not found beside this script.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'MarketplaceAdd') { 560 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'MarketplaceManager') { 520 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -489,6 +493,60 @@ elseif ($View -eq 'MarketplaceAdd') {
     $windowContent = $window.Content
     if ($null -eq $windowContent) {
         throw "The marketplace editor has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
+    }
+    $window.Content = $null
+    $visual = [System.Windows.Controls.Grid]::new()
+    $visual.Background = $application.Resources['Canvas']
+    $visual.SetValue([System.Windows.Documents.TextElement]::ForegroundProperty, $application.Resources['TextMain'])
+    [void]$visual.Children.Add($windowContent)
+}
+elseif ($View -eq 'MarketplaceManager') {
+    $assemblyCandidates = @(
+        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTime -Descending
+    $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $assemblyPath) {
+        throw 'Build CodexGUI first with dotnet build --no-restore to preview the marketplace manager.'
+    }
+
+    $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
+    $catalogType = $assembly.GetType('CodexGUI.CodexMarketplaceCatalog', $true)
+    $staticFlags = [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $fixtures = @{ marketplaces = @(
+        @{ name = 'sample-tools'; root = 'C:\Codex\marketplaces\sample-tools' },
+        @{ name = 'local-workflows'; root = 'C:\Codex\marketplaces\local-workflows' }
+    ) }
+    $parseMethod = $catalogType.GetMethod('Parse', $staticFlags)
+    $fixtureJson = [string]($fixtures | ConvertTo-Json -Depth 5)
+    $marketplaces = $parseMethod.Invoke($null, [object[]]@($fixtureJson))
+    if ($marketplaces.Count -ne 2 -or $marketplaces[0].Name -ne 'local-workflows') {
+        throw 'Marketplace manager preview could not parse and sort its local fixtures.'
+    }
+
+    $windowType = $assembly.GetType('CodexGUI.CodexMarketplaceManagerWindow', $true)
+    $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 2 } | Select-Object -First 1
+    if ($null -eq $constructor) {
+        throw 'The marketplace manager preview constructor was not found in the built assembly.'
+    }
+    $constructorArguments = [object[]]::new(2)
+    $constructorArguments[0] = $marketplaces
+    $constructorArguments[1] = $null
+    $window = $constructor.Invoke($constructorArguments)
+    $list = $windowType.GetField('_list', $flags).GetValue($window)
+    $remove = $windowType.GetField('_remove', $flags).GetValue($window)
+    $list.SelectedIndex = 0
+    if (-not $remove.IsEnabled) { throw 'Selecting a marketplace did not enable its remove action.' }
+    $list.SelectedIndex = -1
+    if ($remove.IsEnabled) { throw 'Clearing the marketplace selection left its remove action enabled.' }
+    $list.SelectedIndex = 0
+    $window.Width = $Width
+    $window.Height = $Height
+    $windowContent = $window.Content
+    if ($null -eq $windowContent) {
+        throw "The marketplace manager has no content in the built assembly at $assemblyPath. Rebuild CodexGUI before capturing this view."
     }
     $window.Content = $null
     $visual = [System.Windows.Controls.Grid]::new()
