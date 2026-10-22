@@ -13,6 +13,29 @@
     <SolidColorBrush x:Key="TextFaint" Color="#7F95AA" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
     <SolidColorBrush x:Key="AccentSoft" Color="#204139" />
+    <Style x:Key="ComposerDropdownButton" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="BorderBrush" Value="#344B5B" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#2A4151" />
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="#587286" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#1B2A36" /></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#92E5C7" /></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.55" /></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="ScrollBar">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#55585F" />
@@ -81,7 +104,7 @@
       <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="52"/><RowDefinition Height="44"/><RowDefinition Height="40"/><RowDefinition Height="*" MaxHeight="132"/><RowDefinition Height="38"/><RowDefinition Height="3*" MinHeight="60"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="50"/></Grid.RowDefinitions>
       <DockPanel Grid.Row="0" LastChildFill="True">
         <Button x:Name="CollapseButton" DockPanel.Dock="Right" Width="34" Padding="0" Content="‹" FontSize="19" Foreground="{StaticResource TextMuted}" ToolTip="Свернуть боковую панель" />
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="29" Height="29" CornerRadius="9" Background="#92E5C7" Margin="0,0,9,0"><TextBlock Text="✳" Foreground="#121D27" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Codex" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock Text="⌄" Foreground="{StaticResource TextMuted}" FontSize="12" Margin="8,1,0,0" VerticalAlignment="Center"/></StackPanel>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="29" Height="29" CornerRadius="9" Background="#92E5C7" Margin="0,0,9,0"><TextBlock Text="✳" Foreground="#121D27" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Codex" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/></StackPanel>
       </DockPanel>
       <Button x:Name="NewChatButton" Grid.Row="1" Margin="0,8,0,0" Background="#204139" Foreground="{StaticResource Accent}" HorizontalContentAlignment="Stretch" Padding="12,8"><DockPanel><TextBlock Text="Ctrl K" DockPanel.Dock="Right" Foreground="{StaticResource TextMuted}" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="＋" FontSize="18" Margin="0,0,10,0"/><TextBlock Text="Новый чат" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel></Button>
       <Button x:Name="SearchButton" Grid.Row="2" Margin="0,3,0,0" HorizontalContentAlignment="Stretch" Foreground="{StaticResource TextMuted}"><DockPanel><TextBlock Text="Ctrl F" DockPanel.Dock="Right" Foreground="{StaticResource TextFaint}" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="⌕" FontSize="20" Margin="1,0,10,0"/><TextBlock Text="Поиск чатов" VerticalAlignment="Center"/></DockPanel></Button>
@@ -191,10 +214,10 @@
                 <Button x:Name="ScreenshotButton" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать область экрана и добавить снимок в контекст"><StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="13" Margin="0,0,6,0"/><TextBlock Text="Скриншот" FontSize="11"/></StackPanel></Button>
                 <Button x:Name="SkillsButton" Content="Скиллы" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" FontSize="11" ToolTip="Добавить скилл в запрос: imagegen, computer-use и другие"/><Button x:Name="ThreadGoalButton" Content="Цель" Height="32" Padding="9,0" Margin="7,0,0,0" Background="#213341" Foreground="#C8D4E2" FontSize="11" IsEnabled="False" ToolTip="Управлять сохранённой целью текущего чата"/>
               </WrapPanel><WrapPanel Margin="0,10,0,0">
-                <Button x:Name="ModelButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать модель"><StackPanel Orientation="Horizontal"><TextBlock Text="Модель" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="ModelLabel" Text="gpt-6-luna" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
-                <Button x:Name="EffortButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать уровень усилий"><StackPanel Orientation="Horizontal"><TextBlock Text="Усилия" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="EffortLabel" Text="Высокие" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><TextBlock Text="⌄" Margin="6,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
+                <Button x:Name="ModelButton" Style="{StaticResource ComposerDropdownButton}" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать модель"><StackPanel Orientation="Horizontal"><TextBlock Text="Модель" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="ModelLabel" Text="gpt-6-luna" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><Path Width="9" Height="6" Stretch="Fill" Margin="9,0,0,0" Stroke="{StaticResource TextFaint}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4.5,4.8 L8.2,0.8"/></StackPanel></Button>
+                <Button x:Name="EffortButton" Style="{StaticResource ComposerDropdownButton}" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Выбрать уровень усилий"><StackPanel Orientation="Horizontal"><TextBlock Text="Усилия" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="EffortLabel" Text="Высокие" FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"/><Path Width="9" Height="6" Stretch="Fill" Margin="9,0,0,0" Stroke="{StaticResource TextFaint}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4.5,4.8 L8.2,0.8"/></StackPanel></Button>
                 <Button x:Name="WorktreeButton" Height="32" Padding="9,0" Margin="0,0,5,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Вести этот чат в отдельном Git worktree через Codex CLI"><StackPanel Orientation="Horizontal"><TextBlock Text="⑂" FontSize="15" Margin="0,0,6,0"/><TextBlock x:Name="WorktreeLabel" Text="Рабочая копия" FontSize="10"/></StackPanel></Button>
-                <Button x:Name="ModeButton" Height="32" Padding="9,0" Margin="0,0,0,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Настроить доступ и подтверждения"><StackPanel Orientation="Horizontal"><Path Width="13" Height="15" Margin="0,0,7,0" Stroke="#9FB2C3" StrokeThickness="1.2" Fill="Transparent" Data="M6.5,0.5 L12,2.5 V7.1 C12,10.2 9.7,12.7 6.5,14.5 C3.3,12.7 1,10.2 1,7.1 V2.5 Z"/><TextBlock x:Name="AccessModeLabel" Text="Попросить подтверждение" FontSize="10"/><TextBlock Text="⌄" Margin="7,0,0,0" Foreground="{StaticResource TextFaint}"/></StackPanel></Button>
+                <Button x:Name="ModeButton" Style="{StaticResource ComposerDropdownButton}" Height="32" Padding="9,0" Margin="0,0,0,5" Background="#213341" Foreground="#C8D4E2" ToolTip="Настроить доступ и подтверждения"><StackPanel Orientation="Horizontal"><Path Width="13" Height="15" Margin="0,0,7,0" Stroke="#9FB2C3" StrokeThickness="1.2" Fill="Transparent" Data="M6.5,0.5 L12,2.5 V7.1 C12,10.2 9.7,12.7 6.5,14.5 C3.3,12.7 1,10.2 1,7.1 V2.5 Z"/><TextBlock x:Name="AccessModeLabel" Text="Попросить подтверждение" FontSize="10"/><Path Width="9" Height="6" Stretch="Fill" Margin="9,0,0,0" Stroke="{StaticResource TextFaint}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4.5,4.8 L8.2,0.8"/></StackPanel></Button>
               </WrapPanel></StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
                 <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата"><Ellipse Stroke="#435D6D" StrokeThickness="2.6"/><Path x:Name="ContextUsageArc" Stroke="#92E5C7" StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><TextBlock x:Name="ContextPercent" Text="—" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
