@@ -182,7 +182,7 @@ internal sealed class CodexTerminalWindow : Window
             Foreground = Brush("#ECF2F5"),
             BorderBrush = Brush("#2A3946"),
             BorderThickness = new Thickness(1),
-            ToolTip = "Введите команду и нажмите Enter. Ctrl+C прерывает текущую команду."
+            ToolTip = "Введите команду и нажмите Enter. Выделенный текст копируется через Ctrl+C; без выделения Ctrl+C прерывает команду."
         };
         tab.Input.PreviewKeyDown += async (_, e) =>
         {
@@ -196,8 +196,11 @@ internal sealed class CodexTerminalWindow : Window
             }
             else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.C)
             {
-                e.Handled = true;
-                await SendInputAsync(tab, "\x03");
+                if (tab.Input.SelectionLength == 0)
+                {
+                    e.Handled = true;
+                    await SendInputAsync(tab, "\x03");
+                }
             }
             else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.D)
             {
