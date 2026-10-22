@@ -333,6 +333,7 @@ elseif ($View -eq 'Actions') {
     $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
     $itemListType = [System.Collections.Generic.List``1].MakeGenericType($itemType)
     $items = [Activator]::CreateInstance($itemListType)
+    $projectItems = [Activator]::CreateInstance($itemListType)
     foreach ($previewAction in @(
         @('Проверить изменения', 'Изучи текущие изменения, найди ошибки и предложи точечные исправления. Проверь diff и релевантные сценарии.'),
         @('Объяснить файл', 'Объясни назначение файла, его основные части и связи с остальным проектом.')
@@ -342,13 +343,18 @@ elseif ($View -eq 'Actions') {
         $itemType.GetProperty('Prompt').SetValue($item, $previewAction[1])
         $itemListType.GetMethod('Add').Invoke($items, [object[]]@($item)) | Out-Null
     }
+    $projectAction = [Activator]::CreateInstance($itemType)
+    $itemType.GetProperty('Name').SetValue($projectAction, 'Обновить документацию')
+    $itemType.GetProperty('Prompt').SetValue($projectAction, 'Проверь документацию проекта и обнови её для текущего изменения.')
+    $itemListType.GetMethod('Add').Invoke($projectItems, [object[]]@($projectAction)) | Out-Null
     $save = [Func[bool]]{ $true }
+    $saveProject = [Func[bool]]{ $true }
     $insert = [System.Action[string]]{ param([string]$prompt) }
-    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 3 } | Select-Object -First 1
+    $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 6 } | Select-Object -First 1
     if ($null -eq $constructor) {
         throw 'The Actions window preview constructor was not found in the built assembly.'
     }
-    $window = $constructor.Invoke([object[]]@($items, $save, $insert))
+    $window = $constructor.Invoke([object[]]@($items, $projectItems, $save, $saveProject, $true, $insert))
     $window.Width = $Width
     $window.Height = $Height
     $windowContent = $window.Content

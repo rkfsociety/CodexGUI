@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -19,8 +21,11 @@ internal sealed class CodexActionDefinition
 internal sealed class CodexActionsWindow : Window
 {
     private readonly IList<CodexActionDefinition> _actions;
+    private readonly IList<CodexActionDefinition> _projectActions;
     private readonly Func<bool> _saveActions;
+    private readonly Func<bool> _saveProjectActions;
     private readonly Action<string> _insertPrompt;
+    private readonly bool _projectActionsAvailable;
     private readonly ListBox _list = new()
     {
         Background = Brush("#16212B"),
@@ -30,19 +35,30 @@ internal sealed class CodexActionsWindow : Window
     private readonly Button _editButton = new() { Content = "Изменить", IsEnabled = false };
     private readonly Button _deleteButton = new() { Content = "Удалить", IsEnabled = false };
     private readonly Button _insertButton = new() { Content = "Вставить в черновик", IsEnabled = false };
+    private readonly Button _addLocalButton = MakeButton("＋  Личное действие");
+    private readonly Button _addProjectButton = MakeButton("＋  Действие проекта");
     private readonly TextBlock _empty = new()
     {
-        Text = "Сохранённых действий пока нет. Создайте шаблон для повторяющихся запросов.",
+        Text = "Пока нет сохранённых личных или проектных действий.",
         Foreground = Brush("#A7B5C0"),
         TextWrapping = TextWrapping.Wrap,
         FontSize = 12,
         Margin = new Thickness(8, 8, 8, 0)
     };
 
-    public CodexActionsWindow(IList<CodexActionDefinition> actions, Func<bool> saveActions, Action<string> insertPrompt)
+    public CodexActionsWindow(
+        IList<CodexActionDefinition> actions,
+        IList<CodexActionDefinition> projectActions,
+        Func<bool> saveActions,
+        Func<bool> saveProjectActions,
+        bool projectActionsAvailable,
+        Action<string> insertPrompt)
     {
         _actions = actions;
+        _projectActions = projectActions;
         _saveActions = saveActions;
+        _saveProjectActions = saveProjectActions;
+        _projectActionsAvailable = projectActionsAvailable;
         _insertPrompt = insertPrompt;
         Title = "Действия для композера";
         Width = 760;
@@ -73,7 +89,7 @@ internal sealed class CodexActionsWindow : Window
         });
         var note = new TextBlock
         {
-            Text = "Выберите шаблон, чтобы добавить его в черновик. Запрос не отправится, пока вы сами не нажмёте кнопку отправки.",
+            Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавьте этот файл в Git, чтобы передать шаблоны коллегам. Выбор только вставляет текст в черновик.",
             FontSize = 11,
             Foreground = Brush("#A7B5C0"),
             TextWrapping = TextWrapping.Wrap,
@@ -107,21 +123,32 @@ internal sealed class CodexActionsWindow : Window
         _editButton.Margin = new Thickness(8, 0, 0, 0);
         _editButton.Click += (_, _) => EditSelected();
         buttons.Children.Add(_editButton);
-        var add = MakeButton("＋  Новое действие");
-        add.Click += (_, _) => AddAction();
-        buttons.Children.Add(add);
+        _addProjectButton.IsEnabled = _projectActionsAvailable;
+        _addProjectButton.ToolTip = _projectActionsAvailable
+            ? "Сохранить действие в .codex/codexgui-actions.json выбранного проекта"
+            : "Папка выбранного проекта недоступна";
+        _addProjectButton.Click += (_, _) => AddAction(isProject: true);
+        buttons.Children.Add(_addProjectButton);
+        _addLocalButton.Click += (_, _) => AddAction(isProject: false);
+        buttons.Children.Add(_addLocalButton);
         Grid.SetRow(buttons, 3);
         root.Children.Add(buttons);
         return root;
     }
 
-    private void RefreshList(string? selectId = null)
+    private void RefreshList(string? selectId = null, bool selectProjectAction = false)
     {
         _list.Items.Clear();
-        foreach (var action in _actions.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+        foreach (var entry in GetActionEntries()
+                     .OrderBy(item => item.Action.Name, StringComparer.CurrentCultureIgnoreCase)
+                     .ThenBy(item => item.IsProject))
         {
+            var action = entry.Action;
             var content = new StackPanel();
-            content.Children.Add(new TextBlock
+            var title = new Grid();
+            title.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            title.Children.Add(new TextBlock
             {
                 Text = action.Name,
                 FontSize = 13,
@@ -129,6 +156,18 @@ internal sealed class CodexActionsWindow : Window
                 Foreground = Brush("#ECF2F5"),
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
+            var scope = new TextBlock
+            {
+                Text = entry.IsProject ? "ПРОЕКТ" : "ЛИЧНОЕ",
+                FontSize = 8,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brush(entry.IsProject ? "#92E5C7" : "#81909C"),
+                Margin = new Thickness(12, 2, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            Grid.SetColumn(scope, 1);
+            title.Children.Add(scope);
+            content.Children.Add(title);
             content.Children.Add(new TextBlock
             {
                 Text = action.Prompt,
@@ -149,67 +188,69 @@ internal sealed class CodexActionsWindow : Window
                 BorderThickness = new Thickness(1)
             };
             _list.Items.Add(item);
-            if (action.Id == selectId) _list.SelectedItem = item;
+            if (action.Id == selectId && entry.IsProject == selectProjectAction) _list.SelectedItem = item;
         }
-        _empty.Visibility = _actions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _empty.Visibility = _actions.Count + _projectActions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateButtons();
     }
 
-    private void AddAction()
+    private void AddAction(bool isProject)
     {
         var editor = new CodexActionEditorWindow(null) { Owner = this };
         if (editor.ShowDialog() != true || editor.Result is not { } result) return;
         if (NameExists(result.Name, null)) return;
         var action = new CodexActionDefinition { Name = result.Name, Prompt = result.Prompt };
-        _actions.Add(action);
-        if (!_saveActions())
+        var actions = isProject ? _projectActions : _actions;
+        actions.Add(action);
+        if (!SaveActions(isProject))
         {
-            _actions.Remove(action);
-            ShowSaveError();
+            actions.Remove(action);
             return;
         }
-        RefreshList(action.Id);
+        RefreshList(action.Id, isProject);
     }
 
     private void EditSelected()
     {
-        if (SelectedAction() is not { } action) return;
+        if (SelectedEntry() is not { } entry) return;
+        var action = entry.Action;
         var editor = new CodexActionEditorWindow(action) { Owner = this };
         if (editor.ShowDialog() != true || editor.Result is not { } result) return;
-        if (NameExists(result.Name, action.Id)) return;
+        if (NameExists(result.Name, action)) return;
         var oldName = action.Name;
         var oldPrompt = action.Prompt;
         action.Name = result.Name;
         action.Prompt = result.Prompt;
-        if (!_saveActions())
+        if (!SaveActions(entry.IsProject))
         {
             action.Name = oldName;
             action.Prompt = oldPrompt;
-            ShowSaveError();
             return;
         }
-        RefreshList(action.Id);
+        RefreshList(action.Id, entry.IsProject);
     }
 
     private void DeleteSelected()
     {
-        if (SelectedAction() is not { } action) return;
+        if (SelectedEntry() is not { } entry) return;
+        var action = entry.Action;
         if (CodexMessageDialog.Show(this, $"Удалить действие «{action.Name}»?", "Удалить действие",
             MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-        var index = _actions.IndexOf(action);
-        _actions.RemoveAt(index);
-        if (!_saveActions())
+        var actions = entry.IsProject ? _projectActions : _actions;
+        var index = actions.IndexOf(action);
+        actions.RemoveAt(index);
+        if (!SaveActions(entry.IsProject))
         {
-            _actions.Insert(index, action);
-            ShowSaveError();
+            actions.Insert(index, action);
             return;
         }
         RefreshList();
     }
 
-    private bool NameExists(string name, string? exceptId)
+    private bool NameExists(string name, CodexActionDefinition? exceptAction)
     {
-        if (!_actions.Any(action => action.Id != exceptId && string.Equals(action.Name, name, StringComparison.OrdinalIgnoreCase)))
+        if (!GetActionEntries().Any(entry => !ReferenceEquals(entry.Action, exceptAction)
+            && string.Equals(entry.Action.Name, name, StringComparison.OrdinalIgnoreCase)))
             return false;
         CodexMessageDialog.Show(this, "Действие с таким названием уже есть.", "Переименуйте действие",
             MessageBoxButton.OK, MessageBoxImage.Information);
@@ -218,24 +259,52 @@ internal sealed class CodexActionsWindow : Window
 
     private void InsertSelected()
     {
-        if (SelectedAction() is not { } action) return;
-        _insertPrompt(action.Prompt);
+        if (SelectedEntry() is not { } entry) return;
+        _insertPrompt(entry.Action.Prompt);
         Close();
     }
 
-    private CodexActionDefinition? SelectedAction() => (_list.SelectedItem as ListBoxItem)?.Tag as CodexActionDefinition;
+    private IEnumerable<ActionEntry> GetActionEntries()
+        => _actions.Select(action => new ActionEntry(action, IsProject: false))
+            .Concat(_projectActions.Select(action => new ActionEntry(action, IsProject: true)));
+
+    private ActionEntry? SelectedEntry() => (_list.SelectedItem as ListBoxItem)?.Tag as ActionEntry;
+
+    private bool SaveActions(bool isProject)
+    {
+        try
+        {
+            var saved = isProject ? _saveProjectActions() : _saveActions();
+            if (!saved) ShowSaveError(isProject);
+            return saved;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException
+            or InvalidDataException or NotSupportedException)
+        {
+            ShowSaveError(isProject, error.Message);
+            return false;
+        }
+    }
 
     private void UpdateButtons()
     {
-        var hasSelection = SelectedAction() is not null;
+        var hasSelection = SelectedEntry() is not null;
         _editButton.IsEnabled = hasSelection;
         _deleteButton.IsEnabled = hasSelection;
         _insertButton.IsEnabled = hasSelection;
     }
 
-    private void ShowSaveError()
-        => CodexMessageDialog.Show(this, "CodexGUI не смог сохранить список действий. Проверьте состояние файлов приложения.",
-            "Не удалось сохранить действия", MessageBoxButton.OK, MessageBoxImage.Error);
+    private void ShowSaveError(bool isProject, string? detail = null)
+    {
+        var message = isProject
+            ? "Не удалось сохранить .codex/codexgui-actions.json выбранного проекта. Проверьте права доступа к папке проекта."
+            : "CodexGUI не смог сохранить личный список действий. Проверьте состояние файлов приложения.";
+        if (!string.IsNullOrWhiteSpace(detail)) message += Environment.NewLine + detail;
+        CodexMessageDialog.Show(this, message, "Не удалось сохранить действия",
+            MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private sealed record ActionEntry(CodexActionDefinition Action, bool IsProject);
 
     private static Button MakeButton(string text) => new()
     {

@@ -5239,7 +5239,38 @@ public partial class MainWindow : Window
 
     private void ShowActionsWindow()
     {
-        var window = new CodexActionsWindow(_actions, SaveState, InsertActionPrompt) { Owner = this };
+        var projectPath = _selectedProject?.Path;
+        var projectActionsAvailable = !string.IsNullOrWhiteSpace(projectPath) && Directory.Exists(projectPath);
+        List<CodexActionDefinition> projectActions = [];
+        string? projectActionsRevision = null;
+        if (projectActionsAvailable)
+        {
+            try
+            {
+                projectActions = CodexProjectActionStore.Load(projectPath!, out projectActionsRevision);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+            {
+                CodexMessageDialog.Show(this,
+                    $"Не удалось прочитать .codex/codexgui-actions.json выбранного проекта: {error.Message}",
+                    "Не удалось прочитать действия проекта", MessageBoxButton.OK, MessageBoxImage.Error);
+                projectActionsAvailable = false;
+            }
+        }
+
+        var window = new CodexActionsWindow(
+            _actions,
+            projectActions,
+            SaveState,
+            () =>
+            {
+                if (!projectActionsAvailable) return false;
+                projectActionsRevision = CodexProjectActionStore.Save(projectPath!, projectActions, projectActionsRevision);
+                return true;
+            },
+            projectActionsAvailable,
+            InsertActionPrompt)
+        { Owner = this };
         window.ShowDialog();
     }
 

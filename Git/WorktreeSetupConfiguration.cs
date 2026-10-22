@@ -77,7 +77,7 @@ internal static class WorktreeSetupConfiguration
         return relative;
     }
 
-    private static void EnsureNoReparsePoints(string root, string targetPath)
+    internal static void EnsureNoReparsePoints(string root, string targetPath)
     {
         var relative = Path.GetRelativePath(root, targetPath);
         var current = Path.GetFullPath(root);
