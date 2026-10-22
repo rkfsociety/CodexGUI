@@ -5877,7 +5877,7 @@ public partial class MainWindow : Window
             Owner = this,
             Title = "Поиск по чатам",
             Width = 430,
-            Height = 170,
+            Height = 195,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             Background = Brush("#16212B"),
@@ -5887,22 +5887,50 @@ public partial class MainWindow : Window
         var layout = new StackPanel { Margin = new Thickness(18) };
         layout.Children.Add(new TextBlock { Text = "Найти чат", FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) });
         var query = new TextBox { Height = 38, Padding = new Thickness(10, 8, 10, 5), Background = Brush("#25272C"), Text = "" };
-        query.TextChanged += (_, _) =>
+        var result = new TextBlock
         {
-            var match = _threads.LastOrDefault(thread => thread.Title.Contains(query.Text, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(query.Text) && match is not null) dialog.Tag = match;
+            Text = "Введите часть названия чата.",
+            Foreground = Brush("#A7B5C0"),
+            FontSize = 10,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 6, 0, 0)
         };
-        layout.Children.Add(query);
-        var open = new Button { Content = "Открыть чат", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0), Background = Brush("#2A3946") };
+        var open = new Button
+        {
+            Content = "Открыть чат",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 10, 0, 0),
+            Background = Brush("#2A3946"),
+            IsEnabled = false,
+            IsDefault = true
+        };
+        query.TextChanged += (_, _) => UpdateChatSearchState(dialog, open, result, _threads, query.Text);
         open.Click += (_, _) =>
         {
-            if (dialog.Tag is ChatThread match) SelectThread(match);
+            if (dialog.Tag is not ChatThread match) return;
+            _showArchivedChats = match.IsArchived;
+            SelectThread(match);
             dialog.Close();
         };
+        layout.Children.Add(query);
+        layout.Children.Add(result);
         layout.Children.Add(open);
         dialog.Content = layout;
         dialog.Loaded += (_, _) => query.Focus();
         dialog.ShowDialog();
+    }
+
+    private static void UpdateChatSearchState(Window dialog, Button open, TextBlock result, IEnumerable<ChatThread> threads, string query)
+    {
+        var normalizedQuery = query.Trim();
+        var match = normalizedQuery.Length == 0
+            ? null
+            : threads.LastOrDefault(thread => thread.Title.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase));
+        dialog.Tag = match;
+        open.IsEnabled = match is not null;
+        result.Text = normalizedQuery.Length == 0
+            ? "Введите часть названия чата."
+            : match is null ? "Совпадений нет." : $"Откроется последний совпавший чат: {match.Title}";
     }
 
     private void SetStatus(string title, string detail, bool isError = false)
