@@ -123,7 +123,12 @@ internal static class CodexAppServerRuntime
         }
         catch
         {
-            if (Directory.Exists(stagingDirectory)) Directory.Delete(stagingDirectory, recursive: true);
+            if (Directory.Exists(stagingDirectory))
+            {
+                try { Directory.Delete(stagingDirectory, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
             throw;
         }
         finally

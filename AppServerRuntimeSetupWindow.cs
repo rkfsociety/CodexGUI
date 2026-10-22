@@ -70,7 +70,7 @@ internal sealed class AppServerRuntimeSetupWindow : Window
         }
         else
         {
-            _progress.IsIndeterminate = progress.BytesReceived == 0;
+            _progress.IsIndeterminate = true;
         }
     }
 }
