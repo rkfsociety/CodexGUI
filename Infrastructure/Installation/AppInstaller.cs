@@ -133,12 +133,13 @@ internal static class AppInstaller
 
     private static void LaunchInstalledCopy(string executablePath, string workingDirectory)
     {
-        var process = Process.Start(new ProcessStartInfo(executablePath)
+        using var process = Process.Start(new ProcessStartInfo(executablePath)
         {
             UseShellExecute = true,
             WorkingDirectory = workingDirectory
         });
-        process?.Dispose();
+        if (process is null)
+            throw new InvalidOperationException("Не удалось запустить установленный CodexGUI.");
     }
 
     private static void CreateStartMenuShortcut(string executablePath)

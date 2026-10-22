@@ -88,9 +88,6 @@ internal static class CodexAppServerRuntime
         CancellationToken cancellationToken = default)
     {
         if (IsInstalled) return;
-        if (Directory.Exists(RuntimeDirectory))
-            throw new InvalidDataException($"Пакет Codex App Server {Version} найден, но повреждён: {RuntimeDirectory}");
-
         var archivePath = Path.Combine(Path.GetTempPath(), $"CodexGUI-app-server-{Guid.NewGuid():N}.tar.gz");
         var stagingDirectory = RuntimeDirectory + ".stage-" + Guid.NewGuid().ToString("N");
         try
@@ -113,6 +110,14 @@ internal static class CodexAppServerRuntime
             foreach (var relativePath in RequiredPackageFiles)
                 if (!File.Exists(Path.Combine(stagingDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar))))
                     throw new InvalidDataException($"В официальном пакете отсутствует {relativePath}.");
+
+            // Preserve an incomplete installation until a verified replacement is ready.
+            if (Directory.Exists(RuntimeDirectory) && !IsInstalled)
+            {
+                if ((new DirectoryInfo(RuntimeDirectory).Attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Повреждённый runtime Codex App Server не должен быть junction или symbolic link.");
+                Directory.Move(RuntimeDirectory, RuntimeDirectory + ".invalid-" + Guid.NewGuid().ToString("N"));
+            }
 
             try { Directory.Move(stagingDirectory, RuntimeDirectory); }
             catch (IOException) when (IsInstalled)

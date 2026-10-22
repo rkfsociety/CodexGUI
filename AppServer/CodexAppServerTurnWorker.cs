@@ -365,7 +365,7 @@ internal static class CodexAppServerTurnWorker
     }
 
     private static string? ReadString(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }
 
 internal sealed class CodexAppServerWorkerControl
@@ -386,6 +386,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _pending = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private int _nextRequestId;
+    private int _readerCompleted;
 
     private CodexAppServerConnection(Process process)
     {
@@ -449,6 +450,8 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         if (!_pending.TryAdd(key, completion)) throw new InvalidOperationException("Не удалось зарегистрировать запрос app-server.");
         try
         {
+            if (Volatile.Read(ref _readerCompleted) != 0)
+                throw new EndOfStreamException("Codex app-server уже закрыл соединение.");
             await WriteMessageAsync(new { id, method, @params = parameters });
             return timeout is { } responseTimeout
                 ? await completion.Task.WaitAsync(responseTimeout, cancellationToken)
@@ -485,12 +488,15 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
 
     private async Task ReadMessagesAsync()
     {
+        Exception? readerFailure = null;
         try
         {
             while (await _process.StandardOutput.ReadLineAsync() is { } line)
             {
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException("Codex app-server вернул некорректный JSON-RPC ответ.");
                 if (root.TryGetProperty("id", out var id))
                 {
                     if (root.TryGetProperty("method", out _))
@@ -513,21 +519,22 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
                 }
                 if (root.TryGetProperty("method", out _)) await _incoming.Writer.WriteAsync(root.Clone());
             }
-            foreach (var pending in _pending.Values)
-                pending.TrySetException(new EndOfStreamException("Codex app-server завершился до ответа."));
         }
         catch (Exception error)
         {
-            foreach (var pending in _pending.Values) pending.TrySetException(error);
+            readerFailure = error;
         }
         finally
         {
-            _incoming.Writer.TryComplete();
+            Volatile.Write(ref _readerCompleted, 1);
+            foreach (var pending in _pending.Values)
+                pending.TrySetException(readerFailure ?? new EndOfStreamException("Codex app-server завершился до ответа."));
+            _incoming.Writer.TryComplete(readerFailure);
         }
     }
 
     private static string? ReadString(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     public async ValueTask DisposeAsync()
     {
@@ -542,10 +549,13 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
                 {
                     try { _process.Kill(entireProcessTree: true); }
                     catch (InvalidOperationException) { }
+                    try { await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+                    catch (TimeoutException) { }
                 }
             }
             // A descendant may retain stdout/stderr even after the server exits.
-            await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(5));
+            try { await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { }
         }
         finally
         {

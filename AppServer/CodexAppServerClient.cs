@@ -80,11 +80,11 @@ internal sealed class CodexAppServerClient(string executablePath)
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
                     throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
                 turns.AddRange(data.EnumerateArray().Select(item => item.Clone()));
-                cursor = Text(response, "nextCursor");
-                if (++page >= 200 && cursor.Length > 0)
+                cursor = ReadCursor(response);
+                if (++page >= 200 && !string.IsNullOrEmpty(cursor))
                     throw new InvalidDataException("История чата слишком велика для восстановления в одном окне.");
             }
-            while (cursor.Length > 0);
+            while (!string.IsNullOrEmpty(cursor));
 
             turns.Reverse();
             var threadFields = thread.EnumerateObject()
@@ -145,11 +145,11 @@ internal sealed class CodexAppServerClient(string executablePath)
                         models.Count));
                 }
 
-                cursor = Text(response, "nextCursor");
-                if (++page >= 20 && cursor.Length > 0)
+                cursor = ReadCursor(response);
+                if (++page >= 20 && !string.IsNullOrEmpty(cursor))
                     throw new InvalidDataException("Каталог моделей Codex App Server содержит слишком много страниц.");
             }
-            while (cursor.Length > 0);
+            while (!string.IsNullOrEmpty(cursor));
 
             return models;
         });
@@ -250,6 +250,17 @@ internal sealed class CodexAppServerClient(string executablePath)
         throw new EndOfStreamException("Codex app-server завершился до ответа.");
     }
 
+    private static string? ReadCursor(JsonElement response)
+    {
+        if (response.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Codex App Server вернул некорректную страницу данных.");
+        if (!response.TryGetProperty("nextCursor", out var cursor) || cursor.ValueKind == JsonValueKind.Null)
+            return null;
+        if (cursor.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("Codex App Server вернул некорректный курсор следующей страницы.");
+        return cursor.GetString();
+    }
+
     private static string Text(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
 }

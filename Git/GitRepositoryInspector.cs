@@ -95,7 +95,7 @@ internal static class GitRepositoryInspector
             arguments.Add(gitPath);
             result = await RunGitAsync(root, cancellationToken, arguments.ToArray());
         }
-        if (result.ExitCode > 1)
+        if (result.ExitCode != 0 && !(file.IsUntracked && result.ExitCode == 1))
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim());
 
         const int maximumDiffCharacters = 500_000;
