@@ -64,7 +64,6 @@ public partial class MainWindow : Window
     private bool _repositoryRefreshPending;
     private bool _isReviewingChanges;
     private bool _isGitCommandRunning;
-    private string _updateProgressText = "Проверка обновлений…";
     private string _usageLimitsText = "Загружаю лимиты Codex…";
     private string _usageLimitsTooltip = "Лимиты аккаунта Codex";
     private FileSystemWatcher? _viewWatcher;
@@ -109,7 +108,7 @@ public partial class MainWindow : Window
         _usageRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
         _usageRefreshTimer.Tick += async (_, _) => await RefreshUsageLimitsAsync();
         _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
-        _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(interactive: false);
+        _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
         _repositoryRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _repositoryRefreshTimer.Tick += async (_, _) => await RefreshRepositoryInfoAsync();
         _automationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -134,6 +133,7 @@ public partial class MainWindow : Window
         {
             _ = RefreshUsageLimitsAsync();
             _updateCheckTimer.Start();
+            _ = CheckForUpdatesAsync();
             _automationTimer.Start();
             RenderPromptQueue();
             _ = ResumePendingWorkAsync();
@@ -169,29 +169,22 @@ public partial class MainWindow : Window
         };
     }
 
-    private async Task CheckForUpdatesAsync(bool interactive)
+    private async Task CheckForUpdatesAsync()
     {
         if (_isCheckingUpdates || _isInstallingUpdate || _isClosing) return;
         if (_preparedUpdate is not null) return;
+        if (AppInstaller.IsDevelopmentCheckout(Environment.ProcessPath ?? string.Empty)) return;
 
         _isCheckingUpdates = true;
-        _updateProgressText = "Проверка обновлений…";
-        UpdateUpdateButton();
         SetTrayTooltip("Codex — проверяю обновления");
         try
         {
             var update = await AppUpdater.FindUpdateAsync(_updateCheckCancellation.Token);
             if (_isClosing) return;
             if (update is null)
-            {
-                if (interactive)
-                    MessageBox.Show(this, $"Установлена последняя версия CodexGUI ({AppUpdater.CurrentVersion}).", "Обновления", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
-            }
 
-            _updateProgressText = $"Скачивание v{update.Version}…";
             SetTrayTooltip($"Codex — скачиваю обновление v{update.Version}");
-            UpdateUpdateButton();
             var preparedUpdate = await AppUpdater.DownloadAndVerifyAsync(update, _updateCheckCancellation.Token);
             if (_isClosing)
             {
@@ -202,23 +195,19 @@ public partial class MainWindow : Window
             _preparedUpdate = preparedUpdate;
             UpdateUpdateButton();
             SetTrayTooltip($"Codex — обновление v{update.Version} готово к установке");
-            _trayIcon?.ShowBalloonTip(8000, "Обновление скачано", $"Версия {update.Version} готова. Откройте Codex и нажмите кнопку обновления.", Forms.ToolTipIcon.Info);
         }
         catch (OperationCanceledException) when (_isClosing) { }
         catch (Exception error)
         {
             if (_isClosing) return;
             SetTrayTooltip("Codex — не удалось загрузить обновление");
-            _trayIcon?.ShowBalloonTip(5000, "Ошибка обновления", "Не удалось скачать или проверить обновление. Проверка повторится позже.", Forms.ToolTipIcon.Error);
-            if (interactive)
-                MessageBox.Show(this, $"Не удалось проверить или скачать обновление.\n\n{error.Message}", "Обновление CodexGUI", MessageBoxButton.OK, MessageBoxImage.Error);
+            Debug.WriteLine($"Не удалось проверить или скачать обновление CodexGUI: {error}");
         }
         finally
         {
             _isCheckingUpdates = false;
             if (!_isClosing && _preparedUpdate is null)
             {
-                UpdateUpdateButton();
                 SetTrayTooltip("Codex — готов к работе");
             }
         }
@@ -246,31 +235,14 @@ public partial class MainWindow : Window
 
     private void UpdateUpdateButton()
     {
-        if (Control<Button>("UpdateButton") is not { } button || Control<TextBlock>("UpdateButtonLabel") is not { } label) return;
-        if (_preparedUpdate is { } preparedUpdate)
-        {
-            label.Text = $"Установить v{preparedUpdate.Update.Version}";
-            button.IsEnabled = !_isInstallingUpdate;
-            button.ToolTip = "Обновление скачано и проверено. Нажмите, чтобы установить его и перезапустить Codex.";
-            button.Background = Brush("#244633");
-            button.Foreground = Brush("#B9F4CE");
-        }
-        else if (_isCheckingUpdates || _isInstallingUpdate)
-        {
-            label.Text = _isInstallingUpdate ? "Установка…" : _updateProgressText;
-            button.IsEnabled = false;
-            button.ToolTip = label.Text;
-            button.Background = Brush("#202125");
-            button.Foreground = Brush("#9A9BA1");
-        }
-        else
-        {
-            label.Text = "Проверить обновления";
-            button.IsEnabled = true;
-            button.ToolTip = $"Текущая версия: {AppUpdater.CurrentVersion}";
-            button.Background = Brush("Transparent");
-            button.Foreground = Brush("#9A9BA1");
-        }
+        if (Control<Button>("UpdateButton") is not { } button) return;
+        button.Visibility = _preparedUpdate is null ? Visibility.Collapsed : Visibility.Visible;
+        button.IsEnabled = !_isInstallingUpdate;
+        button.ToolTip = _preparedUpdate is { } preparedUpdate
+            ? $"Обновление v{preparedUpdate.Update.Version} скачано и проверено. Нажмите, чтобы установить и перезапустить Codex."
+            : null;
+        button.Background = Brush(_isInstallingUpdate ? "#202125" : "#244633");
+        button.Foreground = Brush(_isInstallingUpdate ? "#9A9BA1" : "#B9F4CE");
     }
 
     private void SetTrayTooltip(string text)
@@ -280,8 +252,7 @@ public partial class MainWindow : Window
 
     private async Task HandleUpdateButtonClickAsync()
     {
-        if (_preparedUpdate is not null) await InstallPreparedUpdateAsync();
-        else await CheckForUpdatesAsync(interactive: true);
+        await InstallPreparedUpdateAsync();
     }
 
     private void InitializeTrayIcon()
