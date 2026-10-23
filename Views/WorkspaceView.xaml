@@ -247,11 +247,21 @@
         <StackPanel x:Name="Conversation" MaxWidth="1040" HorizontalAlignment="Stretch" Margin="0,24,0,36"/>
       </ScrollViewer>
       <StackPanel HorizontalAlignment="Stretch" MaxWidth="1020" Grid.Row="2" Margin="28,0,28,22">
-        <Border x:Name="ComposerBorder" Background="{StaticResource Surface}" BorderThickness="1" CornerRadius="18" Padding="22,18,22,16">
+        <Border x:Name="PromptQueueBorder" Background="#111B24" BorderBrush="{StaticResource Line}" BorderThickness="1,1,1,0" CornerRadius="12,12,0,0" Padding="10,5" Visibility="Collapsed">
+          <StackPanel>
+            <DockPanel><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="5,2" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="Очередь" FontSize="11" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/></DockPanel>
+            <ScrollViewer MaxHeight="90" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
+          </StackPanel>
+        </Border>
+        <Border x:Name="ComposerBorder" Background="{StaticResource Surface}" BorderThickness="1" Padding="22,18,22,16">
           <Border.Style>
             <Style TargetType="Border">
               <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+              <Setter Property="CornerRadius" Value="18" />
               <Style.Triggers>
+                <DataTrigger Binding="{Binding Visibility, ElementName=PromptQueueBorder}" Value="Visible">
+                  <Setter Property="CornerRadius" Value="0,0,18,18" />
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=PromptInput}" Value="True">
                   <Setter Property="BorderBrush" Value="#4B7668" />
                 </DataTrigger>
@@ -265,22 +275,14 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
-              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Border x:Name="PromptQueueBorder" Grid.Row="0" Background="#111B24" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,0,9" Visibility="Collapsed">
-              <StackPanel>
-                <DockPanel Margin="0,0,0,3"><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="8,4" FontSize="11" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="Очередь сообщений" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMain}" VerticalAlignment="Center"/></DockPanel>
-                <TextBlock Text="Сообщения отправятся, когда их чат освободится" FontSize="10" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,0,0,9"/>
-                <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
-              </StackPanel>
-            </Border>
-            <Border x:Name="ComposerAttachmentsBorder" Grid.Row="1" Background="#111B24" CornerRadius="10" Padding="7" Margin="0,0,0,9" Visibility="Collapsed">
+            <Border x:Name="ComposerAttachmentsBorder" Grid.Row="0" Background="#111B24" CornerRadius="10" Padding="7" Margin="0,0,0,9" Visibility="Collapsed">
               <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <WrapPanel x:Name="ComposerAttachmentsPanel" Orientation="Horizontal" />
               </ScrollViewer>
             </Border>
-            <TextBox x:Name="PromptInput" Grid.Row="2" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="76" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,9,4,12" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Опишите задачу или изменение проекта…" />
-            <Grid Grid.Row="3" Margin="0,10,0,0" MinHeight="42">
+            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="76" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,9,4,12" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Опишите задачу или изменение проекта…" />
+            <Grid Grid.Row="2" Margin="0,10,0,0" MinHeight="42">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -328,7 +330,7 @@
                 <Button x:Name="SendButton" Width="42" Height="42" Padding="0" Background="#92E5C7" Foreground="#121D27" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="4" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
+            <Border Grid.Row="3" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
