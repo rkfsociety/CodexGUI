@@ -3,22 +3,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
   <Application.Resources>
-    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#16212B" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#ECF2F5" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#16212B" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#ECF2F5" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#1B2935" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightLightBrushKey}" Color="#2A3946" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1D1F23" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1D1F23" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#24272D" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightLightBrushKey}" Color="#34373E" />
     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#35594F" />
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#ECF2F5" />
-    <SolidColorBrush x:Key="Canvas" Color="#0B1117" />
-    <SolidColorBrush x:Key="Sidebar" Color="#101820" />
-    <SolidColorBrush x:Key="Surface" Color="#16212B" />
-    <SolidColorBrush x:Key="SurfaceHover" Color="#20303D" />
-    <SolidColorBrush x:Key="Line" Color="#2A3946" />
-    <SolidColorBrush x:Key="TextMain" Color="#ECF2F5" />
-    <SolidColorBrush x:Key="TextMuted" Color="#A7B5C0" />
-    <SolidColorBrush x:Key="TextFaint" Color="#8494A2" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="Canvas" Color="#101114" />
+    <SolidColorBrush x:Key="Sidebar" Color="#151619" />
+    <SolidColorBrush x:Key="Surface" Color="#1D1F23" />
+    <SolidColorBrush x:Key="SurfaceHover" Color="#282B30" />
+    <SolidColorBrush x:Key="Line" Color="#34373E" />
+    <SolidColorBrush x:Key="TextMain" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="TextMuted" Color="#B0B5BE" />
+    <SolidColorBrush x:Key="TextFaint" Color="#8D95A2" />
     <SolidColorBrush x:Key="Accent" Color="#92E5C7" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
     <Style TargetType="{x:Type Window}">
@@ -68,7 +68,7 @@
               <Border x:Name="CheckChrome" Width="16" Height="16" VerticalAlignment="Center"
                       Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}"
                       BorderThickness="1" CornerRadius="4">
-                <Path x:Name="CheckMark" Data="M2.2,8 L6,11.6 L13.8,3.8" Stroke="#0B1117"
+                <Path x:Name="CheckMark" Data="M2.2,8 L6,11.6 L13.8,3.8" Stroke="#101114"
                       StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                       Visibility="Collapsed" />
               </Border>

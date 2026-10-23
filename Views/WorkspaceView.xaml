@@ -1,16 +1,16 @@
-﻿<Grid x:Name="Root"
+<Grid x:Name="Root"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      TextElement.Foreground="{StaticResource TextMain}" Background="#0E151D" UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+      TextElement.Foreground="{StaticResource TextMain}" Background="#111316" UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
   <Grid.Resources>
-    <SolidColorBrush x:Key="Canvas" Color="#0B1117" />
-    <SolidColorBrush x:Key="Sidebar" Color="#101820" />
-    <SolidColorBrush x:Key="Surface" Color="#16212B" />
-    <SolidColorBrush x:Key="SurfaceHover" Color="#20303D" />
-    <SolidColorBrush x:Key="Line" Color="#2A3946" />
-    <SolidColorBrush x:Key="TextMain" Color="#ECF2F5" />
-    <SolidColorBrush x:Key="TextMuted" Color="#A7B5C0" />
-    <SolidColorBrush x:Key="TextFaint" Color="#8494A2" />
+    <SolidColorBrush x:Key="Canvas" Color="#101114" />
+    <SolidColorBrush x:Key="Sidebar" Color="#151619" />
+    <SolidColorBrush x:Key="Surface" Color="#1D1F23" />
+    <SolidColorBrush x:Key="SurfaceHover" Color="#282B30" />
+    <SolidColorBrush x:Key="Line" Color="#34373E" />
+    <SolidColorBrush x:Key="TextMain" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="TextMuted" Color="#B0B5BE" />
+    <SolidColorBrush x:Key="TextFaint" Color="#8D95A2" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
     <SolidColorBrush x:Key="AccentSoft" Color="#204139" />
     <Style x:Key="SidebarRailIconButton" TargetType="Button">
@@ -40,7 +40,7 @@
     </Style>
     <Style x:Key="ComposerControlButton" TargetType="Button">
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="BorderBrush" Value="#344B5B" />
+      <Setter Property="BorderBrush" Value="#3B4049" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Template">
@@ -121,7 +121,7 @@
             <Grid Width="20" Height="20">
               <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M10,2 A8,8 0 1 1 9.99,2 M10,5 V10 L14,12" />
               <Border x:Name="ActivityNotificationBadge" Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="7" Background="#92E5C7" BorderBrush="{StaticResource Sidebar}" BorderThickness="1" Visibility="Collapsed">
-                <TextBlock x:Name="ActivityNotificationCount" Text="0" FontSize="8" FontWeight="Bold" Foreground="#0B1117" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock x:Name="ActivityNotificationCount" Text="0" FontSize="8" FontWeight="Bold" Foreground="#101114" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
             </Grid>
           </Button>
@@ -191,7 +191,7 @@
         <StackPanel x:Name="Conversation" MaxWidth="1040" HorizontalAlignment="Stretch" Margin="0,24,0,36"/>
       </ScrollViewer>
       <StackPanel HorizontalAlignment="Stretch" MaxWidth="1020" Grid.Row="2" Margin="28,0,28,22">
-        <Border x:Name="PromptQueueBorder" Background="#111B24" BorderBrush="{StaticResource Line}" BorderThickness="1,1,1,0" CornerRadius="12,12,0,0" Padding="10,5" Visibility="Collapsed">
+        <Border x:Name="PromptQueueBorder" Background="#181A1E" BorderBrush="{StaticResource Line}" BorderThickness="1,1,1,0" CornerRadius="12,12,0,0" Padding="10,5" Visibility="Collapsed">
           <StackPanel>
             <DockPanel><Button x:Name="ClearPromptQueueButton" DockPanel.Dock="Right" Content="Очистить" Padding="5,2" FontSize="10" Foreground="{StaticResource TextMuted}"/><TextBlock x:Name="PromptQueueLabel" Text="Очередь" FontSize="11" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/></DockPanel>
             <ScrollViewer MaxHeight="90" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
@@ -220,7 +220,7 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Border x:Name="ComposerAttachmentsBorder" Grid.Row="0" Background="#111B24" CornerRadius="10" Padding="7" Margin="0,0,0,9" Visibility="Collapsed">
+            <Border x:Name="ComposerAttachmentsBorder" Grid.Row="0" Background="#181A1E" CornerRadius="10" Padding="7" Margin="0,0,0,9" Visibility="Collapsed">
               <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <WrapPanel x:Name="ComposerAttachmentsPanel" Orientation="Horizontal" />
               </ScrollViewer>
@@ -232,7 +232,7 @@
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <StackPanel Grid.Column="0"><WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="AddContextButton" Width="34" Height="34" Padding="0" Background="#22333F" Foreground="{StaticResource TextMain}" ToolTip="Добавить файл в контекст"><TextBlock Text="＋" FontSize="19" /></Button>
+                <Button x:Name="AddContextButton" Width="34" Height="34" Padding="0" Background="#2C3037" Foreground="{StaticResource TextMain}" ToolTip="Добавить файл в контекст"><TextBlock Text="＋" FontSize="19" /></Button>
                 <Button x:Name="ActionsButton" Content="Действия" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" FontSize="12" ToolTip="Вставить сохранённый шаблон в черновик" />
                 <Button x:Name="ScreenshotButton" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" ToolTip="Выбрать область экрана и добавить снимок в контекст"><StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="14" Margin="0,0,7,0"/><TextBlock Text="Скриншот" FontSize="12"/></StackPanel></Button>
                 <Button x:Name="SkillsButton" Content="Скиллы" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" FontSize="12" ToolTip="Добавить скилл в запрос: imagegen, computer-use и другие"/><Button x:Name="ThreadGoalButton" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" FontSize="12" IsEnabled="False" ToolTip="Просмотреть, задать или изменить цель текущего чата"><TextBlock x:Name="ThreadGoalLabel" Text="Цель" MaxWidth="300" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Button>
@@ -331,7 +331,7 @@
             <TextBlock Text="СООБЩЕНИЕ КОММИТА" FontSize="9" Foreground="{StaticResource TextFaint}" Margin="0,3,0,4" />
             <DockPanel>
               <Button x:Name="CommitStagedButton" DockPanel.Dock="Right" Content="Коммит" Padding="8,5" Margin="5,0,0,0" ToolTip="Зафиксировать только staged-изменения" />
-              <TextBox x:Name="CommitMessageInput" Height="30" Padding="7,4" Background="#1B2935" Foreground="#EAF3F6" BorderBrush="#435D6D" ToolTip="Сообщение коммита" />
+              <TextBox x:Name="CommitMessageInput" Height="30" Padding="7,4" Background="#24272D" Foreground="#EAF3F6" BorderBrush="#435D6D" ToolTip="Сообщение коммита" />
             </DockPanel>
           </StackPanel>
           <Button x:Name="PushBranchButton" Content="Отправить ветку" HorizontalAlignment="Left" Padding="8,5" Margin="0,5,0,0" Visibility="Collapsed" ToolTip="Отправить текущую ветку в настроенный upstream без force-push" />
