@@ -1578,7 +1578,23 @@ public partial class MainWindow : Window
             _streamingAssistantTextBlock = text;
         if (message.IsUser)
         {
-            var bubble = new Border { Background = Brush("#1A332E"), BorderBrush = Brush("#35594F"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18, 18, 6, 18), Padding = new Thickness(19, 15, 19, 15), Child = text };
+            var (messageText, attachments) = SplitPromptWithAttachments(message.Text);
+            text.Text = messageText;
+            var content = new StackPanel();
+            if (!string.IsNullOrWhiteSpace(messageText)) content.Children.Add(text);
+            if (attachments.Length > 0)
+            {
+                var previews = new WrapPanel { MaxWidth = 680, Margin = new Thickness(0, content.Children.Count > 0 ? 10 : 0, 0, 0) };
+                foreach (var path in attachments)
+                    previews.Children.Add(new Border
+                    {
+                        Child = CreateAttachmentPreview(path, 200, 140),
+                        Background = Brush("#263A49"), CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(4), Margin = new Thickness(3), ToolTip = path
+                    });
+                content.Children.Add(previews);
+            }
+            var bubble = new Border { Background = Brush("#1A332E"), BorderBrush = Brush("#35594F"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18, 18, 6, 18), Padding = new Thickness(19, 15, 19, 15), Child = content };
             outer.Children.Add(bubble);
         }
         else
@@ -1953,12 +1969,11 @@ public partial class MainWindow : Window
                     Orientation = Orientation.Horizontal,
                     Children =
                     {
-                        new TextBlock { Text = IsImageAttachment(path) ? "▧" : "▤", Margin = new Thickness(0, 0, 5, 0) },
-                        new TextBlock { Text = label, MaxWidth = 185, TextTrimming = TextTrimming.CharacterEllipsis },
+                        CreateAttachmentPreview(path, 96, 58),
                         new TextBlock { Text = "×", FontSize = 14, Margin = new Thickness(6, -2, 0, 0), Foreground = Brush("#9FB2C3") }
                     }
                 },
-                Height = 28,
+                MinHeight = 28,
                 MaxWidth = 240,
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(2),
@@ -1973,6 +1988,44 @@ public partial class MainWindow : Window
             chip.Click += (_, _) => RemoveComposerAttachment((string)chip.Tag);
             panel.Children.Add(chip);
         }
+    }
+
+    private static FrameworkElement CreateAttachmentPreview(string path, int width, int height)
+    {
+        string? previewError = null;
+        if (IsImageAttachment(path))
+        {
+            try
+            {
+                using var stream = File.OpenRead(path);
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.DecodePixelWidth = width * 2;
+                bitmap.StreamSource = stream;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                var image = new System.Windows.Controls.Image
+                {
+                    Source = bitmap, Width = width, Height = height,
+                    Stretch = Stretch.Uniform, ToolTip = path
+                };
+                AutomationProperties.SetName(image, Path.GetFileName(path));
+                return image;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                or NotSupportedException or FileFormatException or ArgumentException)
+            {
+                previewError = $"Не удалось показать изображение: {error.Message}";
+            }
+        }
+        return new TextBlock
+        {
+            Text = "▤ " + Path.GetFileName(path), MaxWidth = width,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brush("#DCE7ED"), ToolTip = previewError ?? path
+        };
     }
 
     private static bool IsImageAttachment(string path) => Path.GetExtension(path).ToLowerInvariant() is
