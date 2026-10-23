@@ -15,16 +15,32 @@ internal static class GitHubPullRequestService
     public static bool TryGetRepositorySlug(string? remoteUrl, out string repositorySlug)
     {
         repositorySlug = "";
-        if (!Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri)
-            || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.IsNullOrWhiteSpace(remoteUrl)) return false;
 
-        var path = uri.AbsolutePath.Trim('/');
+        string path;
+        if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+        {
+            path = remoteUrl["git@github.com:".Length..].Trim('/');
+        }
+        else
+        {
+            if (!Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri)
+                || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme is not ("https" or "http" or "ssh" or "git"))
+                return false;
+            path = uri.AbsolutePath.Trim('/');
+        }
+
         if (path.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) path = path[..^4];
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 2) return false;
+        if (parts.Length != 2 || !parts.All(IsRepositorySegment)) return false;
         repositorySlug = parts[0] + "/" + parts[1];
         return true;
     }
+
+    private static bool IsRepositorySegment(string segment) =>
+        segment.Length > 0 && segment is not ("." or "..")
+        && segment.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.');
 
     public static async Task<string> CreateAsync(string repositoryRoot, string repositorySlug,
         string branch, string title, string body, bool draft, CancellationToken cancellationToken)
@@ -70,6 +86,11 @@ internal static class GitHubPullRequestService
             throw;
         }
 
+        try { await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("GitHub CLI завершился, но не закрыл потоки вывода.", error);
+        }
         var output = await outputTask;
         var error = await errorTask;
         if (process.ExitCode != 0)

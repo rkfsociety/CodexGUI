@@ -8,6 +8,8 @@ namespace CodexGUI;
 
 internal static class AtomicJsonFile
 {
+    // State and automation metadata should never require loading an unbounded JSON document.
+    private const long MaximumJsonBytes = 128L * 1024 * 1024;
     public static void Write(string path, object value, JsonSerializerOptions? options = null, string? backupPath = null)
     {
         var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -30,7 +32,11 @@ internal static class AtomicJsonFile
     {
         T Read(string candidate)
         {
-            var value = JsonSerializer.Deserialize<T>(File.ReadAllText(candidate))
+            using var stream = new FileStream(candidate, FileMode.Open, FileAccess.Read, FileShare.Read,
+                81920, FileOptions.SequentialScan);
+            if (stream.Length > MaximumJsonBytes)
+                throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
+            var value = JsonSerializer.Deserialize<T>(stream)
                 ?? throw new InvalidDataException("Файл состояния пуст.");
             validate(value);
             return value;
@@ -58,7 +64,13 @@ internal static class AtomicJsonFile
         var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(value, options), cancellationToken);
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 81920, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, options, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally { TryDeleteTemporaryFile(temporaryPath); }

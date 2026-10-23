@@ -78,8 +78,15 @@ public partial class MainWindow
                 try
                 {
                     _stateSaveBlocked = true;
-                    var backup = AtomicJsonFile.BackupUnreadable(statePath);
-                    _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}. Запись state.json заблокирована.";
+                    if (File.Exists(statePath))
+                    {
+                        var backup = AtomicJsonFile.BackupUnreadable(statePath);
+                        _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}. Запись state.json заблокирована.";
+                    }
+                    else
+                    {
+                        _startupIssue = $"Не удалось восстановить состояние из резервной копии: {error.Message} Файл state.json отсутствует. Запись заблокирована.";
+                    }
                 }
                 catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
                 {

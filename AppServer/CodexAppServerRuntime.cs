@@ -170,13 +170,14 @@ internal static class CodexAppServerRuntime
             {
                 throw new TimeoutException("Загрузка Codex App Server остановилась более чем на 30 секунд.", error);
             }
+            finally { idleCancellation.CancelAfter(Timeout.InfiniteTimeSpan); }
             if (count == 0) break;
+            if (count > MaximumPackageBytes - bytesReceived)
+                throw new InvalidDataException("Загрузка пакета Codex App Server превысила допустимый предел.");
 
             hash.AppendData(buffer, 0, count);
             await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
             bytesReceived += count;
-            if (bytesReceived > MaximumPackageBytes)
-                throw new InvalidDataException("Загрузка пакета Codex App Server превысила допустимый предел.");
             progress?.Report(new AppServerRuntimeProgress("Скачиваю Codex App Server…", bytesReceived, totalBytes));
         }
 
