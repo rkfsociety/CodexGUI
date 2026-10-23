@@ -586,12 +586,13 @@ public partial class MainWindow : Window
 
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
+            prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
             UpdatePromptSpellCheck(prompt);
             prompt.TextChanged += (_, _) => UpdatePromptSpellCheck(prompt);
             prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8D95A2" : "#F1F3F5");
             prompt.GotKeyboardFocus += (_, _) =>
             {
-                UpdatePromptSpellCheck(prompt);
+                prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
                 if (prompt.Text == PromptPlaceholder)
                 {
                     prompt.Clear();
@@ -618,38 +619,14 @@ public partial class MainWindow : Window
     private void PromptInputLanguageChanged(object? sender, InputLanguageEventArgs e)
     {
         if (Control<TextBox>("PromptInput") is { IsKeyboardFocusWithin: true } prompt)
-            UpdatePromptSpellCheck(prompt, e.NewLanguage.IetfLanguageTag);
+            prompt.Language = XmlLanguage.GetLanguage(e.NewLanguage.IetfLanguageTag);
     }
 
-    private void UpdatePromptSpellCheck(TextBox prompt, string? inputLanguageTag = null)
+    private static void UpdatePromptSpellCheck(TextBox prompt)
     {
-        var languageTag = ContainsMostlyCyrillic(prompt.Text)
-            ? "ru-RU"
-            : inputLanguageTag ?? _inputLanguageManager.CurrentInputLanguage.IetfLanguageTag;
-        if (!string.Equals(prompt.Language.IetfLanguageTag, languageTag, StringComparison.OrdinalIgnoreCase))
-            prompt.Language = XmlLanguage.GetLanguage(languageTag);
-
         var enabled = prompt.Text != PromptPlaceholder;
         if (SpellCheck.GetIsEnabled(prompt) != enabled)
             SpellCheck.SetIsEnabled(prompt, enabled);
-    }
-
-    private static bool ContainsMostlyCyrillic(string text)
-    {
-        var cyrillicLetters = 0;
-        var latinLetters = 0;
-        foreach (var character in text)
-        {
-            if (!char.IsLetter(character))
-                continue;
-
-            if (character is >= '\u0400' and <= '\u052F')
-                cyrillicLetters++;
-            else if (character <= '\u024F')
-                latinLetters++;
-        }
-
-        return cyrillicLetters > latinLetters;
     }
 
     private void RefreshView()
@@ -1563,8 +1540,20 @@ public partial class MainWindow : Window
                 Padding = new Thickness(6, 2, 6, 2),
                 Foreground = Brush("#8799A7"),
                 FontSize = 13,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0,
+                IsHitTestVisible = false
             };
+            void UpdateCopyButtonVisibility()
+            {
+                var visible = outer.IsMouseOver || copyButton.IsKeyboardFocusWithin;
+                copyButton.Opacity = visible ? 1 : 0;
+                copyButton.IsHitTestVisible = visible;
+            }
+            outer.MouseEnter += (_, _) => UpdateCopyButtonVisibility();
+            outer.MouseLeave += (_, _) => UpdateCopyButtonVisibility();
+            copyButton.GotKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
+            copyButton.LostKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
             copyButton.Click += async (_, _) =>
             {
                 try
