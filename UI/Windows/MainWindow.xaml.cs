@@ -1556,52 +1556,62 @@ public partial class MainWindow : Window
             MaxWidth = message.IsUser ? 760 : 900,
             Margin = new Thickness(0, 14, 0, 18)
         };
+        var header = new Grid { Margin = new Thickness(message.IsUser ? 0 : 4, 0, 0, 7) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var copyButton = new Button
+        {
+            Content = "⧉",
+            ToolTip = message.IsUser ? "Копировать сообщение" : "Копировать ответ",
+            Padding = new Thickness(6, 2, 6, 2),
+            Foreground = Brush("#8799A7"),
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0,
+            IsHitTestVisible = false
+        };
+        void UpdateCopyButtonVisibility()
+        {
+            var visible = outer.IsMouseOver || copyButton.IsKeyboardFocusWithin;
+            copyButton.Opacity = visible ? 1 : 0;
+            copyButton.IsHitTestVisible = visible;
+        }
+        outer.MouseEnter += (_, _) => UpdateCopyButtonVisibility();
+        outer.MouseLeave += (_, _) => UpdateCopyButtonVisibility();
+        copyButton.GotKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
+        copyButton.LostKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
+        copyButton.Click += async (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(message.Text);
+                copyButton.Content = "✓";
+                copyButton.ToolTip = message.IsUser ? "Сообщение скопировано" : "Ответ скопирован";
+                await Task.Delay(1100);
+                if (!copyButton.IsLoaded) return;
+                copyButton.Content = "⧉";
+                copyButton.ToolTip = message.IsUser ? "Копировать сообщение" : "Копировать ответ";
+            }
+            catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+            {
+                SetStatus(message.IsUser ? "Не удалось скопировать сообщение" : "Не удалось скопировать ответ", error.Message, isError: true);
+            }
+        };
+        Grid.SetColumn(copyButton, 1);
+        header.Children.Add(copyButton);
         if (!message.IsUser)
         {
-            var header = new DockPanel { Margin = new Thickness(4, 0, 0, 7) };
-            var copyButton = new Button
+            var brand = new TextBlock
             {
-                Content = "⧉",
-                ToolTip = "Копировать ответ",
-                Padding = new Thickness(6, 2, 6, 2),
-                Foreground = Brush("#8799A7"),
-                FontSize = 13,
-                VerticalAlignment = VerticalAlignment.Center,
-                Opacity = 0,
-                IsHitTestVisible = false
+                Text = "✳",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brush("#92E5C7"),
+                VerticalAlignment = VerticalAlignment.Center
             };
-            void UpdateCopyButtonVisibility()
-            {
-                var visible = outer.IsMouseOver || copyButton.IsKeyboardFocusWithin;
-                copyButton.Opacity = visible ? 1 : 0;
-                copyButton.IsHitTestVisible = visible;
-            }
-            outer.MouseEnter += (_, _) => UpdateCopyButtonVisibility();
-            outer.MouseLeave += (_, _) => UpdateCopyButtonVisibility();
-            copyButton.GotKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
-            copyButton.LostKeyboardFocus += (_, _) => UpdateCopyButtonVisibility();
-            copyButton.Click += async (_, _) =>
-            {
-                try
-                {
-                    Clipboard.SetText(message.Text);
-                    copyButton.Content = "✓";
-                    copyButton.ToolTip = "Ответ скопирован";
-                    await Task.Delay(1100);
-                    if (!copyButton.IsLoaded) return;
-                    copyButton.Content = "⧉";
-                    copyButton.ToolTip = "Копировать ответ";
-                }
-                catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
-                {
-                    SetStatus("Не удалось скопировать ответ", error.Message, isError: true);
-                }
-            };
-            DockPanel.SetDock(copyButton, Dock.Right);
-            header.Children.Add(copyButton);
-            header.Children.Add(new TextBlock { Text = "✳", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
-            outer.Children.Add(header);
+            header.Children.Add(brand);
         }
+        outer.Children.Add(header);
 
         var text = new TextBlock
         {
