@@ -1286,6 +1286,7 @@ public partial class MainWindow : Window
     {
         if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return "";
         var parts = new List<string>();
+        var attachments = new List<string>();
         foreach (var part in content.EnumerateArray())
         {
             switch (GetString(part, "type"))
@@ -1294,14 +1295,14 @@ public partial class MainWindow : Window
                     parts.Add(text);
                     break;
                 case "localImage" when GetString(part, "path") is { Length: > 0 } path:
-                    parts.Add($"[Изображение: {path}]");
+                    attachments.Add(path);
                     break;
                 case "image":
                     parts.Add("[Изображение]");
                     break;
             }
         }
-        return string.Join(Environment.NewLine, parts);
+        return FormatPromptWithAttachments(string.Join(Environment.NewLine, parts), attachments);
     }
 
     private static UsageSnapshot ParseUsageSnapshot(JsonElement result)
@@ -1882,15 +1883,14 @@ public partial class MainWindow : Window
 
     private string[] GetChatAttachments()
     {
-        const string prefix = "Файл для контекста: ";
-        return _currentThread?.Messages.Where(message => message.IsUser)
-            .SelectMany(message => message.Text.Split('\n'))
-            .Select(line => line.Trim())
-            .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
-            .Select(line => line[prefix.Length..].Trim().Trim('"'))
-            .Where(path => !string.IsNullOrWhiteSpace(path))
+        var prompts = (_currentThread?.Messages.Where(message => message.IsUser).Select(message => message.Text)
+                ?? Enumerable.Empty<string>())
+            .Concat(_currentThread is null ? Enumerable.Empty<string>()
+                : _promptQueue.Where(prompt => prompt.ThreadId == _currentThread.Id).Select(prompt => prompt.Text));
+        return prompts.SelectMany(prompt => SplitPromptWithAttachments(prompt).Attachments)
+            .Concat(_composerAttachments)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? [];
+            .ToArray();
     }
 
     private static string FormatPromptWithAttachments(string text, IReadOnlyCollection<string> attachments)
@@ -1904,18 +1904,18 @@ public partial class MainWindow : Window
     private static (string Text, string[] Attachments) SplitPromptWithAttachments(string prompt)
     {
         const string prefix = "Файл для контекста: ";
-        var lines = prompt.ReplaceLineEndings("\n").Split('\n').ToList();
+        const string legacyImagePrefix = "[Изображение: ";
+        var lines = new List<string>();
         var attachments = new List<string>();
-        while (lines.Count > 0)
+        foreach (var line in prompt.ReplaceLineEndings("\n").Split('\n'))
         {
-            var line = lines[^1].Trim();
-            if (!line.StartsWith(prefix, StringComparison.Ordinal)) break;
-            var path = line[prefix.Length..].Trim().Trim('"');
-            if (string.IsNullOrWhiteSpace(path)) break;
-            attachments.Add(path);
-            lines.RemoveAt(lines.Count - 1);
+            var trimmed = line.Trim();
+            var path = trimmed.StartsWith(prefix, StringComparison.Ordinal) ? trimmed[prefix.Length..].Trim().Trim('"')
+                : trimmed.StartsWith(legacyImagePrefix, StringComparison.Ordinal) && trimmed.EndsWith(']')
+                    ? trimmed[legacyImagePrefix.Length..^1].Trim().Trim('"') : null;
+            if (string.IsNullOrWhiteSpace(path)) lines.Add(line);
+            else attachments.Add(path);
         }
-        attachments.Reverse();
         return (string.Join(Environment.NewLine, lines).TrimEnd(), attachments.ToArray());
     }
 
@@ -1988,6 +1988,7 @@ public partial class MainWindow : Window
             chip.Click += (_, _) => RemoveComposerAttachment((string)chip.Tag);
             panel.Children.Add(chip);
         }
+        UpdateChatQuickOverview();
     }
 
     private static FrameworkElement CreateAttachmentPreview(string path, int width, int height)
@@ -2084,7 +2085,16 @@ public partial class MainWindow : Window
             popup.Items.Add(new MenuItem { Header = "В этом чате пока нет вложений", IsEnabled = false });
         foreach (var path in attachments)
         {
-            var item = new MenuItem { Header = Path.GetFileName(path), ToolTip = path, FontSize = 12 };
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(CreateAttachmentPreview(path, 72, 48));
+            if (IsImageAttachment(path))
+                header.Children.Add(new TextBlock
+                {
+                    Text = Path.GetFileName(path), MaxWidth = 310,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0)
+                });
+            var item = new MenuItem { Header = header, ToolTip = path, FontSize = 12 };
             item.Click += (_, _) =>
             {
                 if (!File.Exists(path))
@@ -3286,6 +3296,7 @@ public partial class MainWindow : Window
             });
         }
 
+        UpdateChatQuickOverview();
         UpdateSendButtonState();
     }
 
