@@ -160,7 +160,42 @@ internal sealed class CodexAppServerClient(string executablePath)
         return SendRequestAsync("thread/fork", parameters);
     }
 
-    public Task<JsonElement> ArchiveThreadAsync(string sessionId) => SendRequestAsync("thread/archive", new { threadId = sessionId });
+    public Task<JsonElement> ArchiveThreadAsync(string sessionId) => RunWithSessionAsync(async send =>
+    {
+        try
+        {
+            return await send("thread/archive", new { threadId = sessionId });
+        }
+        catch (InvalidOperationException error) when (
+            string.Equals(error.Message, $"no rollout found for thread id {sessionId}", StringComparison.Ordinal))
+        {
+            // Another Codex client may have archived the shared rollout since our local state was saved.
+            // Only reconcile after the server confirms it; a genuinely missing history must still fail.
+            string? cursor = null;
+            var seenCursors = new HashSet<string>(StringComparer.Ordinal);
+            do
+            {
+                var response = await send("thread/list", new
+                {
+                    archived = true,
+                    limit = 100,
+                    modelProviders = Array.Empty<string>(),
+                    sourceKinds = new[] { "cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
+                        "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown" },
+                    cursor
+                });
+                if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                    throw new InvalidDataException("Codex App Server вернул некорректный список архивных чатов.");
+                if (data.EnumerateArray().Any(thread => Text(thread, "id") == sessionId))
+                    return JsonSerializer.SerializeToElement(new { });
+                cursor = ReadCursor(response);
+                if (!string.IsNullOrEmpty(cursor) && !seenCursors.Add(cursor))
+                    throw new InvalidDataException("Codex App Server повторил курсор списка архивных чатов.");
+            }
+            while (!string.IsNullOrEmpty(cursor));
+            throw;
+        }
+    });
 
     public Task<JsonElement> UnarchiveThreadAsync(string sessionId) => SendRequestAsync("thread/unarchive", new { threadId = sessionId });
 
