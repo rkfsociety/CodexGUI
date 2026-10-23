@@ -1561,7 +1561,7 @@ public partial class MainWindow : Window
             };
             DockPanel.SetDock(copyButton, Dock.Right);
             header.Children.Add(copyButton);
-            header.Children.Add(new TextBlock { Text = "✳   АССИСТЕНТ", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock { Text = "✳", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brush("#92E5C7"), VerticalAlignment = VerticalAlignment.Center });
             outer.Children.Add(header);
         }
 

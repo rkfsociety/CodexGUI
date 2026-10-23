@@ -165,7 +165,7 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
         [System.Windows.Controls.DockPanel]::SetDock($copyButton, [System.Windows.Controls.Dock]::Right)
         [void]$header.Children.Add($copyButton)
         $label = [System.Windows.Controls.TextBlock]::new()
-        $label.Text = '✳   АССИСТЕНТ'
+        $label.Text = '✳'
         $label.FontSize = 11
         $label.FontWeight = [System.Windows.FontWeights]::SemiBold
         $label.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#92E5C7')
