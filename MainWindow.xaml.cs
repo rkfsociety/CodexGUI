@@ -5440,22 +5440,25 @@ public partial class MainWindow : Window
         SelectProject(project);
     }
 
+    private static void ValidateStoredState(StoredState state)
+    {
+        if (state.Projects is null || state.RemovedProjects is null || state.Threads is null || state.Actions is null
+            || state.QueuedPrompts is null || state.Projects.Any(project => project is null)
+            || state.RemovedProjects.Any(project => project is null)
+            || state.Threads.Any(thread => thread is null)
+            || state.Actions.Any(action => action is null)
+            || state.QueuedPrompts.Any(prompt => prompt is null))
+            throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
+    }
+
     private void LoadState()
     {
         var statePath = GetStatePath();
-        if (File.Exists(statePath))
+        if (File.Exists(statePath) || File.Exists(statePath + ".bak"))
         {
             try
             {
-                var state = JsonSerializer.Deserialize<StoredState>(File.ReadAllText(statePath))
-                    ?? throw new InvalidDataException("Файл состояния пуст.");
-                if (state.Projects is null || state.RemovedProjects is null || state.Threads is null || state.Actions is null
-                    || state.QueuedPrompts is null || state.Projects.Any(project => project is null)
-                    || state.RemovedProjects.Any(project => project is null)
-                    || state.Threads.Any(thread => thread is null)
-                    || state.Actions.Any(action => action is null)
-                    || state.QueuedPrompts.Any(prompt => prompt is null))
-                    throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
+                var state = AtomicJsonFile.ReadWithBackup<StoredState>(statePath, ValidateStoredState);
                 if (state is not null)
                 {
                     _projects.AddRange(state.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Id) && !string.IsNullOrWhiteSpace(project.Path)));
@@ -5506,8 +5509,9 @@ public partial class MainWindow : Window
             {
                 try
                 {
+                    _stateSaveBlocked = true;
                     var backup = AtomicJsonFile.BackupUnreadable(statePath);
-                    _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}";
+                    _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}. Запись state.json заблокирована.";
                 }
                 catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
                 {
@@ -5566,7 +5570,7 @@ public partial class MainWindow : Window
                     ActiveRun = thread.ActiveRun
                 }).ToList()
             };
-            AtomicJsonFile.Write(statePath, state, StateSerializerOptions);
+            AtomicJsonFile.Write(statePath, state, StateSerializerOptions, backupPath: statePath + ".bak");
             return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
