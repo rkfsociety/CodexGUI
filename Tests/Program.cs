@@ -35,6 +35,7 @@ internal static class Program
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
+            await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             Console.WriteLine($"PASS: {_passed} checks");
             return 0;
         }
@@ -48,6 +49,34 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task GitHubRemotesAsync()
+    {
+        foreach (var remote in new[]
+        {
+            "https://github.com/rkfsociety/CodexGUI.git",
+            "git@github.com:rkfsociety/CodexGUI.git",
+            "ssh://git@github.com/rkfsociety/CodexGUI.git"
+        })
+        {
+            Require(GitHubPullRequestService.TryGetRepositorySlug(remote, out var slug)
+                && slug == "rkfsociety/CodexGUI", "GitHub origin was not recognized: " + remote);
+        }
+
+        foreach (var remote in new[]
+        {
+            "https://github.com.evil.example/rkfsociety/CodexGUI",
+            "git@github.com:rkfsociety/../other",
+            "https://github.com/rkfsociety/CodexGUI/extra",
+            "git@github.com:rkfsociety/repo with spaces"
+        })
+        {
+            Require(!GitHubPullRequestService.TryGetRepositorySlug(remote, out _),
+                "Malformed GitHub origin was accepted: " + remote);
+        }
+
+        return Task.CompletedTask;
     }
 
     private static async Task Check(string name, Func<Task> check)
