@@ -318,32 +318,13 @@ public partial class MainWindow : Window
                 ? $"Ошибка загрузки v{_availableUpdateVersion}: {_updateDownloadError}"
                 : $"Обновление v{_availableUpdateVersion}: {_updateDownloadStage}. Установка доступна только после проверки.";
 
-        panel.BorderBrush = Brush(_updateDownloadError is not null ? "#865A57" : ready ? "#448E73" : "#365C53");
-        if (Control<TextBlock>("UpdateStatusTitle") is { } title)
-            title.Text = $"Обновление v{_availableUpdateVersion}";
+        AutomationProperties.SetName(button, button.ToolTip.ToString());
 
         if (Control<TextBlock>("UpdateProgressLabel") is { } label)
         {
             label.Text = _isInstallingUpdate ? "…" : _updateDownloadError is not null ? "!" :
                 ready ? "✓" : _updateDownloadPercent is { } value ? $"{value}%" : "…";
             label.Foreground = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#D1F9E8");
-        }
-
-        if (Control<TextBlock>("UpdateStatusDetail") is { } status)
-        {
-            if (_isInstallingUpdate)
-                status.Text = "Запускаю установщик…";
-            else if (ready)
-                status.Text = "Готово к установке · нажмите на круг";
-            else if (_updateDownloadError is not null)
-                status.Text = "Не удалось скачать · повторим при следующей проверке";
-            else if (_updateTotalBytes is > 0 && _updateDownloadStage == "Загрузка архива")
-                status.Text = $"{_updateDownloadStage} · {_updateDownloadedBytes / 1048576.0:0.0} / {_updateTotalBytes.Value / 1048576.0:0.0} МБ";
-            else if (_updateDownloadedBytes > 0 && _updateDownloadStage == "Загрузка архива")
-                status.Text = $"{_updateDownloadStage} · {_updateDownloadedBytes / 1048576.0:0.0} МБ";
-            else
-                status.Text = _updateDownloadStage;
-            status.ToolTip = _updateDownloadError;
         }
 
         if (Control<System.Windows.Shapes.Path>("UpdateProgressArc") is { } arc)
