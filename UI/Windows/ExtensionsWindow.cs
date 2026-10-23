@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,6 +14,7 @@ namespace CodexGUI;
 
 internal sealed class ExtensionsWindow : Window
 {
+    private readonly CancellationTokenSource _rpcCancellation = new();
     private readonly CodexAppServerClient _client;
     private readonly string _projectPath;
     private readonly Action<CodexExtension> _useSkill;
@@ -36,9 +38,10 @@ internal sealed class ExtensionsWindow : Window
 
     public ExtensionsWindow(string projectPath, Action<CodexExtension> useSkill, bool showSkills)
     {
+        Closed += (_, _) => { _rpcCancellation.Cancel(); _rpcCancellation.Dispose(); };
         _projectPath = projectPath;
         _useSkill = useSkill;
-        _client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+        _client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _rpcCancellation.Token);
         Title = "Плагины и скиллы Codex";
         Width = 800;
         Height = 690;

@@ -84,3 +84,11 @@
 - Reason: the user wants one-click navigation to remain available when the sidebar list is collapsed.
 - Constraint: the rail has no hide control; its buttons must reuse existing feature handlers, and responsive auto-hide may collapse only the neighboring list panel.
 - Source: `Views/WorkspaceView.xaml` and `MainWindow.UpdatePanelLayout`.
+
+## Serialize local state writes outside the UI thread
+
+- Status: active.
+- Decision: capture a detached JSON snapshot on the UI thread and write it on a sequential background queue. Await persistence before admitting prompts, starting workers, or deleting completed worker recovery files; window shutdown and synchronous save callbacks drain the same queue.
+- Reason: disk flushes must not stall normal UI interaction, and an older snapshot must never overwrite a newer one.
+- Constraint: snapshot capture remains on the UI thread to avoid concurrent access to mutable collections. Failed writes remain visible and do not poison later retries. Keep completed worker files when saving completion fails.
+- Source: `MainWindow.State.cs`, `Infrastructure/SerializedJsonWriter.cs`, and `Tests/Program.cs`.

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace CodexGUI;
 
@@ -37,17 +38,28 @@ internal static class CodexProjectActionStore
         var (root, configurationPath) = GetPaths(projectPath);
         Validate(actions);
         WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
-        var currentRevision = File.Exists(configurationPath)
-            ? GetRevision(File.ReadAllText(configurationPath))
-            : null;
-        if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
-            throw new IOException("Файл действий проекта изменился после открытия окна. Закройте и откройте окно снова, чтобы загрузить актуальные действия.");
+        // All CodexGUI writers must hold the same lock across revision checking and replacement.
+        using var writeLock = new Mutex(false, @"Local\CodexGUI.ProjectActions." +
+            GetRevision(Path.GetFullPath(configurationPath).ToUpperInvariant()));
+        var acquired = false;
+        try
+        {
+            try { acquired = writeLock.WaitOne(TimeSpan.FromSeconds(5)); }
+            catch (AbandonedMutexException) { acquired = true; } // Re-read the file after an interrupted writer.
+            if (!acquired) throw new IOException("Файл действий проекта занят другим процессом. Повторите сохранение.");
+            var currentRevision = File.Exists(configurationPath)
+                ? GetRevision(File.ReadAllText(configurationPath))
+                : null;
+            if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+                throw new IOException("Файл действий проекта изменился после открытия окна. Закройте и откройте окно снова, чтобы загрузить актуальные действия.");
 
-        var serialized = JsonSerializer.Serialize(actions, JsonOptions);
-        Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
-        WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
-        AtomicJsonFile.Write(configurationPath, actions, JsonOptions);
-        return GetRevision(serialized);
+            var serialized = JsonSerializer.Serialize(actions, JsonOptions);
+            Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
+            WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
+            AtomicJsonFile.Write(configurationPath, actions, JsonOptions);
+            return GetRevision(serialized);
+        }
+        finally { if (acquired) writeLock.ReleaseMutex(); }
     }
 
     private static (string Root, string ConfigurationPath) GetPaths(string projectPath)

@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace CodexGUI;
 
-internal sealed class CodexAppServerClient(string executablePath)
+internal sealed class CodexAppServerClient(string executablePath, CancellationToken lifetimeToken = default)
 {
     private string InitializeRequest => JsonSerializer.Serialize(new
     {
@@ -19,14 +19,14 @@ internal sealed class CodexAppServerClient(string executablePath)
         @params = new { clientInfo = new { name = "codexgui", title = "CodexGUI", version = AppUpdater.CurrentVersion } }
     });
 
-    public Task<JsonElement> ReadRateLimitsAsync() => SendRequestAsync("account/rateLimits/read", new { });
+    public Task<JsonElement> ReadRateLimitsAsync(CancellationToken cancellationToken = default) => SendRequestAsync("account/rateLimits/read", new { }, cancellationToken);
 
-    public Task<JsonElement> ReadAccountAsync() => SendRequestAsync("account/read", new { refreshToken = false });
+    public Task<JsonElement> ReadAccountAsync(CancellationToken cancellationToken = default) => SendRequestAsync("account/read", new { refreshToken = false }, cancellationToken);
 
-    public Task<JsonElement> ReadThreadGoalAsync(string sessionId) =>
-        SendRequestAsync("thread/goal/get", new { threadId = sessionId });
+    public Task<JsonElement> ReadThreadGoalAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        SendRequestAsync("thread/goal/get", new { threadId = sessionId }, cancellationToken);
 
-    public Task<JsonElement> SetThreadGoalAsync(string sessionId, string objective, string status, ulong? tokenBudget) =>
+    public Task<JsonElement> SetThreadGoalAsync(string sessionId, string objective, string status, ulong? tokenBudget, CancellationToken cancellationToken = default) =>
         SendRequestAsync("thread/goal/set", new
         {
             threadId = sessionId,
@@ -34,32 +34,32 @@ internal sealed class CodexAppServerClient(string executablePath)
             objective,
             status,
             tokenBudget
-        });
+        }, cancellationToken);
 
-    public Task<JsonElement> ClearThreadGoalAsync(string sessionId) =>
-        SendRequestAsync("thread/goal/clear", new { threadId = sessionId, origin = "user" });
+    public Task<JsonElement> ClearThreadGoalAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        SendRequestAsync("thread/goal/clear", new { threadId = sessionId, origin = "user" }, cancellationToken);
 
-    public Task<JsonElement> ReadSkillsAsync(string projectPath) => SendRequestAsync("skills/list", new
+    public Task<JsonElement> ReadSkillsAsync(string projectPath, CancellationToken cancellationToken = default) => SendRequestAsync("skills/list", new
     {
         cwds = new[] { projectPath },
         forceReload = true
-    });
+    }, cancellationToken);
 
-    public Task<JsonElement> SetSkillEnabledAsync(string path, bool enabled) =>
-        SendRequestAsync("skills/config/write", new { path, enabled });
+    public Task<JsonElement> SetSkillEnabledAsync(string path, bool enabled, CancellationToken cancellationToken = default) =>
+        SendRequestAsync("skills/config/write", new { path, enabled }, cancellationToken);
 
-    public Task<JsonElement> SetPluginEnabledAsync(string pluginId, bool enabled) =>
+    public Task<JsonElement> SetPluginEnabledAsync(string pluginId, bool enabled, CancellationToken cancellationToken = default) =>
         SendRequestAsync("config/value/write", new
         {
             keyPath = $"plugins.{JsonSerializer.Serialize(pluginId)}.enabled",
             value = enabled,
             mergeStrategy = "replace"
-        });
+        }, cancellationToken);
 
-    public Task<JsonElement> UpgradeMarketplacesAsync() =>
-        SendRequestAsync("marketplace/upgrade", new { });
+    public Task<JsonElement> UpgradeMarketplacesAsync(CancellationToken cancellationToken = default) =>
+        SendRequestAsync("marketplace/upgrade", new { }, cancellationToken);
 
-    public Task<JsonElement> AddMarketplaceAsync(string source, string? refName, IReadOnlyList<string> sparsePaths)
+    public Task<JsonElement> AddMarketplaceAsync(string source, string? refName, IReadOnlyList<string> sparsePaths, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(source)) throw new ArgumentException("Не указан источник маркетплейса.", nameof(source));
         var parameters = new Dictionary<string, object> { ["source"] = source.Trim() };
@@ -67,17 +67,17 @@ internal sealed class CodexAppServerClient(string executablePath)
         var paths = sparsePaths.Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => path.Trim()).Distinct(StringComparer.Ordinal).ToArray();
         if (paths.Length > 0) parameters["sparsePaths"] = paths;
-        return SendRequestAsync("marketplace/add", parameters);
+        return SendRequestAsync("marketplace/add", parameters, cancellationToken);
     }
 
-    public Task<JsonElement> RemoveMarketplaceAsync(string marketplaceName)
+    public Task<JsonElement> RemoveMarketplaceAsync(string marketplaceName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(marketplaceName))
             throw new ArgumentException("Не указано имя маркетплейса.", nameof(marketplaceName));
-        return SendRequestAsync("marketplace/remove", new { marketplaceName = marketplaceName.Trim() });
+        return SendRequestAsync("marketplace/remove", new { marketplaceName = marketplaceName.Trim() }, cancellationToken);
     }
 
-    public Task<IReadOnlyList<JsonElement>> ListMcpServerStatusesAsync()
+    public Task<IReadOnlyList<JsonElement>> ListMcpServerStatusesAsync(CancellationToken cancellationToken = default)
         => RunWithSessionAsync<IReadOnlyList<JsonElement>>(async send =>
     {
         var statuses = new List<JsonElement>();
@@ -109,7 +109,7 @@ internal sealed class CodexAppServerClient(string executablePath)
         } while (cursor is not null);
 
         return statuses;
-    });
+    }, cancellationToken);
 
     public async Task<JsonElement> ReadThreadAsync(string sessionId, CancellationToken cancellationToken = default)
     {
@@ -149,7 +149,7 @@ internal sealed class CodexAppServerClient(string executablePath)
         }, cancellationToken);
     }
 
-    public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null)
+    public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         var parameters = new Dictionary<string, object>
         {
@@ -157,10 +157,10 @@ internal sealed class CodexAppServerClient(string executablePath)
             ["excludeTurns"] = true
         };
         if (!string.IsNullOrWhiteSpace(workingDirectory)) parameters["cwd"] = workingDirectory;
-        return SendRequestAsync("thread/fork", parameters);
+        return SendRequestAsync("thread/fork", parameters, cancellationToken);
     }
 
-    public Task<JsonElement> ArchiveThreadAsync(string sessionId) => RunWithSessionAsync(async send =>
+    public Task<JsonElement> ArchiveThreadAsync(string sessionId, CancellationToken cancellationToken = default) => RunWithSessionAsync(async send =>
     {
         try
         {
@@ -195,11 +195,11 @@ internal sealed class CodexAppServerClient(string executablePath)
             while (!string.IsNullOrEmpty(cursor));
             throw;
         }
-    });
+    }, cancellationToken);
 
-    public Task<JsonElement> UnarchiveThreadAsync(string sessionId) => SendRequestAsync("thread/unarchive", new { threadId = sessionId });
+    public Task<JsonElement> UnarchiveThreadAsync(string sessionId, CancellationToken cancellationToken = default) => SendRequestAsync("thread/unarchive", new { threadId = sessionId }, cancellationToken);
 
-    public Task<JsonElement> DeleteThreadAsync(string sessionId) => SendRequestAsync("thread/delete", new { threadId = sessionId });
+    public Task<JsonElement> DeleteThreadAsync(string sessionId, CancellationToken cancellationToken = default) => SendRequestAsync("thread/delete", new { threadId = sessionId }, cancellationToken);
 
     public async Task<IReadOnlyList<ModelOption>> ReadModelCatalogAsync(string defaultEffort, CancellationToken cancellationToken = default)
     {
@@ -245,15 +245,17 @@ internal sealed class CodexAppServerClient(string executablePath)
         }, cancellationToken);
     }
 
-    private Task<JsonElement> SendRequestAsync(string method, object parameters) =>
-        RunWithSessionAsync(send => send(method, parameters));
+    private Task<JsonElement> SendRequestAsync(string method, object parameters, CancellationToken cancellationToken = default) =>
+        RunWithSessionAsync(send => send(method, parameters), cancellationToken);
 
     // Keep one App Server process alive for multi-page reads instead of restarting it for every page.
     private async Task<T> RunWithSessionAsync<T>(
         Func<Func<string, object, Task<JsonElement>>, Task<T>> operation,
         CancellationToken cancellationToken = default)
     {
-        using var sessionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lifetimeToken.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
+        using var sessionDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken, cancellationToken);
         sessionDeadline.CancelAfter(TimeSpan.FromMinutes(10));
         var startInfo = new ProcessStartInfo(executablePath)
         {
@@ -287,7 +289,7 @@ internal sealed class CodexAppServerClient(string executablePath)
 
             return await operation(SendAsync);
         }
-        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && sessionDeadline.IsCancellationRequested)
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && !lifetimeToken.IsCancellationRequested && sessionDeadline.IsCancellationRequested)
         {
             throw new TimeoutException("Операция Codex app-server не завершилась за 10 минут.", error);
         }

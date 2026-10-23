@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _repositoryRefreshTimer;
     private readonly DispatcherTimer _automationTimer;
     private readonly InputLanguageManager _inputLanguageManager;
+    private readonly CancellationTokenSource _appServerCancellation = new();
+    private CancellationTokenSource _threadSelectionCancellation = new();
     private readonly CancellationTokenSource _updateCheckCancellation = new();
     private readonly CancellationTokenSource _repositoryRefreshCancellation = new();
     private bool _isRefreshingUsage;
@@ -93,6 +95,7 @@ public partial class MainWindow : Window
     private bool _isProcessingAutomationTick;
     private bool _isPumpingPromptQueue;
     private bool _isEditingQueuedPrompt;
+    private bool _isSavingPrompt;
     private bool _sidebarCollapsed;
     private bool _sidebarAutoHideOverridden;
     private bool _contextOpen;
@@ -102,7 +105,16 @@ public partial class MainWindow : Window
     private string? _startupIssue;
     private string _selectedModel = DefaultModel;
     private string _selectedEffort = DefaultEffort;
-    private ChatThread? _currentThread;
+    private ChatThread? _currentThreadValue;
+    private ChatThread? _currentThread
+    {
+        get => _currentThreadValue;
+        set
+        {
+            if (!ReferenceEquals(_currentThreadValue, value)) CancelSelectedThreadReads();
+            _currentThreadValue = value;
+        }
+    }
     private string? _renderedConversationThreadId;
     private bool HasActiveRuns => _threads.Any(thread => thread.ActiveRun is not null);
     private bool IsCurrentThreadRunning => _currentThread?.ActiveRun is not null;
@@ -125,7 +137,7 @@ public partial class MainWindow : Window
         _stateSaveDebounce.Tick += (_, _) =>
         {
             _stateSaveDebounce.Stop();
-            SaveState();
+            RequestStateSave();
         };
         _usageRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
         _usageRefreshTimer.Tick += async (_, _) => await RefreshUsageLimitsAsync();
@@ -176,6 +188,10 @@ public partial class MainWindow : Window
             _repositoryRefreshTimer.Stop();
             _reloadDebounce.Stop();
             _isClosing = true;
+            _threadSelectionCancellation.Cancel();
+            _threadSelectionCancellation.Dispose();
+            _appServerCancellation.Cancel();
+            _appServerCancellation.Dispose();
             _updateCheckCancellation.Cancel();
             _updateCheckCancellation.Dispose();
             _repositoryRefreshCancellation.Cancel();
@@ -1008,7 +1024,7 @@ public partial class MainWindow : Window
         SetStatus("Создаю ответвление чата…", "Копирую сохранённую историю Codex.");
         try
         {
-            var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable())
+            var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token)
                 .ForkThreadAsync(source.CodexSessionId);
             if (!result.TryGetProperty("thread", out var codexThread)
                 || GetString(codexThread, "id") is not { Length: > 0 } sessionId)
@@ -1026,7 +1042,7 @@ public partial class MainWindow : Window
             _selectedProject = _projects.FirstOrDefault(project => project.Id == fork.ProjectId);
             _projectPath = _selectedProject?.Path ?? source.ProjectPath;
             _showArchivedChats = false;
-            SaveState();
+            RequestStateSave();
             RefreshView();
             await RestoreThreadHistoryAsync(fork);
             if (fork.HistoryError is { } historyError)
@@ -1108,7 +1124,7 @@ public partial class MainWindow : Window
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
             {
-                var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
                 if (archived) await client.ArchiveThreadAsync(sessionId);
                 else await client.UnarchiveThreadAsync(sessionId);
             }
@@ -1120,7 +1136,7 @@ public partial class MainWindow : Window
                 _showArchivedChats = false;
                 _currentThread = thread;
             }
-            SaveState();
+            RequestStateSave();
             UpdateChatSectionHeading();
             RefreshChatSelection();
             SetStatus(archived ? "Чат в архиве" : "Чат восстановлен", thread.Title);
@@ -1142,12 +1158,12 @@ public partial class MainWindow : Window
         try
         {
             if (thread.CodexSessionId is { Length: > 0 } sessionId)
-                await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).DeleteThreadAsync(sessionId);
+                await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token).DeleteThreadAsync(sessionId);
             _threads.Remove(thread);
             _promptQueue.RemoveAll(prompt => prompt.ThreadId == thread.Id);
             if (_currentThread == thread)
                 _currentThread = _threads.LastOrDefault(item => item.ProjectId == thread.ProjectId && item.IsArchived == _showArchivedChats);
-            SaveState();
+            RequestStateSave();
             RenderPromptQueue();
             UpdateChatSectionHeading();
             RefreshChatSelection();
@@ -1185,9 +1201,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private static async Task<UsageSnapshot> ReadUsageLimitsAsync()
+    private async Task<UsageSnapshot> ReadUsageLimitsAsync()
     {
-            var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).ReadRateLimitsAsync();
+        var result = await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token).ReadRateLimitsAsync();
         return ParseUsageSnapshot(result);
     }
 
@@ -1203,11 +1219,12 @@ public partial class MainWindow : Window
         if (thread.HistoryRestoreTask is { IsCompleted: false } inProgress)
             return inProgress;
 
-        thread.HistoryRestoreTask = RestoreThreadHistoryCoreAsync(thread, thread.CodexSessionId);
+        thread.HistoryRestoreTask = RestoreThreadHistoryCoreAsync(thread, thread.CodexSessionId,
+            _currentThread == thread ? _threadSelectionCancellation.Token : default);
         return thread.HistoryRestoreTask;
     }
 
-    private async Task RestoreThreadHistoryCoreAsync(ChatThread thread, string sessionId)
+    private async Task RestoreThreadHistoryCoreAsync(ChatThread thread, string sessionId, CancellationToken cancellationToken)
     {
         thread.HistoryLoading = true;
         thread.HistoryError = null;
@@ -1219,11 +1236,12 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await ReadThreadHistoryAsync(sessionId);
+            var result = await ReadThreadHistoryAsync(sessionId, cancellationToken);
             thread.Messages.Clear();
             thread.Messages.AddRange(ParseThreadMessages(result));
             thread.HistoryLoaded = true;
         }
+        catch (OperationCanceledException) { }
         catch (Exception error)
         {
             thread.HistoryError = error.Message;
@@ -1234,18 +1252,23 @@ public partial class MainWindow : Window
         {
             thread.HistoryLoading = false;
             thread.HistoryRestoreTask = null;
-            if (_currentThread == thread)
+            if (!_isClosing && _currentThread == thread)
             {
                 RenderConversation();
-                if (thread.HistoryError is null)
+                if (thread.HistoryLoaded && thread.HistoryError is null)
                     SetStatus("Готов", "История чата восстановлена.");
+                if (cancellationToken.IsCancellationRequested)
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!_isClosing && _currentThread == thread) _ = RestoreThreadHistoryAsync(thread);
+                    }));
             }
         }
     }
 
-    private static async Task<JsonElement> ReadThreadHistoryAsync(string sessionId)
+    private async Task<JsonElement> ReadThreadHistoryAsync(string sessionId, CancellationToken cancellationToken)
     {
-        return await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable()).ReadThreadAsync(sessionId);
+        return await new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token).ReadThreadAsync(sessionId, cancellationToken);
     }
 
     private static List<ChatMessage> ParseThreadMessages(JsonElement result)
@@ -1830,7 +1853,7 @@ public partial class MainWindow : Window
         _currentThread = subagent;
         _selectedProject = _projects.FirstOrDefault(project => project.Id == projectId);
         _projectPath = subagent.WorktreePath ?? _selectedProject?.Path ?? subagent.ProjectPath;
-        SaveState();
+        RequestStateSave();
         RefreshView();
         await RestoreThreadHistoryAsync(subagent);
     }
@@ -2150,16 +2173,25 @@ public partial class MainWindow : Window
         AutomationProperties.SetName(button, text);
     }
 
+    private void CancelSelectedThreadReads()
+    {
+        if (_isClosing) return;
+        _threadSelectionCancellation.Cancel();
+        _threadSelectionCancellation.Dispose();
+        _threadSelectionCancellation = new CancellationTokenSource();
+    }
+
     private async Task LoadThreadGoalForDisplayAsync(string threadId)
     {
         try
         {
-            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
-            var goal = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
+            var goal = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId, _threadSelectionCancellation.Token));
             if (_isClosing) return;
             if (!_threadGoalCache.ContainsKey(threadId)) _threadGoalCache[threadId] = goal;
             _threadGoalLoadFailures.Remove(threadId);
         }
+        catch (OperationCanceledException) { }
         catch (Exception error)
         {
             if (_isClosing) return;
@@ -2205,7 +2237,7 @@ public partial class MainWindow : Window
                 existing = new CodexThreadGoal(pendingGoal.Objective, pendingGoal.Status, pendingGoal.TokenBudget, 0, 0);
             else if (!string.IsNullOrWhiteSpace(threadId))
             {
-                client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
                 var response = await client.ReadThreadGoalAsync(threadId);
                 if (_isClosing) return;
                 existing = ReadThreadGoal(response);
@@ -2223,7 +2255,7 @@ public partial class MainWindow : Window
                 {
                     var previous = thread.PendingGoal;
                     thread.PendingGoal = null;
-                    if (!SaveState())
+                    if (!await SaveStateAsync())
                     {
                         thread.PendingGoal = previous;
                         SetStatus("Не удалось удалить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
@@ -2234,12 +2266,12 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
                 var cleared = await client.ClearThreadGoalAsync(threadId);
                 thread.PendingGoal = null;
                 _threadGoalCache[threadId] = null;
                 _threadGoalLoadFailures.Remove(threadId);
-                SaveState();
+                RequestStateSave();
                 UpdateThreadGoalButton();
                 var didClear = cleared.TryGetProperty("cleared", out var clearedValue)
                     && clearedValue.ValueKind == JsonValueKind.True;
@@ -2258,7 +2290,7 @@ public partial class MainWindow : Window
                     Status = status,
                     TokenBudget = editor.TokenBudget
                 };
-                if (!SaveState())
+                if (!await SaveStateAsync())
                 {
                     thread.PendingGoal = previous;
                     SetStatus("Не удалось сохранить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
@@ -2269,14 +2301,14 @@ public partial class MainWindow : Window
                 return;
             }
 
-            client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            client ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
             var saved = await client.SetThreadGoalAsync(threadId, objective, status, editor.TokenBudget);
             var updatedGoal = ReadThreadGoal(saved)
                 ?? throw new InvalidDataException("Codex App Server не вернул сохранённую цель.");
             thread.PendingGoal = null;
             _threadGoalCache[threadId] = updatedGoal;
             _threadGoalLoadFailures.Remove(threadId);
-            SaveState();
+            RequestStateSave();
             UpdateThreadGoalButton();
             SetStatus("Цель чата сохранена", ThreadGoalStatusLabel(updatedGoal.Status));
         }
@@ -2333,7 +2365,7 @@ public partial class MainWindow : Window
             {
                 var previousStatus = pendingGoal.Status;
                 pendingGoal.Status = status;
-                if (!SaveState())
+                if (!await SaveStateAsync())
                 {
                     pendingGoal.Status = previousStatus;
                     SetStatus("Не удалось изменить статус цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
@@ -2345,7 +2377,7 @@ public partial class MainWindow : Window
             }
             try
             {
-                var pendingClient = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+                var pendingClient = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
                 var response = await pendingClient.SetThreadGoalAsync(threadIdForPending,
                     pendingGoal.Objective, status, pendingGoal.TokenBudget);
                 var updated = ReadThreadGoal(response)
@@ -2353,7 +2385,7 @@ public partial class MainWindow : Window
                 thread.PendingGoal = null;
                 _threadGoalCache[threadIdForPending] = updated;
                 _threadGoalLoadFailures.Remove(threadIdForPending);
-                SaveState();
+                RequestStateSave();
                 UpdateThreadGoalButton();
                 SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
                 return;
@@ -2371,7 +2403,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
             var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
             if (current is null)
             {
@@ -2412,7 +2444,7 @@ public partial class MainWindow : Window
             if (answer != MessageBoxResult.Yes) return;
             var pending = thread.PendingGoal;
             thread.PendingGoal = null;
-            if (!SaveState())
+            if (!await SaveStateAsync())
             {
                 thread.PendingGoal = pending;
                 SetStatus("Не удалось удалить черновик цели", _startupIssue ?? "Не удалось сохранить состояние чата.", isError: true);
@@ -2429,7 +2461,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable());
+            var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
             var hasPending = thread.PendingGoal is not null;
             var current = hasPending ? null : ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
             if (current is null && !hasPending)
@@ -2447,7 +2479,7 @@ public partial class MainWindow : Window
             thread.PendingGoal = null;
             _threadGoalCache[threadId] = null;
             _threadGoalLoadFailures.Remove(threadId);
-            SaveState();
+            RequestStateSave();
             UpdateThreadGoalButton();
             SetStatus(cleared || hasPending ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
         }
@@ -3280,7 +3312,7 @@ public partial class MainWindow : Window
     {
         if (_currentThread?.ActiveRun is not { AppServerMode: true } run) return;
         run.SteerFollowUps = !run.SteerFollowUps;
-        SaveState();
+        RequestStateSave();
         UpdateSendButtonState();
     }
 
@@ -3288,7 +3320,7 @@ public partial class MainWindow : Window
     {
         if (_currentThread?.ActiveRun is not { AppServerMode: true, StopRequested: false } run) return;
         run.StopRequested = true;
-        SaveState();
+        RequestStateSave();
         UpdateSendButtonState();
         try
         {
@@ -3298,7 +3330,7 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             run.StopRequested = false;
-            SaveState();
+            RequestStateSave();
             UpdateSendButtonState();
             SetStatus("Не удалось остановить Codex", error.Message, isError: true);
         }
@@ -3370,7 +3402,7 @@ public partial class MainWindow : Window
             thread.UseWorktree = !thread.UseWorktree;
         }
 
-        SaveState();
+        RequestStateSave();
         RenderThreads();
         RenderConversation();
         UpdateChatInfoPanel();
@@ -3509,7 +3541,7 @@ public partial class MainWindow : Window
         {
             if (dialog.ShowDialog() != true || !_promptQueue.Contains(queued)) return;
             queued.Text = FormatPromptWithAttachments(input.Text.Trim(), attachments);
-            SaveState();
+            RequestStateSave();
             RenderPromptQueue();
         }
         finally
@@ -3522,7 +3554,7 @@ public partial class MainWindow : Window
     private void RemovePromptFromQueue(string promptId)
     {
         if (_promptQueue.RemoveAll(prompt => prompt.Id == promptId) == 0) return;
-        SaveState();
+        RequestStateSave();
         RenderPromptQueue();
     }
 
@@ -3536,12 +3568,13 @@ public partial class MainWindow : Window
             MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
         _promptQueue.Clear();
-        SaveState();
+        RequestStateSave();
         RenderPromptQueue();
     }
 
     private async Task SendPromptAsync()
     {
+        if (_isSavingPrompt) return;
         if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
         var promptText = input.Text == PromptPlaceholder ? "" : input.Text.Trim();
         var attachments = _composerAttachments.ToArray();
@@ -3595,17 +3628,33 @@ public partial class MainWindow : Window
             RenderThreads();
         }
         var project = _projects.FirstOrDefault(item => item.Id == thread.ProjectId);
-        _promptQueue.Add(new QueuedPrompt
+        var queuedPrompt = new QueuedPrompt
         {
             ThreadId = thread.Id,
             Text = prompt,
             Model = _selectedModel,
             Effort = _selectedEffort,
             FullAccess = project?.FullAccess == true
-        });
-        SaveState();
-        input.Clear();
-        ClearComposerAttachments();
+        };
+        _promptQueue.Add(queuedPrompt);
+        var submittedText = input.Text;
+        _isSavingPrompt = true;
+        bool saved;
+        try { saved = await SaveStateAsync(); }
+        finally { _isSavingPrompt = false; }
+        // Preserve anything typed or attached while the snapshot was being written.
+        if (saved && input.Text == submittedText && _composerAttachments.SequenceEqual(attachments))
+        {
+            input.Clear();
+            ClearComposerAttachments();
+        }
+        if (!saved)
+        {
+            _promptQueue.Remove(queuedPrompt);
+            RequestStateSave();
+            RenderPromptQueue();
+            return;
+        }
         RenderPromptQueue();
         await ProcessQueuedPromptsAsync();
     }
@@ -3654,7 +3703,7 @@ public partial class MainWindow : Window
             while (!_isClosing)
             {
                 var missing = _promptQueue.RemoveAll(prompt => _threads.All(thread => thread.Id != prompt.ThreadId));
-                if (missing > 0) SaveState();
+                if (missing > 0) RequestStateSave();
                 var queued = _promptQueue.FirstOrDefault(prompt =>
                     _threads.FirstOrDefault(thread => thread.Id == prompt.ThreadId) is { ActiveRun: null } thread &&
                     Directory.Exists(thread.ProjectPath));
@@ -3688,8 +3737,16 @@ public partial class MainWindow : Window
                 if (_isEditingQueuedPrompt) break;
                 var activeRun = CreateActiveCliRun(thread, queued);
                 thread.ActiveRun = activeRun;
+                var queueIndex = _promptQueue.IndexOf(queued);
                 _promptQueue.Remove(queued);
-                SaveState();
+                if (!await SaveStateAsync())
+                {
+                    thread.ActiveRun = null;
+                    _promptQueue.Insert(Math.Min(queueIndex, _promptQueue.Count), queued);
+                    RenderPromptQueue();
+                    break;
+                }
+                if (_isClosing) break;
                 RenderPromptQueue();
                 RenderThreads();
                 UpdateSendButtonState();
@@ -3700,7 +3757,7 @@ public partial class MainWindow : Window
                     {
                         thread.ActiveRun = null;
                         _promptQueue.Add(queued);
-                        SaveState();
+                        RequestStateSave();
                         RenderThreads();
                         RenderPromptQueue();
                         if (_currentThread == thread)
@@ -3712,7 +3769,7 @@ public partial class MainWindow : Window
                 var assistantMessage = new ChatMessage(false, "Думаю…");
                 thread.Messages.Add(userMessage);
                 thread.Messages.Add(assistantMessage);
-                SaveState();
+                RequestStateSave();
                 if (_currentThread == thread)
                 {
                     RenderConversation();
@@ -3758,10 +3815,10 @@ public partial class MainWindow : Window
                 thread.HasUnreadResponse = true;
                 ShowChatCompletionNotification(thread, failed);
             }
-            SaveState();
+            var completionSaved = await SaveStateAsync();
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
                 await RestoreThreadHistoryAsync(thread, force: true);
-            CleanupCliRun(activeRun);
+            if (completionSaved) CleanupCliRun(activeRun);
             CleanupObsoleteWorkerRuntimeCaches();
             RenderThreads();
             if (_currentThread == thread) RenderConversation();
@@ -3829,7 +3886,7 @@ public partial class MainWindow : Window
         thread.WorktreePath = await GitRepositoryInspector.CreateDetachedWorktreeAsync(
             repository.Root, worktreePath, CancellationToken.None);
         thread.WorktreeSetupComplete = false;
-        if (!SaveState()) throw new IOException("Не удалось сохранить путь созданного worktree.");
+        if (!await SaveStateAsync()) throw new IOException("Не удалось сохранить путь созданного worktree.");
         if (_currentThread == thread)
         {
             _projectPath = thread.WorktreePath;
@@ -3845,7 +3902,7 @@ public partial class MainWindow : Window
         if (scriptRelativePath is null)
         {
             thread.WorktreeSetupComplete = true;
-            if (!SaveState()) throw new IOException("Не удалось сохранить состояние подготовки worktree.");
+            if (!await SaveStateAsync()) throw new IOException("Не удалось сохранить состояние подготовки worktree.");
             return;
         }
 
@@ -3870,14 +3927,14 @@ public partial class MainWindow : Window
         if (result != MessageBoxResult.Yes)
         {
             thread.WorktreeSetupComplete = true;
-            if (!SaveState()) throw new IOException("Не удалось сохранить отказ от setup-сценария.");
+            if (!await SaveStateAsync()) throw new IOException("Не удалось сохранить отказ от setup-сценария.");
             SetStatus("Подготовка worktree пропущена", "Сценарий можно запустить для новой рабочей копии из меню проекта.");
             return;
         }
 
         CodexWorktreeSetupWindow.Run(this, worktreeProjectPath, scriptPath);
         thread.WorktreeSetupComplete = true;
-        if (!SaveState()) throw new IOException("Сценарий завершён, но состояние worktree не удалось сохранить.");
+        if (!await SaveStateAsync()) throw new IOException("Сценарий завершён, но состояние worktree не удалось сохранить.");
     }
 
     private async Task<string> RunCodexAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage)
@@ -3998,7 +4055,7 @@ public partial class MainWindow : Window
                         thread.CodexSessionId = id;
                         thread.ForkFromSessionId = null;
                         if (thread.UseWorktree) thread.WorktreeSessionStarted = true;
-                        SaveState();
+                        RequestStateSave();
                         if (_currentThread == thread) UpdateChatInfoPanel();
                     });
                 }
@@ -4016,7 +4073,7 @@ public partial class MainWindow : Window
                         _threadGoalCache[appliedThreadId] = new CodexThreadGoal(
                             appliedGoal.Objective, appliedGoal.Status, appliedGoal.TokenBudget, 0, 0);
                         _threadGoalLoadFailures.Remove(appliedThreadId);
-                        SaveState();
+                        RequestStateSave();
                         if (_currentThread == thread) UpdateChatInfoPanel();
                     });
                     return;
@@ -4044,7 +4101,7 @@ public partial class MainWindow : Window
                         if (!activeRun.ResolvedApprovalRequestIds.Contains(resolvedRequestId, StringComparer.Ordinal))
                             activeRun.ResolvedApprovalRequestIds.Add(resolvedRequestId);
                         CodexAppServerRequestDialog.ClosePending(activeRun.RunId + ":" + resolvedRequestId);
-                        SaveState();
+                        RequestStateSave();
                     }, DispatcherPriority.Background);
                     return;
                 }
@@ -4055,7 +4112,7 @@ public partial class MainWindow : Window
                     {
                         var index = thread.Messages.FindLastIndex(message => !message.IsUser && message.ActivityTitle is null);
                         thread.Messages.Insert(index >= 0 ? index : thread.Messages.Count, new ChatMessage(true, steeredPrompt));
-                        SaveState();
+                        RequestStateSave();
                         if (_currentThread == thread) RenderConversation();
                     }, DispatcherPriority.Background);
                 }
@@ -4094,7 +4151,7 @@ public partial class MainWindow : Window
                                 });
                                 RenderPromptQueue();
                             }
-                            SaveState();
+                            RequestStateSave();
                         }
                         var index = thread.Messages.IndexOf(assistantMessage);
                         if (index >= 0)
@@ -4104,7 +4161,7 @@ public partial class MainWindow : Window
                                 IsError = true
                             });
                         if (_currentThread == thread) RenderConversation();
-                        SaveState();
+                        RequestStateSave();
                     }, DispatcherPriority.Background);
                 }
 
@@ -4204,7 +4261,7 @@ public partial class MainWindow : Window
         if (completion?.SessionId is { Length: > 0 } sessionId && thread.CodexSessionId != sessionId)
         {
             thread.CodexSessionId = sessionId;
-            SaveState();
+            RequestStateSave();
         }
         if (completion is null || completion.ExitCode != 0)
         {
@@ -4240,7 +4297,7 @@ public partial class MainWindow : Window
             });
             if (!run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
                 run.ResolvedApprovalRequestIds.Add(requestId);
-            SaveState();
+            RequestStateSave();
         }
         catch (Exception error)
         {
@@ -4253,7 +4310,7 @@ public partial class MainWindow : Window
                     IsError = true
                 });
             if (_currentThread == thread) RenderConversation();
-            SaveState();
+            RequestStateSave();
         }
     }
 
@@ -4288,7 +4345,7 @@ public partial class MainWindow : Window
             });
             if (!run.ResolvedApprovalRequestIds.Contains(requestId, StringComparer.Ordinal))
                 run.ResolvedApprovalRequestIds.Add(requestId);
-            SaveState();
+            RequestStateSave();
         }
         catch (Exception error)
         {
@@ -4301,7 +4358,7 @@ public partial class MainWindow : Window
                     IsError = true
                 });
             if (_currentThread == thread) RenderConversation();
-            SaveState();
+            RequestStateSave();
         }
     }
 
@@ -4590,12 +4647,13 @@ public partial class MainWindow : Window
             };
             await File.WriteAllTextAsync(run.RequestPath, JsonSerializer.Serialize(serverRequest));
             var serverStartInfo = CreateAppServerWorkerStartInfo(run);
-            SaveState();
+            if (!await SaveStateAsync()) throw new IOException("Не удалось сохранить состояние перед запуском worker.");
+            if (_isClosing) return null;
             var serverProcess = Process.Start(serverStartInfo)
                 ?? throw new InvalidOperationException("Не удалось запустить фоновый app-server процесс.");
             run.WorkerProcessId = serverProcess.Id;
             run.WorkerStartTimeUtcTicks = serverProcess.StartTime.ToUniversalTime().Ticks;
-            SaveState();
+            RequestStateSave();
             return serverProcess;
         }
 
@@ -4634,7 +4692,7 @@ public partial class MainWindow : Window
         var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Не удалось запустить фоновый процесс Codex.");
         run.WorkerProcessId = process.Id;
         run.WorkerStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
-        SaveState();
+        RequestStateSave();
         return process;
     }
 
@@ -4824,7 +4882,7 @@ public partial class MainWindow : Window
         var thread = new ChatThread { Title = "Новый чат", ProjectId = project.Id, ProjectPath = project.Path };
         _threads.Add(thread);
         _currentThread = thread;
-        SaveState();
+        RequestStateSave();
         return thread;
     }
 
@@ -4856,7 +4914,7 @@ public partial class MainWindow : Window
         _projectPath = thread.WorktreePath ?? _selectedProject?.Path ?? thread.ProjectPath;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = thread.Title;
         RefreshView();
-        SaveState();
+        RequestStateSave();
         _ = RestoreThreadContextUsageAsync(thread);
         _ = RestoreThreadHistoryAsync(thread);
     }
@@ -4926,7 +4984,7 @@ public partial class MainWindow : Window
         if (_currentThread is { } currentThread) currentThread.HasUnreadResponse = false;
         if (Control<TextBlock>("HeaderTitle") is { } title) title.Text = _currentThread?.Title ?? "Новая задача";
         RefreshView();
-        SaveState();
+        RequestStateSave();
         if (_currentThread is not null)
         {
             _ = RestoreThreadContextUsageAsync(_currentThread);
@@ -4959,7 +5017,7 @@ public partial class MainWindow : Window
         else
         {
             RenderProjects();
-            SaveState();
+            RequestStateSave();
         }
     }
 
@@ -5201,7 +5259,7 @@ public partial class MainWindow : Window
         anchor.IsEnabled = false;
         try
         {
-            _modelCatalogTask ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable())
+            _modelCatalogTask ??= new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token)
                 .ReadModelCatalogAsync(DefaultEffort);
             _availableModels = await _modelCatalogTask;
             if (_availableModels.Count == 0)
@@ -5276,14 +5334,14 @@ public partial class MainWindow : Window
                 ? selected.DefaultReasoningLevel
                 : selected.ReasoningLevels.First();
         UpdateComposerSettingsLabels();
-        SaveState();
+        RequestStateSave();
     }
 
     private void SetSelectedEffort(string effort)
     {
         _selectedEffort = effort;
         UpdateComposerSettingsLabels();
-        SaveState();
+        RequestStateSave();
     }
 
     private void UpdateComposerSettingsLabels()
@@ -5316,7 +5374,7 @@ public partial class MainWindow : Window
                 ? model.DefaultReasoningLevel
                 : model.ReasoningLevels.First();
         UpdateComposerSettingsLabels();
-        SaveState();
+        RequestStateSave();
     }
 
     private void ApplyAccessMode()
@@ -5326,7 +5384,7 @@ public partial class MainWindow : Window
             label.Text = IsFullAccess ? "Полный доступ" : "Попросить подтверждение";
             label.Foreground = Brush(IsFullAccess ? "#F0A277" : "#C4C5C9");
         }
-        SaveState();
+        RequestStateSave();
         SetStatus(IsFullAccess ? "Полный доступ" : "Попросить подтверждение",
             IsFullAccess
                 ? "Без ограничений на файлы и сеть; команды выполняются без подтверждений."
@@ -5440,148 +5498,6 @@ public partial class MainWindow : Window
         _projects.Add(project);
         SelectProject(project);
     }
-
-    private static void ValidateStoredState(StoredState state)
-    {
-        if (state.Projects is null || state.RemovedProjects is null || state.Threads is null || state.Actions is null
-            || state.QueuedPrompts is null || state.Projects.Any(project => project is null)
-            || state.RemovedProjects.Any(project => project is null)
-            || state.Threads.Any(thread => thread is null)
-            || state.Actions.Any(action => action is null)
-            || state.QueuedPrompts.Any(prompt => prompt is null))
-            throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
-    }
-
-    private void LoadState()
-    {
-        var statePath = GetStatePath();
-        if (File.Exists(statePath) || File.Exists(statePath + ".bak"))
-        {
-            try
-            {
-                var state = AtomicJsonFile.ReadWithBackup<StoredState>(statePath, ValidateStoredState);
-                if (state is not null)
-                {
-                    _projects.AddRange(state.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Id) && !string.IsNullOrWhiteSpace(project.Path)));
-                    _removedProjects.AddRange(state.RemovedProjects.Where(project =>
-                        !string.IsNullOrWhiteSpace(project.Id) &&
-                        !string.IsNullOrWhiteSpace(project.Path) &&
-                        !_projects.Any(active => active.Id == project.Id)));
-                    _actions.AddRange(state.Actions
-                        .Where(action => !string.IsNullOrWhiteSpace(action.Id)
-                            && !string.IsNullOrWhiteSpace(action.Name)
-                            && action.HasValidPayload)
-                        .DistinctBy(action => action.Id, StringComparer.Ordinal));
-                    foreach (var stored in state.Threads)
-                    {
-                        if (string.IsNullOrWhiteSpace(stored.Id) || string.IsNullOrWhiteSpace(stored.ProjectPath)) continue;
-                        _threads.Add(new ChatThread
-                        {
-                            Id = stored.Id,
-                            Title = string.IsNullOrWhiteSpace(stored.Title) ? "Новый чат" : stored.Title,
-                            ProjectId = stored.ProjectId,
-                            ProjectPath = stored.ProjectPath,
-                            WorktreePath = stored.WorktreePath,
-                            CodexSessionId = stored.CodexSessionId,
-                            ForkFromSessionId = stored.ForkFromSessionId,
-                            IsArchived = stored.IsArchived,
-                            IsPinned = stored.IsPinned,
-                            HasUnreadResponse = stored.HasUnreadResponse,
-                            UseWorktree = stored.UseWorktree,
-                            WorktreeSessionStarted = stored.WorktreeSessionStarted,
-                            WorktreeSetupComplete = stored.WorktreeSetupComplete,
-                            ContextTokens = stored.ContextTokens,
-                            ContextWindowTokens = stored.ContextWindowTokens,
-                            PendingGoal = stored.PendingGoal,
-                            ActiveRun = stored.ActiveRun
-                        });
-                    }
-                    _promptQueue.AddRange(state.QueuedPrompts.Where(prompt =>
-                        !string.IsNullOrWhiteSpace(prompt.Id) &&
-                        !string.IsNullOrWhiteSpace(prompt.ThreadId) &&
-                        !string.IsNullOrWhiteSpace(prompt.Text) &&
-                        _threads.Any(thread => thread.Id == prompt.ThreadId)));
-                    _selectedProject = _projects.FirstOrDefault(project => project.Id == state.SelectedProjectId);
-                    _selectedModel = string.IsNullOrWhiteSpace(state.SelectedModel) ? DefaultModel : state.SelectedModel;
-                    _selectedEffort = string.IsNullOrWhiteSpace(state.SelectedEffort) ? DefaultEffort : state.SelectedEffort;
-                }
-            }
-            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
-            {
-                try
-                {
-                    _stateSaveBlocked = true;
-                    var backup = AtomicJsonFile.BackupUnreadable(statePath);
-                    _startupIssue = $"Не удалось прочитать список проектов: {error.Message} Резервная копия: {backup}. Запись state.json заблокирована.";
-                }
-                catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
-                {
-                    _stateSaveBlocked = true;
-                    _startupIssue = $"Не удалось прочитать состояние ({error.Message}) и сохранить его копию ({backupError.Message}). Запись state.json заблокирована.";
-                }
-            }
-        }
-
-        if (_projects.Count == 0)
-        {
-            var path = FindProjectRoot();
-            _projects.Add(new ProjectEntry { Id = Guid.NewGuid().ToString("N"), Name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)), Path = path });
-        }
-        _selectedProject ??= _projects[0];
-        _projectPath = _selectedProject.Path;
-        _currentThread = _threads.LastOrDefault(thread => thread.ProjectId == _selectedProject.Id && !thread.IsArchived);
-        if (_currentThread is { } currentThread) currentThread.HasUnreadResponse = false;
-        SaveState();
-    }
-
-    private bool SaveState()
-    {
-        if (_stateSaveBlocked) return false;
-        try
-        {
-            var statePath = GetStatePath();
-            Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
-            var state = new StoredState
-            {
-                SelectedProjectId = _selectedProject?.Id,
-                SelectedModel = _selectedModel,
-                SelectedEffort = _selectedEffort,
-                Projects = _projects,
-                RemovedProjects = _removedProjects,
-                QueuedPrompts = _promptQueue,
-                Actions = _actions,
-                Threads = _threads.Select(thread => new StoredThread
-                {
-                    Id = thread.Id,
-                    Title = thread.Title,
-                    ProjectId = thread.ProjectId,
-                    ProjectPath = thread.ProjectPath,
-                    WorktreePath = thread.WorktreePath,
-                    CodexSessionId = thread.CodexSessionId,
-                    ForkFromSessionId = thread.ForkFromSessionId,
-                    PendingGoal = thread.PendingGoal,
-                    IsArchived = thread.IsArchived,
-                    IsPinned = thread.IsPinned,
-                    HasUnreadResponse = thread.HasUnreadResponse,
-                    UseWorktree = thread.UseWorktree,
-                    WorktreeSessionStarted = thread.WorktreeSessionStarted,
-                    WorktreeSetupComplete = thread.WorktreeSetupComplete,
-                    ContextTokens = thread.ContextTokens,
-                    ContextWindowTokens = thread.ContextWindowTokens,
-                    ActiveRun = thread.ActiveRun
-                }).ToList()
-            };
-            AtomicJsonFile.Write(statePath, state, StateSerializerOptions, backupPath: statePath + ".bak");
-            return true;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
-        {
-            _startupIssue = "Не удалось сохранить список проектов: " + error.Message;
-            return false;
-        }
-    }
-
-    private static string GetStatePath() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "state.json");
 
     private void ChooseProjectFolder()
     {
@@ -5746,431 +5662,6 @@ public partial class MainWindow : Window
         _terminalWindow = new CodexTerminalWindow(workingDirectory, IsFullAccess) { Owner = this };
         _terminalWindow.Closed += (_, _) => _terminalWindow = null;
         _terminalWindow.Show();
-    }
-
-    private void PersistAutomationDefinitions()
-    {
-        CodexAutomationStore.SaveDefinitions(_automationDefinitions);
-        UpdateAutomationTimerInterval();
-        _automationWindow?.UpdateLists();
-    }
-
-    private void UpdateAutomationTimerInterval()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var nextRuleRun = _automationDefinitions
-            .Where(definition => definition.Enabled && !definition.RecurrenceExhausted
-                && definition.Cadence == "rrule" && !IsAutomationBusy(definition)
-                && definition.NextRunAtUtc > now)
-            .Select(definition => definition.NextRunAtUtc)
-            .OrderBy(nextRun => nextRun)
-            .FirstOrDefault();
-        var interval = TimeSpan.FromSeconds(30);
-        if (nextRuleRun != default)
-        {
-            var untilRule = nextRuleRun - now;
-            if (untilRule < TimeSpan.FromMilliseconds(100)) untilRule = TimeSpan.FromMilliseconds(100);
-            if (untilRule < interval) interval = untilRule;
-        }
-        _automationTimer.Interval = interval;
-    }
-
-    private void MarkAutomationRunReviewed(CodexAutomationRun run)
-    {
-        try { CodexAutomationStore.MarkRunReviewed(run); }
-        catch (Exception error)
-        {
-            run.Reviewed = false;
-            CodexMessageDialog.Show(this, error.Message, "Не удалось сохранить отметку проверки", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        _automationWindow?.UpdateLists();
-    }
-
-    private void OpenAutomationRun(CodexAutomationRun run)
-    {
-        if (string.IsNullOrWhiteSpace(run.ThreadId)) return;
-        var existing = _threads.FirstOrDefault(thread => thread.CodexSessionId == run.ThreadId);
-        if (existing is not null)
-        {
-            SelectThread(existing);
-            if (run.Status is not ("running" or "preparing"))
-                _ = RestoreThreadHistoryAsync(existing, force: true);
-            return;
-        }
-
-        var thread = new ChatThread
-        {
-            Title = $"{run.AutomationName} · {run.StartedAtUtc.ToLocalTime():dd.MM HH:mm}",
-            ProjectId = run.ProjectId,
-            ProjectPath = run.ProjectPath,
-            WorktreePath = run.WorktreePath,
-            CodexSessionId = run.ThreadId
-        };
-        _threads.Add(thread);
-        _showArchivedChats = false;
-        SelectThread(thread);
-        SaveState();
-    }
-
-    private async Task ProcessAutomationsAsync()
-    {
-        if (_isProcessingAutomationTick || _isClosing) return;
-        _isProcessingAutomationTick = true;
-        var changed = false;
-        try
-        {
-            foreach (var run in _automationRuns.Where(item => item.Status == "preparing").ToArray())
-            {
-                if (IsProcessIdentityRunning(run.CoordinatorProcessId, run.CoordinatorStartTimeUtcTicks)) continue;
-                var runDirectory = run.WorkerRunId is { Length: > 0 } workerRunId && Guid.TryParseExact(workerRunId, "N", out _)
-                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", workerRunId)
-                    : "";
-                if (runDirectory.Length > 0 && (TryRestoreAutomationWorkerIdentity(run, runDirectory)
-                    || File.Exists(Path.Combine(runDirectory, "completed.json"))))
-                {
-                    run.Status = "running";
-                    CodexAutomationStore.SaveRun(run);
-                    changed = true;
-                    continue;
-                }
-                run.Status = "failed";
-                run.Error = "CodexGUI завершился до запуска фоновой задачи.";
-                run.CompletedAtUtc = DateTimeOffset.UtcNow;
-                CodexAutomationStore.SaveRun(run);
-                changed = true;
-            }
-
-            foreach (var run in _automationRuns.Where(item => item.Status == "running").ToArray())
-                changed |= await RefreshAutomationRunAsync(run);
-
-            var now = DateTimeOffset.UtcNow;
-            foreach (var definition in _automationDefinitions.Where(item => item.Enabled && item.NextRunAtUtc <= now).ToArray())
-            {
-                if (IsAutomationBusy(definition)) continue;
-                CodexAutomationStore.CalculateNextOccurrence(definition, now, definition.NextRunAtUtc);
-                PersistAutomationDefinitions();
-                await StartAutomationAsync(definition, scheduledOccurrence: true);
-                changed = true;
-            }
-
-            UpdateAutomationTimerInterval();
-            if (changed) _automationWindow?.UpdateLists();
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
-        {
-            _startupIssue = "Ошибка планировщика Codex: " + error.Message;
-            if (Control<TextBlock>("ConnectionDetail") is { } detail) detail.Text = _startupIssue;
-        }
-        finally
-        {
-            _isProcessingAutomationTick = false;
-        }
-    }
-
-    private bool IsAutomationBusy(CodexAutomationDefinition definition)
-    {
-        var existingThreadId = definition.ExistingThreadId;
-        return _automationRuns.Any(run => (run.Status is "running" or "preparing")
-            && (run.AutomationId == definition.Id
-                || existingThreadId is { Length: > 0 } && run.ThreadId == existingThreadId))
-            || (existingThreadId is { Length: > 0 }
-                && _threads.Any(thread => thread.CodexSessionId == existingThreadId && thread.ActiveRun is not null));
-    }
-
-    private async Task StartAutomationAsync(CodexAutomationDefinition definition, bool manualRun = false,
-        bool scheduledOccurrence = false)
-    {
-        if (!definition.Enabled && !manualRun && !scheduledOccurrence)
-            return;
-        if (IsAutomationBusy(definition))
-        {
-            if (manualRun) throw new InvalidOperationException("Эта автоматизация или выбранный чат уже выполняется.");
-            return;
-        }
-
-        var projects = ResolveAutomationProjects(definition);
-        if (projects.Count == 0)
-            throw new InvalidDataException("В расписании не выбран ни один проект.");
-        if (definition.ExistingThreadId is { Length: > 0 } && projects.Count != 1)
-            throw new InvalidDataException("Продолжение существующего чата поддерживается для одного проекта.");
-
-        foreach (var project in projects)
-            await StartAutomationForProjectAsync(definition, project);
-    }
-
-    private IReadOnlyList<CodexAutomationProject> ResolveAutomationProjects(CodexAutomationDefinition definition)
-        => CodexAutomationStore.ResolveAutomationProjects(definition,
-            _projects.Select(project => new CodexAutomationProject(project.Id, project.Name, project.Path)).ToArray());
-
-    private async Task StartAutomationForProjectAsync(CodexAutomationDefinition definition, CodexAutomationProject project)
-    {
-        var workerRunId = Guid.NewGuid().ToString("N");
-        using var coordinatorProcess = Process.GetCurrentProcess();
-        var run = new CodexAutomationRun
-        {
-            AutomationId = definition.Id,
-            AutomationName = definition.Name,
-            ProjectId = project.Id,
-            ProjectPath = project.Path,
-            ThreadId = definition.ExistingThreadId,
-            WorkerRunId = workerRunId,
-            CoordinatorProcessId = coordinatorProcess.Id,
-            CoordinatorStartTimeUtcTicks = coordinatorProcess.StartTime.ToUniversalTime().Ticks,
-            StartedAtUtc = DateTimeOffset.UtcNow,
-            Status = "preparing"
-        };
-        _automationRuns.Add(run);
-        CodexAutomationStore.SaveRun(run);
-        _automationWindow?.UpdateLists();
-
-        try
-        {
-            if (!Directory.Exists(project.Path))
-                throw new DirectoryNotFoundException($"Папка проекта больше не существует: {project.Path}");
-
-            var workingDirectory = Path.GetFullPath(project.Path);
-            if (definition.ExistingThreadId is { Length: > 0 })
-            {
-                var existingThreadDirectory = Path.GetFullPath(
-                    string.IsNullOrWhiteSpace(definition.ExistingThreadWorkingDirectory)
-                        ? project.Path
-                        : definition.ExistingThreadWorkingDirectory);
-                if (definition.ExistingThreadWorktreePath is { Length: > 0 } storedWorktree)
-                {
-                    var fullWorktree = Path.GetFullPath(storedWorktree);
-                    if (!string.Equals(existingThreadDirectory, fullWorktree, StringComparison.OrdinalIgnoreCase)
-                        || !Directory.Exists(fullWorktree)
-                        || !await GitRepositoryInspector.IsRegisteredWorktreeAsync(project.Path, fullWorktree, CancellationToken.None))
-                        throw new InvalidDataException("Выбранный чат ссылается на недоступный Git worktree.");
-                    run.WorktreePath = fullWorktree;
-                }
-                else if (!string.Equals(existingThreadDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Папка сохранённого чата изменилась; выберите чат заново в настройках расписания.");
-                workingDirectory = existingThreadDirectory;
-            }
-            else if (definition.UseWorktree)
-            {
-                if (!Guid.TryParseExact(project.Id, "N", out var projectId))
-                    throw new InvalidDataException("Не удалось проверить идентификатор проекта для изолированной копии.");
-                var worktreePath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "CodexGUI", "worktrees", projectId.ToString("N"), "automations", run.Id);
-                var repository = await GitRepositoryInspector.ReadAsync(workingDirectory, CancellationToken.None);
-                if (!repository.IsRepository)
-                    throw new InvalidOperationException(repository.Error ?? "Изоляция расписания требует Git-репозиторий; снимите флажок worktree, чтобы работать прямо в папке проекта.");
-                run.WorktreePath = await GitRepositoryInspector.CreateDetachedWorktreeAsync(repository.Root, worktreePath, CancellationToken.None);
-                workingDirectory = run.WorktreePath;
-            }
-
-            var runDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", workerRunId);
-            Directory.CreateDirectory(runDirectory);
-            var activeRun = new ActiveCliRun
-            {
-                RunId = workerRunId,
-                Prompt = definition.Prompt,
-                Model = definition.Model,
-                Effort = definition.Effort,
-                WorkingDirectory = workingDirectory,
-                RequestPath = Path.Combine(runDirectory, "request.json"),
-                ScriptPath = Path.Combine(runDirectory, "CodexCliWorker.ps1"),
-                StartedPath = Path.Combine(runDirectory, "started.json"),
-                OutputPath = Path.Combine(runDirectory, "stdout.jsonl"),
-                ErrorPath = Path.Combine(runDirectory, "stderr.txt"),
-                CompletionPath = Path.Combine(runDirectory, "completed.json"),
-                AppServerMode = true
-            };
-            var request = new CodexAppServerWorkerRequest
-            {
-                RunId = workerRunId,
-                ExecutablePath = CodexAppServerRuntime.ResolveExecutable(),
-                WorkingDirectory = workingDirectory,
-                Prompt = definition.Prompt,
-                Model = definition.Model,
-                Effort = definition.Effort,
-                Unattended = true,
-                ThreadId = definition.ExistingThreadId,
-                StartedPath = activeRun.StartedPath,
-                OutputPath = activeRun.OutputPath,
-                ErrorPath = activeRun.ErrorPath,
-                CompletionPath = activeRun.CompletionPath
-            };
-            var startInfo = CreateAppServerWorkerStartInfo(activeRun);
-            run.WorkerRuntimeDirectory = activeRun.WorkerRuntimeDirectory;
-            run.AppServerRuntimeDirectory = CodexAppServerRuntime.IsInstalled
-                ? CodexAppServerRuntime.RuntimeDirectory
-                : null;
-            CodexAutomationStore.SaveRun(run);
-            await File.WriteAllTextAsync(activeRun.RequestPath, JsonSerializer.Serialize(request));
-            run.Status = "running";
-            CodexAutomationStore.SaveRun(run);
-            var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Не удалось запустить фоновую автоматизацию Codex.");
-            run.WorkerProcessId = process.Id;
-            run.WorkerStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
-            process.Dispose();
-            CodexAutomationStore.SaveRun(run);
-        }
-        catch (Exception error)
-        {
-            run.Status = "failed";
-            run.Error = error.Message;
-            run.CompletedAtUtc = DateTimeOffset.UtcNow;
-            CodexAutomationStore.SaveRun(run);
-            _automationWindow?.UpdateLists();
-        }
-    }
-
-    private async Task<bool> RefreshAutomationRunAsync(CodexAutomationRun run)
-    {
-        if (run.WorkerRunId is not { Length: > 0 } workerRunId || !Guid.TryParseExact(workerRunId, "N", out _))
-        {
-            run.Status = "failed";
-            run.Error = "Не удалось восстановить идентификатор фонового процесса.";
-            run.CompletedAtUtc = DateTimeOffset.UtcNow;
-            CodexAutomationStore.SaveRun(run);
-            return true;
-        }
-
-        var runDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", workerRunId);
-        if (run.WorkerProcessId <= 0 && TryRestoreAutomationWorkerIdentity(run, runDirectory))
-            CodexAutomationStore.SaveRun(run);
-        var completionPath = Path.Combine(runDirectory, "completed.json");
-        if (!File.Exists(completionPath))
-        {
-            if (run.StartedAtUtc < DateTimeOffset.UtcNow.AddMinutes(-2) && !IsAutomationWorkerRunning(run))
-            {
-                run.Status = "failed";
-                run.Error = "Фоновый процесс завершился без результата.";
-                run.CompletedAtUtc = DateTimeOffset.UtcNow;
-                CodexAutomationStore.SaveRun(run);
-                return true;
-            }
-            return false;
-        }
-
-        CodexAppServerWorkerCompletion completion;
-        try
-        {
-            completion = JsonSerializer.Deserialize<CodexAppServerWorkerCompletion>(await File.ReadAllTextAsync(completionPath))
-                ?? throw new InvalidDataException("Пустой результат фонового процесса.");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
-        {
-            System.Diagnostics.Trace.TraceWarning("Не удалось прочитать завершение автоматизации {0}: {1}", run.Id, error.Message);
-            if (run.StartedAtUtc < DateTimeOffset.UtcNow.AddMinutes(-2) && !IsAutomationWorkerRunning(run))
-            {
-                run.Status = "failed";
-                run.Error = "Фоновый процесс завершился, но результат оказался повреждён.";
-                run.CompletedAtUtc = DateTimeOffset.UtcNow;
-                CodexAutomationStore.SaveRun(run);
-                return true;
-            }
-            return false;
-        }
-
-        run.ThreadId = completion.SessionId ?? ReadAutomationThreadId(Path.Combine(runDirectory, "stdout.jsonl"));
-        run.Status = completion.ExitCode == 0 ? "completed" : "failed";
-        run.Error = completion.Error;
-        if (run.Status == "failed" && string.IsNullOrWhiteSpace(run.Error))
-        {
-            var errorPath = Path.Combine(runDirectory, "stderr.txt");
-            if (File.Exists(errorPath)) run.Error = await File.ReadAllTextAsync(errorPath);
-        }
-        run.Summary = ReadAutomationSummary(Path.Combine(runDirectory, "stdout.jsonl"));
-        run.CompletedAtUtc = DateTimeOffset.UtcNow;
-        CodexAutomationStore.SaveRun(run);
-        return true;
-    }
-
-    private static bool IsAutomationWorkerRunning(CodexAutomationRun run)
-        => IsProcessIdentityRunning(run.WorkerProcessId, run.WorkerStartTimeUtcTicks);
-
-    private static bool TryRestoreAutomationWorkerIdentity(CodexAutomationRun run, string runDirectory)
-    {
-        var startedPath = Path.Combine(runDirectory, "started.json");
-        if (!File.Exists(startedPath)) return false;
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllText(startedPath));
-            var started = document.RootElement;
-            if (started.TryGetProperty("ProcessId", out var processId) && processId.TryGetInt32(out var id))
-                run.WorkerProcessId = id;
-            if (started.TryGetProperty("StartTimeUtcTicks", out var startTime) && startTime.TryGetInt64(out var ticks))
-                run.WorkerStartTimeUtcTicks = ticks;
-            return run.WorkerProcessId > 0;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            System.Diagnostics.Trace.TraceWarning("Не удалось восстановить фоновый процесс автоматизации {0}: {1}", run.Id, error.Message);
-            return false;
-        }
-    }
-
-    private static bool IsProcessIdentityRunning(int processId, long startTimeUtcTicks)
-    {
-        if (processId <= 0) return false;
-        try
-        {
-            using var process = Process.GetProcessById(processId);
-            return startTimeUtcTicks == 0
-                || process.StartTime.ToUniversalTime().Ticks == startTimeUtcTicks;
-        }
-        catch (ArgumentException) { return false; }
-        catch (InvalidOperationException) { return false; }
-        catch (System.ComponentModel.Win32Exception) { return false; }
-    }
-
-    private static string? ReadAutomationThreadId(string outputPath)
-    {
-        if (!File.Exists(outputPath)) return null;
-        try
-        {
-            foreach (var line in File.ReadLines(outputPath))
-            {
-                using var document = JsonDocument.Parse(line);
-                if (GetString(document.RootElement, "type") == "thread.started"
-                    && GetString(document.RootElement, "thread_id") is { Length: > 0 } threadId)
-                    return threadId;
-            }
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            System.Diagnostics.Trace.TraceWarning("Не удалось прочитать id чата автоматизации: {0}", error.Message);
-        }
-        return null;
-    }
-
-    private static string ReadAutomationSummary(string outputPath)
-    {
-        if (!File.Exists(outputPath)) return "";
-        var deltas = new StringBuilder();
-        var finalMessage = new StringBuilder();
-        try
-        {
-            foreach (var line in File.ReadLines(outputPath))
-            {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                var eventType = GetString(root, "type");
-                if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
-                    deltas.Append(delta);
-                else if (eventType == "item.completed" && root.TryGetProperty("item", out var item)
-                    && (GetString(item, "type") is "agent_message" or "agentMessage")
-                    && GetString(item, "text") is { } text)
-                {
-                    finalMessage.Clear();
-                    finalMessage.Append(text);
-                }
-            }
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            System.Diagnostics.Trace.TraceWarning("Не удалось прочитать сводку автоматизации: {0}", error.Message);
-        }
-        var summary = finalMessage.Length > 0 ? finalMessage.ToString() : deltas.ToString();
-        summary = summary.Trim();
-        return summary.Length <= 1600 ? summary : summary[..1600] + "…";
     }
 
     private void ShowExtensions(bool showSkills)

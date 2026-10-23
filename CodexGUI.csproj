@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>0.0.88</Version>
+    <Version>0.0.89</Version>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\codex-assistant.ico</ApplicationIcon>
@@ -11,6 +11,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <InternalsVisibleTo Include="CodexGUI.Checks" />
     <Content Include="Views\WorkspaceView.xaml" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Scripts\Update-CodexGUI.ps1" Link="Update-CodexGUI.ps1" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Views\WorkspaceView.xaml" LogicalName="CodexGUI.Views.WorkspaceView.xaml" />

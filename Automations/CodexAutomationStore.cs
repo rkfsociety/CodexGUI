@@ -71,36 +71,35 @@ internal static class CodexAutomationStore
 
     private static string DefinitionsPath => Path.Combine(Root, "automations.json");
 
-    public static List<CodexAutomationDefinition> LoadDefinitions()
+    public static List<CodexAutomationDefinition> LoadDefinitions() => LoadDefinitions(DefinitionsPath);
+
+    internal static List<CodexAutomationDefinition> LoadDefinitions(string definitionsPath)
     {
-        if (!File.Exists(DefinitionsPath)) return [];
+        if (!File.Exists(definitionsPath) && !File.Exists(definitionsPath + ".bak")) return [];
         try
         {
-            var definitions = JsonSerializer.Deserialize<List<CodexAutomationDefinition>>(File.ReadAllText(DefinitionsPath))
-                ?? throw new InvalidDataException("Файл расписаний пуст.");
-            if (definitions.Any(definition => definition is null))
-                throw new InvalidDataException("Файл расписаний содержит пустые записи.");
+            var definitions = AtomicJsonFile.ReadWithBackup<List<CodexAutomationDefinition>>(
+                definitionsPath, ValidateDefinitions);
             foreach (var definition in definitions)
             {
                 NormalizeDefinition(definition);
                 if (definition.NextRunAtUtc == default && !definition.RecurrenceExhausted)
                     CalculateNextOccurrence(definition, DateTimeOffset.UtcNow);
             }
+            _definitionsSaveBlocked = false;
             return definitions;
         }
-        catch (Exception error) when (error is JsonException or InvalidDataException)
+        catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
         {
-            try
-            {
-                var backup = AtomicJsonFile.BackupUnreadable(DefinitionsPath);
-                throw new InvalidDataException($"Расписания повреждены. Резервная копия: {backup}", error);
-            }
-            catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
-            {
-                _definitionsSaveBlocked = true;
-                throw new InvalidDataException("Расписания повреждены, резервную копию создать не удалось. Сохранение заблокировано.", backupError);
-            }
+            _definitionsSaveBlocked = true;
+            throw new InvalidDataException("Не удалось восстановить расписания. Сохранение заблокировано до восстановления файла и повторной загрузки.", error);
         }
+    }
+
+    private static void ValidateDefinitions(List<CodexAutomationDefinition> definitions)
+    {
+        if (definitions.Any(definition => definition is null))
+            throw new InvalidDataException("Файл расписаний содержит пустые записи.");
     }
 
     internal static void NormalizeDefinition(CodexAutomationDefinition definition)
@@ -156,11 +155,14 @@ internal static class CodexAutomationStore
     }
 
     public static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions)
+        => SaveDefinitions(definitions, DefinitionsPath);
+
+    internal static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions, string definitionsPath)
     {
-        Directory.CreateDirectory(Root);
+        Directory.CreateDirectory(Path.GetDirectoryName(definitionsPath)!);
         if (_definitionsSaveBlocked)
             throw new InvalidDataException("Сохранение расписаний заблокировано до восстановления исходного файла.");
-        AtomicJsonFile.Write(DefinitionsPath, definitions, JsonOptions);
+        AtomicJsonFile.Write(definitionsPath, definitions, JsonOptions, backupPath: definitionsPath + ".bak");
     }
 
     public static List<CodexAutomationRun> LoadRuns()

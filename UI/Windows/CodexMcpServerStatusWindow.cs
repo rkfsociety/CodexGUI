@@ -14,6 +14,7 @@ namespace CodexGUI;
 
 internal sealed class CodexMcpServerStatusWindow : Window
 {
+    private readonly CancellationTokenSource _rpcCancellation = new();
     private readonly string _appServerExecutablePath;
     private readonly TextBox _search = new()
     {
@@ -53,6 +54,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
 
     public CodexMcpServerStatusWindow(string appServerExecutablePath)
     {
+        Closed += (_, _) => { _rpcCancellation.Cancel(); _rpcCancellation.Dispose(); };
         _appServerExecutablePath = appServerExecutablePath;
         Title = "MCP-серверы Codex";
         Width = 840;
@@ -175,7 +177,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         _status.Text = "Проверка MCP-серверов…";
         try
         {
-            _items = await CodexMcpServerStatusCatalog.LoadAsync(new CodexAppServerClient(_appServerExecutablePath));
+            _items = await CodexMcpServerStatusCatalog.LoadAsync(new CodexAppServerClient(_appServerExecutablePath, _rpcCancellation.Token));
             _loadFailed = false;
             RefreshList(selectedName);
             _status.Text = _items.Count == 0
