@@ -4,7 +4,7 @@
 
 - CodexGUI is a Windows WPF desktop client targeting `net10.0-windows`. It downloads a pinned official Codex App Server package into `%LOCALAPPDATA%\CodexGUI\app-server-runtimes` on first launch; normal chats do not require an installed Codex CLI.
 - The application entry point and shared WPF resources live in `Application/`; the main window and event orchestration live in `UI/Windows/MainWindow.xaml.cs`, with state and automation partials beside it. The hot-reloaded workspace layout is `Views/WorkspaceView.xaml`.
-- Supporting source is organized under `AppServer/`, `Automations/`, `Git/`, `Infrastructure/`, `Integrations/`, and `UI/`; embedded PowerShell scripts and the development launcher are under `Scripts/`. The application manifest is under `Properties/`.
+- Supporting source is organized under `AppServer/`, `Automations/`, `Git/`, `Infrastructure/`, `Integrations/`, and `UI/`; embedded PowerShell scripts are under `Scripts/`, and the development launcher is in the repository root. The application manifest is under `Properties/`.
 - CLI-backed plugin management remains an optional integration; chat queues, worktree paths, and thread metadata are persisted under `%LOCALAPPDATA%\CodexGUI`.
 - The release workflow in `.github/workflows/release.yml` runs on pushes to `main`, publishes a GitHub release, and deletes older versioned releases and tags.
 

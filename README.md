@@ -22,7 +22,7 @@
 
 ## Разработка
 
-Нужен .NET 10 SDK. Запуск из исходников — `Scripts/Run-CodexGUI.cmd`.
+Нужен .NET 10 SDK. Запуск из исходников — `Run-CodexGUI.cmd`.
 
 ```powershell
 dotnet build Build/CodexGUI.csproj --no-restore
