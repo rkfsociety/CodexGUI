@@ -9,69 +9,69 @@ editor and its calendar, the marketplace-add dialog and source manager, the MCP 
 or the Pull Request editor with local preview data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1
 
 .EXAMPLE
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -OutputPath .\preview\workspace.png -Width 1600 -Height 1000
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Welcome -OutputPath .\preview\welcome.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Activity -OutputPath .\preview\activity.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Actions -OutputPath .\preview\actions.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View ActionEditor -OutputPath .\preview\action-editor.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View MarketplaceAdd -OutputPath .\preview\marketplace-add.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View MarketplaceManager -OutputPath .\preview\marketplace-manager.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View McpServers -OutputPath .\preview\mcp-servers.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View McpOAuthLogin -OutputPath .\preview\mcp-oauth-login.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Setup -OutputPath .\preview\setup.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View PullRequest -OutputPath .\preview\pull-request.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View AutomationEditor -OutputPath .\preview\automation-editor.png
 
 .EXAMPLE
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Calendar -OutputPath .\preview\calendar.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View FilePicker -OutputPath .\preview\file-picker.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View FolderPicker -OutputPath .\preview\folder-picker.png
 
 .EXAMPLE
-dotnet build --no-restore
+dotnet build Build/CodexGUI.csproj --no-restore
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View SavePicker -OutputPath .\preview\save-picker.png
 #>
 [CmdletBinding()]
@@ -127,8 +127,8 @@ $($resourceNode.InnerXml)
 $application.Resources.MergedDictionaries.Add([System.Windows.Markup.XamlReader]::Parse($resourcesXaml))
 
 $script:markdownRenderer = $null
-$debugAssembly = Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'
-$releaseAssembly = Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll'
+$debugAssembly = Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'
+$releaseAssembly = Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll'
 $rendererAssembly = @($debugAssembly, $releaseAssembly) | Where-Object { Test-Path -LiteralPath $_ } |
     ForEach-Object { Get-Item -LiteralPath $_ } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $markdownSource = Join-Path $projectRoot 'UI\Chat\ChatMarkdownRenderer.cs'
@@ -266,7 +266,7 @@ var ready = true;
             $workspace.FindName('ChatOverviewCard').Visibility = [System.Windows.Visibility]::Collapsed
         }
         if (-not $welcomeAssemblyIsFresh) {
-            throw 'Build CodexGUI first with dotnet build --no-restore to preview the Welcome screen.'
+            throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the Welcome screen.'
         }
         $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
         $welcomeType = $assembly.GetType('CodexGUI.ChatWelcomeView', $true)
@@ -287,13 +287,13 @@ var ready = true;
 }
 elseif ($View -eq 'Activity') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the Activity window.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the Activity window.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -325,7 +325,7 @@ elseif ($View -eq 'Activity') {
     $runningEvents = [Array]::CreateInstance($activityEventType, 3)
     $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Команда · завершено', 'git status --short', $false)), 0)
     $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('✓  Поиск в интернете · завершено', 'Найти документацию по App Server', $false)), 1)
-    $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('●  Команда · выполняется', 'dotnet build --no-restore', $false)), 2)
+    $runningEvents.SetValue($activityEventConstructor.Invoke([object[]]@('●  Команда · выполняется', 'dotnet build Build/CodexGUI.csproj --no-restore', $false)), 2)
     $recentEventsProperty.SetValue($runningItem, $runningEvents)
     $previewItems.SetValue($runningItem, 1)
 
@@ -352,13 +352,13 @@ elseif ($View -eq 'Activity') {
 }
 elseif ($View -eq 'Actions') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the Actions window.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the Actions window.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -379,7 +379,7 @@ elseif ($View -eq 'Actions') {
     }
     $projectAction = [Activator]::CreateInstance($itemType)
     $itemType.GetProperty('Name').SetValue($projectAction, 'Обновить документацию')
-    $itemType.GetProperty('Command').SetValue($projectAction, 'dotnet build --no-restore')
+    $itemType.GetProperty('Command').SetValue($projectAction, 'dotnet build Build/CodexGUI.csproj --no-restore')
     if (-not $projectAction.HasValidPayload) {
         throw 'A PowerShell command action was not accepted as a valid payload.'
     }
@@ -522,13 +522,13 @@ elseif ($View -eq 'Actions') {
 }
 elseif ($View -eq 'ActionEditor') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the action editor.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the action editor.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -537,7 +537,7 @@ elseif ($View -eq 'ActionEditor') {
     $flags = [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic
     $source = [Activator]::CreateInstance($itemType)
     $itemType.GetProperty('Name').SetValue($source, 'Собрать приложение')
-    $itemType.GetProperty('Command').SetValue($source, 'dotnet build --no-restore')
+    $itemType.GetProperty('Command').SetValue($source, 'dotnet build Build/CodexGUI.csproj --no-restore')
     $constructor = $windowType.GetConstructors($flags) | Where-Object { $_.GetParameters().Count -eq 1 } | Select-Object -First 1
     if ($null -eq $constructor) {
         throw 'The action editor preview constructor was not found in the built assembly.'
@@ -565,13 +565,13 @@ elseif ($View -eq 'ActionEditor') {
 }
 elseif ($View -eq 'MarketplaceAdd') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the marketplace editor.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the marketplace editor.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -596,13 +596,13 @@ elseif ($View -eq 'MarketplaceAdd') {
 }
 elseif ($View -eq 'MarketplaceManager') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the marketplace manager.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the marketplace manager.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -650,13 +650,13 @@ elseif ($View -eq 'MarketplaceManager') {
 }
 elseif ($View -eq 'McpServers') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview MCP server status.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview MCP server status.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -724,13 +724,13 @@ elseif ($View -eq 'McpServers') {
 }
 elseif ($View -eq 'McpOAuthLogin') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview MCP OAuth sign-in.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview MCP OAuth sign-in.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -756,13 +756,13 @@ elseif ($View -eq 'McpOAuthLogin') {
 }
 elseif ($View -eq 'PullRequest') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the Pull Request editor.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the Pull Request editor.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -787,13 +787,13 @@ elseif ($View -eq 'PullRequest') {
 }
 elseif ($View -eq 'AutomationEditor') {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the automation editor.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the automation editor.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -847,13 +847,13 @@ elseif ($View -eq 'Calendar') {
 }
 elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the file picker.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the file picker.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)
@@ -889,13 +889,13 @@ elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) {
 }
 else {
     $assemblyCandidates = @(
-        (Join-Path $projectRoot 'bin\Debug\net10.0-windows\CodexGUI.dll'),
-        (Join-Path $projectRoot 'bin\Release\net10.0-windows\CodexGUI.dll')
+        (Join-Path $projectRoot 'Build\bin\Debug\net10.0-windows\CodexGUI.dll'),
+        (Join-Path $projectRoot 'Build\bin\Release\net10.0-windows\CodexGUI.dll')
     ) | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ } |
         Sort-Object LastWriteTime -Descending
     $assemblyPath = $assemblyCandidates | Select-Object -First 1 -ExpandProperty FullName
     if (-not $assemblyPath) {
-        throw 'Build CodexGUI first with dotnet build --no-restore to preview the worktree setup window.'
+        throw 'Build CodexGUI first with dotnet build Build/CodexGUI.csproj --no-restore to preview the worktree setup window.'
     }
 
     $assembly = [System.Reflection.Assembly]::LoadFrom($assemblyPath)

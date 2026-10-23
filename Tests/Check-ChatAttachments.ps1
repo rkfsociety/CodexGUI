@@ -1,7 +1,7 @@
-# Run after dotnet build --no-restore, with pwsh -NoProfile -STA -File Tests/Check-ChatAttachments.ps1.
+# Run after dotnet build Build/CodexGUI.csproj --no-restore, with pwsh -NoProfile -STA -File Tests/Check-ChatAttachments.ps1.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
-$assembly = [Reflection.Assembly]::LoadFrom((Join-Path $PSScriptRoot '../bin/Debug/net10.0-windows/CodexGUI.dll'))
+$assembly = [Reflection.Assembly]::LoadFrom((Join-Path $PSScriptRoot '../Build/bin/Debug/net10.0-windows/CodexGUI.dll'))
 $type = $assembly.GetType('CodexGUI.MainWindow', $true)
 $static = [Reflection.BindingFlags]'NonPublic,Static'
 $instance = [Reflection.BindingFlags]'NonPublic,Instance'

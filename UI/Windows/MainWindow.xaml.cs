@@ -444,8 +444,8 @@ public partial class MainWindow : Window
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "CodexGUI.csproj"))
-                || File.Exists(Path.Combine(directory.FullName, "Views", "WorkspaceView.xaml")))
+            if (File.Exists(Path.Combine(directory.FullName, "Views", "WorkspaceView.xaml"))
+                || File.Exists(Path.Combine(directory.FullName, "Build", "CodexGUI.csproj")))
                 return directory.FullName;
             directory = directory.Parent;
         }

@@ -48,7 +48,7 @@ jobs:
             return 0
           }
 
-          [xml]$project = Get-Content -LiteralPath 'CodexGUI.csproj' -Raw
+          [xml]$project = Get-Content -LiteralPath 'Build/CodexGUI.csproj' -Raw
           $version = $project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
           if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
             throw "Project version must use three numeric parts: $version"
@@ -81,14 +81,14 @@ jobs:
       - name: Publish self-contained Windows app
         if: steps.version.outputs.should_release == 'true'
         run: >-
-          dotnet publish CodexGUI.csproj --configuration Release --runtime win-x64
+          dotnet publish Build/CodexGUI.csproj --configuration Release --runtime win-x64
           --self-contained true --output artifacts/publish
           -p:Version=${{ steps.version.outputs.version }}
 
       - name: Publish single-file executable
         if: steps.version.outputs.should_release == 'true'
         run: >-
-          dotnet publish CodexGUI.csproj --configuration Release --runtime win-x64
+          dotnet publish Build/CodexGUI.csproj --configuration Release --runtime win-x64
           --self-contained true --output artifacts/single-file
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -p:Version=${{ steps.version.outputs.version }}

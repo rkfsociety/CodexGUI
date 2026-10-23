@@ -8,6 +8,6 @@
     <AssemblyName>CodexGUI.Checks</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CodexGUI.csproj" />
+    <ProjectReference Include="..\Build\CodexGUI.csproj" />
   </ItemGroup>
 </Project>
