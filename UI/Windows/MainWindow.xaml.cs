@@ -3311,29 +3311,6 @@ public partial class MainWindow : Window
                     VerticalAlignment = VerticalAlignment.Center
                 }
             };
-            var dragStart = new Point();
-            var dragCandidate = false;
-            dragHandle.PreviewMouseLeftButtonDown += (_, e) =>
-            {
-                dragCandidate = !_isPumpingPromptQueue && !_isEditingQueuedPrompt;
-                dragStart = e.GetPosition(list);
-            };
-            dragHandle.PreviewMouseLeftButtonUp += (_, _) => dragCandidate = false;
-            dragHandle.PreviewMouseMove += (_, e) =>
-            {
-                if (!dragCandidate || e.LeftButton != MouseButtonState.Pressed
-                    || _isPumpingPromptQueue || _isEditingQueuedPrompt)
-                    return;
-
-                var current = e.GetPosition(list);
-                if (Math.Abs(current.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
-                    && Math.Abs(current.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
-                    return;
-
-                dragCandidate = false;
-                var data = new DataObject(PromptQueueDragFormat, queued);
-                DragDrop.DoDragDrop(dragHandle, data, DragDropEffects.Move);
-            };
             row.Children.Add(dragHandle);
             var summary = string.Join(" ", messageText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             if (attachments.Length > 0)
@@ -3352,11 +3329,13 @@ public partial class MainWindow : Window
             var edit = CreateThreadIconButton("Редактировать сообщение",
                 "M3,17 L3,21 L7,21 L20,8 L16,4 Z M13,7 L17,11", "#AFC5D3");
             edit.VerticalAlignment = VerticalAlignment.Center;
+            edit.Cursor = Cursors.Hand;
             edit.Click += (_, _) => EditQueuedPrompt(queued);
             Grid.SetColumn(edit, 2);
             row.Children.Add(edit);
             var remove = CreateThreadIconButton("Убрать из очереди", "M5,5 L19,19 M19,5 L5,19", "#B0B5BE");
             remove.VerticalAlignment = VerticalAlignment.Center;
+            remove.Cursor = Cursors.Hand;
             remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
@@ -3367,7 +3346,52 @@ public partial class MainWindow : Window
                 Padding = new Thickness(5, 1, 3, 1),
                 Margin = new Thickness(0, 2, 0, 0),
                 AllowDrop = true,
+                Cursor = Cursors.SizeAll,
+                ToolTip = "Перетащите сообщение, чтобы изменить порядок отправки",
                 Child = row
+            };
+            var dragStart = new Point();
+            var dragCandidate = false;
+            bool IsActionButton(DependencyObject? source)
+            {
+                while (source is not null && !ReferenceEquals(source, queueRow))
+                {
+                    if (source is ButtonBase)
+                        return true;
+                    source = VisualTreeHelper.GetParent(source);
+                }
+                return false;
+            }
+            queueRow.PreviewMouseLeftButtonDown += (_, e) =>
+            {
+                dragCandidate = !_isPumpingPromptQueue && !_isEditingQueuedPrompt
+                    && !IsActionButton(e.OriginalSource as DependencyObject);
+                dragStart = e.GetPosition(list);
+                if (dragCandidate)
+                    Mouse.Capture(queueRow, CaptureMode.SubTree);
+            };
+            queueRow.PreviewMouseLeftButtonUp += (_, _) =>
+            {
+                if (ReferenceEquals(Mouse.Captured, queueRow))
+                    Mouse.Capture(null);
+                dragCandidate = false;
+            };
+            queueRow.PreviewMouseMove += (_, e) =>
+            {
+                if (!dragCandidate || e.LeftButton != MouseButtonState.Pressed
+                    || _isPumpingPromptQueue || _isEditingQueuedPrompt)
+                    return;
+
+                var current = e.GetPosition(list);
+                if (Math.Abs(current.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+                    && Math.Abs(current.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+                    return;
+
+                dragCandidate = false;
+                if (ReferenceEquals(Mouse.Captured, queueRow))
+                    Mouse.Capture(null);
+                var data = new DataObject(PromptQueueDragFormat, queued);
+                DragDrop.DoDragDrop(queueRow, data, DragDropEffects.Move);
             };
             queueRow.DragOver += (_, e) =>
             {
