@@ -3690,6 +3690,7 @@ public partial class MainWindow : Window
                 thread.ActiveRun = activeRun;
                 _promptQueue.Remove(queued);
                 SaveState();
+                RenderPromptQueue();
                 RenderThreads();
                 UpdateSendButtonState();
                 if (thread.CodexSessionId is not null && thread.Messages.Count == 0)
