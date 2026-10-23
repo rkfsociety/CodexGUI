@@ -98,7 +98,9 @@
         </Setter.Value>
       </Setter>
     </Style>
-    <Style TargetType="ScrollBar">
+    <Style x:Key="CodexScrollBar" TargetType="ScrollBar">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#40515F" />
       <Setter Property="Width" Value="8" />
@@ -112,14 +114,16 @@
                      IsDirectionReversed="True">
                 <Track.DecreaseRepeatButton>
                   <RepeatButton x:Name="DecreasePage" Command="{x:Static ScrollBar.PageUpCommand}"
-                                Background="Transparent" BorderThickness="0" Focusable="False" IsTabStop="False" />
+                                Background="Transparent" BorderThickness="0" Focusable="False" IsTabStop="False">
+                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template>
+                  </RepeatButton>
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
                   <Thumb x:Name="TrackThumb" Background="{TemplateBinding Foreground}" MinHeight="28">
                     <Thumb.Template>
                       <ControlTemplate TargetType="Thumb">
                         <Border x:Name="ThumbChrome" Background="{TemplateBinding Background}"
-                                CornerRadius="4" Margin="1" />
+                                CornerRadius="3" Margin="2" />
                         <ControlTemplate.Triggers>
                           <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="ThumbChrome" Property="Background" Value="{StaticResource TextMuted}" />
@@ -134,7 +138,9 @@
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
                   <RepeatButton x:Name="IncreasePage" Command="{x:Static ScrollBar.PageDownCommand}"
-                                Background="Transparent" BorderThickness="0" Focusable="False" IsTabStop="False" />
+                                Background="Transparent" BorderThickness="0" Focusable="False" IsTabStop="False">
+                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></RepeatButton.Template>
+                  </RepeatButton>
                 </Track.IncreaseRepeatButton>
               </Track>
             </Grid>
@@ -152,6 +158,33 @@
                 <Setter Property="Opacity" Value="0.45" />
               </Trigger>
             </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ScrollBar" BasedOn="{StaticResource CodexScrollBar}" />
+    <Style TargetType="ScrollViewer">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollViewer">
+            <Grid Background="{TemplateBinding Background}">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Row="0" Grid.Column="0"
+                                      Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentStringFormat="{TemplateBinding ContentStringFormat}"
+                                      CanContentScroll="{TemplateBinding CanContentScroll}" Margin="{TemplateBinding Padding}" />
+              <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Orientation="Vertical"
+                         Style="{StaticResource CodexScrollBar}" Width="8"
+                         Minimum="0" Maximum="{TemplateBinding ScrollableHeight}"
+                         ViewportSize="{TemplateBinding ViewportHeight}" Value="{Binding VerticalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                         Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+              <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Row="1" Orientation="Horizontal"
+                         Style="{StaticResource CodexScrollBar}" Height="8" Width="Auto"
+                         Minimum="0" Maximum="{TemplateBinding ScrollableWidth}"
+                         ViewportSize="{TemplateBinding ViewportWidth}" Value="{Binding HorizontalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                         Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+            </Grid>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
