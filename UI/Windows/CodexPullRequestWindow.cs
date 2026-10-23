@@ -53,7 +53,7 @@ internal sealed class CodexPullRequestWindow : Window
         {
             Text = $"Ветка: {branch}",
             FontSize = 10,
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = branch,
             Margin = new Thickness(0, 0, 0, 9)
@@ -63,14 +63,14 @@ internal sealed class CodexPullRequestWindow : Window
             Text = "ЗАГОЛОВОК",
             FontSize = 9,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#8494A2"),
+            Foreground = Brush("#8D95A2"),
             Margin = new Thickness(0, 0, 0, 5)
         });
         _title.Height = 38;
         _title.MaxLength = 256;
         _title.Padding = new Thickness(10, 7, 10, 5);
-        _title.Background = Brush("#111B24");
-        _title.Foreground = Brush("#ECF2F5");
+        _title.Background = Brush("#181A1E");
+        _title.Foreground = Brush("#F1F3F5");
         _title.BorderBrush = Brush("#314454");
         _title.BorderThickness = new Thickness(1);
         _title.Text = ToTitle(branch);
@@ -86,15 +86,15 @@ internal sealed class CodexPullRequestWindow : Window
             Text = "ОПИСАНИЕ",
             FontSize = 9,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#8494A2"),
+            Foreground = Brush("#8D95A2"),
             Margin = new Thickness(0, 0, 0, 5)
         });
         _body.AcceptsReturn = true;
         _body.TextWrapping = TextWrapping.Wrap;
         _body.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _body.Padding = new Thickness(10, 8, 10, 8);
-        _body.Background = Brush("#111B24");
-        _body.Foreground = Brush("#ECF2F5");
+        _body.Background = Brush("#181A1E");
+        _body.Foreground = Brush("#F1F3F5");
         _body.BorderBrush = Brush("#314454");
         _body.BorderThickness = new Thickness(1);
         _body.Text = "## Summary\n\n## Testing\n";
@@ -152,9 +152,9 @@ internal sealed class CodexPullRequestWindow : Window
     {
         Content = text,
         Padding = new Thickness(13, 7, 13, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

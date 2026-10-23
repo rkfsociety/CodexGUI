@@ -589,14 +589,14 @@ public partial class MainWindow : Window
             prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
             UpdatePromptSpellCheck(prompt);
             prompt.TextChanged += (_, _) => UpdatePromptSpellCheck(prompt);
-            prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8494A2" : "#ECF2F5");
+            prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8D95A2" : "#F1F3F5");
             prompt.GotKeyboardFocus += (_, _) =>
             {
                 prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
                 if (prompt.Text == PromptPlaceholder)
                 {
                     prompt.Clear();
-                    prompt.Foreground = Brush("#ECF2F5");
+                    prompt.Foreground = Brush("#F1F3F5");
                 }
             };
             prompt.LostKeyboardFocus += (_, _) =>
@@ -604,7 +604,7 @@ public partial class MainWindow : Window
                 if (string.IsNullOrWhiteSpace(prompt.Text))
                 {
                     prompt.Text = PromptPlaceholder;
-                    prompt.Foreground = Brush("#8494A2");
+                    prompt.Foreground = Brush("#8D95A2");
                 }
             };
             prompt.PreviewKeyDown += PromptInput_PreviewKeyDown;
@@ -987,8 +987,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 194,
-            Background = Brush("#16212B"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(5),
@@ -1391,7 +1391,7 @@ public partial class MainWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new Thickness(9, 7, 38, 7),
                 Background = isSelected ? Brush("#263344") : Brushes.Transparent,
-                Foreground = Brush(isSelected ? "#ECF2F5" : "#A4A5AA"),
+                Foreground = Brush(isSelected ? "#F1F3F5" : "#A4A5AA"),
                 ToolTip = project.Path,
                 Content = new StackPanel
                 {
@@ -1571,7 +1571,7 @@ public partial class MainWindow : Window
             FontSize = 16,
             LineHeight = 27,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(message.IsUser ? "#EAF4F0" : "#ECF2F5")
+            Foreground = Brush(message.IsUser ? "#EAF4F0" : "#F1F3F5")
         };
         var isStreaming = !message.IsUser && IsCurrentThreadRunning
             && ReferenceEquals(_currentThread?.Messages.LastOrDefault(), message);
@@ -1934,7 +1934,7 @@ public partial class MainWindow : Window
         if (Control<TextBox>("PromptInput") is { Text: PromptPlaceholder } input)
         {
             input.Clear();
-            input.Foreground = Brush("#ECF2F5");
+            input.Foreground = Brush("#F1F3F5");
         }
         RenderComposerAttachments();
     }
@@ -2074,7 +2074,7 @@ public partial class MainWindow : Window
         {
             PlacementTarget = anchor,
             Placement = PlacementMode.Bottom,
-            Background = Brush("#1B2935"),
+            Background = Brush("#24272D"),
             Foreground = Brush("#EAF3F6"),
             BorderBrush = Brush("#435D6D"),
             BorderThickness = new Thickness(1),
@@ -2937,8 +2937,8 @@ public partial class MainWindow : Window
             MinWidth = 560,
             MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brush("#0B1117"),
-            Foreground = Brush("#ECF2F5")
+            Background = Brush("#101114"),
+            Foreground = Brush("#F1F3F5")
         };
         CodexWindowTheme.Apply(dialog);
         var layout = new Grid { Margin = new Thickness(18) };
@@ -2965,9 +2965,9 @@ public partial class MainWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
             Padding = new Thickness(12),
-            Background = Brush("#16212B"),
+            Background = Brush("#1D1F23"),
             Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
         Grid.SetRow(output, 1);
@@ -3267,7 +3267,7 @@ public partial class MainWindow : Window
             var details = new TextBlock
             {
                 Text = summary.Trim(), FontSize = 11,
-                Foreground = Brush("#ECF2F5"),
+                Foreground = Brush("#F1F3F5"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 6, 0),
@@ -3281,14 +3281,14 @@ public partial class MainWindow : Window
             edit.Click += (_, _) => EditQueuedPrompt(queued);
             Grid.SetColumn(edit, 2);
             row.Children.Add(edit);
-            var remove = CreateThreadIconButton("Убрать из очереди", "M5,5 L19,19 M19,5 L5,19", "#A7B5C0");
+            var remove = CreateThreadIconButton("Убрать из очереди", "M5,5 L19,19 M19,5 L5,19", "#B0B5BE");
             remove.VerticalAlignment = VerticalAlignment.Center;
             remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
             list.Children.Add(new Border
             {
-                Background = Brush("#1B2935"),
+                Background = Brush("#24272D"),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(5, 1, 3, 1),
                 Margin = new Thickness(0, 2, 0, 0),
@@ -3377,7 +3377,7 @@ public partial class MainWindow : Window
         var enabled = _currentThread?.UseWorktree == true;
         if (Control<TextBlock>("WorktreeLabel") is { } label)
             label.Text = enabled ? "Изолированная копия" : "Рабочая копия";
-        button.Background = Brush(enabled ? "#223B38" : "#20303D");
+        button.Background = Brush(enabled ? "#223B38" : "#282B30");
         button.Foreground = Brush(enabled ? "#92E5C7" : "#C8D4E2");
         button.IsEnabled = _currentThread?.ActiveRun is null
             && !(_currentThread?.UseWorktree == true && _currentThread.CodexSessionId is not null)
@@ -3454,8 +3454,8 @@ public partial class MainWindow : Window
             MinHeight = 330,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.CanResize,
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5")
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5")
         };
         CodexWindowTheme.Apply(dialog);
         var layout = new StackPanel { Margin = new Thickness(18) };
@@ -4405,8 +4405,8 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5")
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5")
         };
         CodexWindowTheme.Apply(window);
         var layout = new StackPanel { Margin = new Thickness(20) };
@@ -4446,7 +4446,7 @@ public partial class MainWindow : Window
             };
             layout.Children.Add(new Border
             {
-                Background = Brush("#20303D"),
+                Background = Brush("#282B30"),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 0, 0, 10),
@@ -4486,7 +4486,7 @@ public partial class MainWindow : Window
                 Padding = new Thickness(10, 0, 10, 0),
                 Margin = new Thickness(7, 0, 0, 0),
                 Background = Brush(background),
-                Foreground = Brush("#ECF2F5")
+                Foreground = Brush("#F1F3F5")
             };
             button.Click += (_, _) => { window.Tag = value; window.Close(); };
             buttons.Children.Add(button);
@@ -5150,7 +5150,7 @@ public partial class MainWindow : Window
             Text = "Как Codex может выполнять действия?",
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#ECF2F5"),
+            Foreground = Brush("#F1F3F5"),
             Margin = new Thickness(5, 2, 5, 11)
         });
         content.Children.Add(BuildAccessOption(
@@ -5186,8 +5186,8 @@ public partial class MainWindow : Window
         {
             Width = 430,
             MinHeight = 170,
-            Background = Brush("#16212B"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -5237,7 +5237,7 @@ public partial class MainWindow : Window
         var option = new Border
         {
             Background = selected ? Brush("#292B30") : Brushes.Transparent,
-            BorderBrush = selected ? Brush("#2A3946") : Brushes.Transparent,
+            BorderBrush = selected ? Brush("#34373E") : Brushes.Transparent,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(11, 9, 10, 9),
@@ -5320,7 +5320,7 @@ public partial class MainWindow : Window
             Text = title,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#ECF2F5"),
+            Foreground = Brush("#F1F3F5"),
             Margin = new Thickness(5, 2, 5, 9)
         });
         var options = new StackPanel();
@@ -5339,8 +5339,8 @@ public partial class MainWindow : Window
         popup.Child = new Border
         {
             Width = 360,
-            Background = Brush("#16212B"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12),
@@ -5480,8 +5480,8 @@ public partial class MainWindow : Window
             Height = 178,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5")
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5")
         };
         CodexWindowTheme.Apply(dialog);
         var content = new StackPanel { Margin = new Thickness(18) };
@@ -5613,7 +5613,7 @@ public partial class MainWindow : Window
         input.Text = string.IsNullOrWhiteSpace(current)
             ? prompt
             : current.TrimEnd() + Environment.NewLine + Environment.NewLine + prompt;
-        input.Foreground = Brush("#ECF2F5");
+        input.Foreground = Brush("#F1F3F5");
         input.Focus();
         input.CaretIndex = input.Text.Length;
     }
@@ -5801,8 +5801,8 @@ public partial class MainWindow : Window
             Height = 520,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5")
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5")
         };
         CodexWindowTheme.Apply(dialog);
         var layout = new StackPanel { Margin = new Thickness(18) };
@@ -5819,7 +5819,7 @@ public partial class MainWindow : Window
         var status = new TextBlock
         {
             Text = "Введите часть названия чата или текста сообщения.",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 10,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 6, 0, 8)
@@ -5827,9 +5827,9 @@ public partial class MainWindow : Window
         var matches = new ListBox
         {
             Height = 270,
-            Background = Brush("#101820"),
-            Foreground = Brush("#ECF2F5"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#151619"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             ItemTemplate = CreateChatSearchItemTemplate()
         };
@@ -5840,7 +5840,7 @@ public partial class MainWindow : Window
             Content = "Открыть чат",
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 10, 0, 0),
-            Background = Brush("#2A3946"),
+            Background = Brush("#34373E"),
             IsEnabled = false,
             IsDefault = true
         };
@@ -5981,7 +5981,7 @@ public partial class MainWindow : Window
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
               <StackPanel>
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{Binding Details}" Foreground="#A7B5C0" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                <TextBlock Text="{Binding Details}" Foreground="#B0B5BE" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
               </StackPanel>
             </DataTemplate>
             """);

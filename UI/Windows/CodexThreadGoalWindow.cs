@@ -185,9 +185,9 @@ internal sealed class CodexThreadGoalWindow : Window
         if (input is Control control)
         {
             control.Padding = new Thickness(8, 6, 8, 6);
-            control.Background = Brush("#16212B");
-            control.Foreground = Brush("#ECF2F5");
-            control.BorderBrush = Brush("#2A3946");
+            control.Background = Brush("#1D1F23");
+            control.Foreground = Brush("#F1F3F5");
+            control.BorderBrush = Brush("#34373E");
         }
         panel.Children.Add(input);
         return labelBlock;
@@ -199,7 +199,7 @@ internal sealed class CodexThreadGoalWindow : Window
         Padding = new Thickness(12, 7, 12, 7),
         Background = Brush(background),
         Foreground = Brush("#E2E8F0"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

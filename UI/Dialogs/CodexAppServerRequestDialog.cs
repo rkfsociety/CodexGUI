@@ -98,7 +98,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         DockPanel.SetDock(actions, Dock.Bottom);
         if (_method == "mcpServer/elicitation/request" && GetString(_parameters, "mode") == "url")
         {
-            var openUrl = MakeButton("Открыть ссылку", "#20303D");
+            var openUrl = MakeButton("Открыть ссылку", "#282B30");
             openUrl.Margin = new Thickness(0, 0, 8, 0);
             openUrl.Click += (_, _) => OpenRequestedUrl();
             actions.Children.Add(openUrl);
@@ -230,7 +230,7 @@ internal sealed class CodexAppServerRequestDialog : Window
             _openedUrl = url;
             _body.Children.Add(new Border
             {
-                Background = Brush("#20303D"),
+                Background = Brush("#282B30"),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10),
                 Margin = new Thickness(0, 12, 0, 0),
@@ -536,7 +536,7 @@ internal sealed class CodexAppServerRequestDialog : Window
         });
         _body.Children.Add(new Border
         {
-            Background = Brush("#20303D"),
+            Background = Brush("#282B30"),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(9),
             Child = new TextBlock
@@ -575,9 +575,9 @@ internal sealed class CodexAppServerRequestDialog : Window
     private static void StyleInput(Control input)
     {
         input.Padding = new Thickness(8, 6, 8, 6);
-        input.Background = Brush("#20303D");
-        input.Foreground = Brush("#ECF2F5");
-        input.BorderBrush = Brush("#2A3946");
+        input.Background = Brush("#282B30");
+        input.Foreground = Brush("#F1F3F5");
+        input.BorderBrush = Brush("#34373E");
         input.Margin = new Thickness(0, 3, 0, 7);
     }
 
@@ -602,8 +602,8 @@ internal sealed class CodexAppServerRequestDialog : Window
         MinHeight = 34,
         Padding = new Thickness(11, 0, 11, 0),
         Background = Brush(background),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1),
         Cursor = System.Windows.Input.Cursors.Hand
     };

@@ -113,9 +113,9 @@ internal static class CodexMessageDialog
                 Margin = new Thickness(8, 0, 0, 0),
                 Padding = new Thickness(13, 7, 13, 7),
                 IsDefault = action.IsDefault,
-                Background = action.IsDefault ? Brush("#204139") : Brush("#16212B"),
-                Foreground = action.IsDefault ? Brush("#92E5C7") : Brush("#ECF2F5"),
-                BorderBrush = action.IsDefault ? Brush("#365C53") : Brush("#2A3946"),
+                Background = action.IsDefault ? Brush("#204139") : Brush("#1D1F23"),
+                Foreground = action.IsDefault ? Brush("#92E5C7") : Brush("#F1F3F5"),
+                BorderBrush = action.IsDefault ? Brush("#365C53") : Brush("#34373E"),
                 BorderThickness = new Thickness(1)
             };
             button.Click += (_, _) =>
@@ -137,8 +137,8 @@ internal static class CodexMessageDialog
         };
         window.Content = new Border
         {
-            Background = Brush("#16212B"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(20),

@@ -27,7 +27,7 @@ internal static class ChatWelcomeView
             Height = 52,
             CornerRadius = new CornerRadius(14),
             Background = Brush("#223B38"),
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             Margin = new Thickness(0, 0, 0, 16),
             Child = new TextBlock
@@ -44,7 +44,7 @@ internal static class ChatWelcomeView
             Text = title,
             FontSize = 32,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#ECF2F5"),
+            Foreground = Brush("#F1F3F5"),
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 37,
             TextAlignment = TextAlignment.Center
@@ -101,12 +101,12 @@ internal static class ChatWelcomeView
                 }
             },
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = Brush("#16212B"),
+            Background = Brush("#1D1F23"),
             Foreground = Brush("#D1D2D5"),
             Padding = new Thickness(14, 11, 14, 11),
             Margin = new Thickness(0, 4, 9, 4),
             Width = 258,
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
         AutomationProperties.SetName(button, text);

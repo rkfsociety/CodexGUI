@@ -61,15 +61,15 @@ internal sealed class CodexMarketplaceAddWindow : Window
         _sparsePaths.MinHeight = 90;
         _sparsePaths.MaxLength = 4096;
         _sparsePaths.Padding = new Thickness(10, 8, 10, 8);
-        _sparsePaths.Background = Brush("#111B24");
-        _sparsePaths.Foreground = Brush("#ECF2F5");
+        _sparsePaths.Background = Brush("#181A1E");
+        _sparsePaths.Foreground = Brush("#F1F3F5");
         _sparsePaths.BorderBrush = Brush("#314454");
         _sparsePaths.BorderThickness = new Thickness(1);
         form.Children.Add(_sparsePaths);
         form.Children.Add(new TextBlock
         {
             Text = "Источник будет сохранён в общем профиле Codex. После добавления список доступных плагинов обновится.",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
@@ -124,7 +124,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
             Text = text,
             FontSize = 9,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#8494A2"),
+            Foreground = Brush("#8D95A2"),
             Margin = margin ?? new Thickness(0, 0, 0, 5)
         });
 
@@ -132,8 +132,8 @@ internal sealed class CodexMarketplaceAddWindow : Window
     {
         textBox.Height = height;
         textBox.Padding = new Thickness(10, 7, 10, 5);
-        textBox.Background = Brush("#111B24");
-        textBox.Foreground = Brush("#ECF2F5");
+        textBox.Background = Brush("#181A1E");
+        textBox.Foreground = Brush("#F1F3F5");
         textBox.BorderBrush = Brush("#314454");
         textBox.BorderThickness = new Thickness(1);
     }
@@ -142,9 +142,9 @@ internal sealed class CodexMarketplaceAddWindow : Window
     {
         Content = text,
         Padding = new Thickness(13, 7, 13, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

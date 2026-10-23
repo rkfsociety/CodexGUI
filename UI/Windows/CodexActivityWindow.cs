@@ -54,15 +54,15 @@ internal sealed class CodexActivityWindow : Window
         {
             _items.Children.Add(new Border
             {
-                Background = Brush("#16212B"),
-                BorderBrush = Brush("#2A3946"),
+                Background = Brush("#1D1F23"),
+                BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(16),
                 Child = new TextBlock
                 {
                     Text = "Когда Codex завершит фоновый ход или запросит решение, чат появится здесь.",
-                    Foreground = Brush("#A7B5C0"),
+                    Foreground = Brush("#B0B5BE"),
                     TextWrapping = TextWrapping.Wrap,
                     LineHeight = 20
                 }
@@ -78,8 +78,8 @@ internal sealed class CodexActivityWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(13, 12, 13, 12),
                 Margin = new Thickness(0, 0, 0, 8),
-                Background = Brush("#16212B"),
-                BorderBrush = Brush("#2A3946"),
+                Background = Brush("#1D1F23"),
+                BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1),
                 ToolTip = $"{item.Status} · {item.ProjectName}"
             };
@@ -108,7 +108,7 @@ internal sealed class CodexActivityWindow : Window
             {
                 Text = item.ProjectName + " · " + item.Description,
                 FontSize = 10,
-                Foreground = Brush("#A7B5C0"),
+                Foreground = Brush("#B0B5BE"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0)
             });
@@ -140,7 +140,7 @@ internal sealed class CodexActivityWindow : Window
                     {
                         Text = activity.Title,
                         FontSize = 9,
-                        Foreground = Brush(activity.IsError ? "#E18B84" : "#A7B5C0"),
+                        Foreground = Brush(activity.IsError ? "#E18B84" : "#B0B5BE"),
                         TextTrimming = TextTrimming.CharacterEllipsis
                     });
                     if (activity.Detail.Length > 0)
@@ -201,7 +201,7 @@ internal sealed class CodexActivityWindow : Window
             FontSize = 20,
             FontWeight = FontWeights.SemiBold
         });
-        _summary.Foreground = Brush("#A7B5C0");
+        _summary.Foreground = Brush("#B0B5BE");
         _summary.FontSize = 11;
         _summary.Margin = new Thickness(0, 5, 0, 15);
         Grid.SetRow(_summary, 1);

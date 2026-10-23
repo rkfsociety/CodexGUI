@@ -114,7 +114,7 @@ internal sealed class CodexFilePickerWindow : Window
             Text = _mode == PickerMode.Folder
                 ? "Перейдите в папку и выберите её."
                 : "Перейдите к файлу или укажите путь к папке.",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 11,
             Margin = new Thickness(0, 4, 0, 0)
         });
@@ -128,9 +128,9 @@ internal sealed class CodexFilePickerWindow : Window
         _upButton.Content = "↑";
         _upButton.Width = 36;
         _upButton.Margin = new Thickness(0, 0, 8, 0);
-        _upButton.Background = Brush("#16212B");
-        _upButton.Foreground = Brush("#A7B5C0");
-        _upButton.BorderBrush = Brush("#2A3946");
+        _upButton.Background = Brush("#1D1F23");
+        _upButton.Foreground = Brush("#B0B5BE");
+        _upButton.BorderBrush = Brush("#34373E");
         _upButton.BorderThickness = new Thickness(1);
         _upButton.ToolTip = "Вверх на один уровень";
         AutomationProperties.SetName(_upButton, "Вверх на один уровень");
@@ -151,9 +151,9 @@ internal sealed class CodexFilePickerWindow : Window
         {
             Content = "Перейти",
             Margin = new Thickness(8, 0, 0, 0),
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
         go.Click += (_, _) => NavigateToLocation();
@@ -163,8 +163,8 @@ internal sealed class CodexFilePickerWindow : Window
         root.Children.Add(navigation);
 
         _entries.Background = Brush("#0E1720");
-        _entries.Foreground = Brush("#ECF2F5");
-        _entries.BorderBrush = Brush("#2A3946");
+        _entries.Foreground = Brush("#F1F3F5");
+        _entries.BorderBrush = Brush("#34373E");
         _entries.BorderThickness = new Thickness(1);
         _entries.Padding = new Thickness(6);
         _entries.SelectionChanged += (_, _) => SelectionChanged();
@@ -185,7 +185,7 @@ internal sealed class CodexFilePickerWindow : Window
         {
             Text = "Имя файла",
             FontSize = 11,
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             VerticalAlignment = VerticalAlignment.Center
         };
         fileNamePanel.Children.Add(fileNameLabel);
@@ -207,7 +207,7 @@ internal sealed class CodexFilePickerWindow : Window
         var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _status.Foreground = Brush("#8494A2");
+        _status.Foreground = Brush("#8D95A2");
         _status.FontSize = 10;
         _status.VerticalAlignment = VerticalAlignment.Center;
         _status.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -220,9 +220,9 @@ internal sealed class CodexFilePickerWindow : Window
             Content = "Отмена",
             IsCancel = true,
             Margin = new Thickness(0, 0, 8, 0),
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
         cancel.Click += (_, _) => DialogResult = false;
@@ -253,13 +253,13 @@ internal sealed class CodexFilePickerWindow : Window
     private static Border CreateInputBorder(TextBox input)
     {
         input.Padding = new Thickness(9, 6, 9, 6);
-        input.Background = Brush("#111B24");
-        input.Foreground = Brush("#ECF2F5");
+        input.Background = Brush("#181A1E");
+        input.Foreground = Brush("#F1F3F5");
         input.BorderThickness = new Thickness(0);
-        input.CaretBrush = Brush("#ECF2F5");
+        input.CaretBrush = Brush("#F1F3F5");
         return new Border
         {
-            Background = Brush("#111B24"),
+            Background = Brush("#181A1E"),
             BorderBrush = Brush("#314454"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7),
@@ -288,7 +288,7 @@ internal sealed class CodexFilePickerWindow : Window
                          .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase))
                 _entries.Items.Add(CreateEntryItem(entry));
 
-            _status.Foreground = Brush("#8494A2");
+            _status.Foreground = Brush("#8D95A2");
             _status.Text = entries.Count == 1 ? "1 элемент" : $"Элементов: {entries.Count}";
             _status.ToolTip = _currentDirectory;
         }
@@ -310,7 +310,7 @@ internal sealed class CodexFilePickerWindow : Window
         row.Children.Add(new TextBlock
         {
             Text = entry.IsDirectory ? "▰" : "▤",
-            Foreground = Brush(entry.IsDirectory ? "#92E5C7" : "#A7B5C0"),
+            Foreground = Brush(entry.IsDirectory ? "#92E5C7" : "#B0B5BE"),
             FontSize = 14,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center
@@ -318,7 +318,7 @@ internal sealed class CodexFilePickerWindow : Window
         var name = new TextBlock
         {
             Text = entry.Name,
-            Foreground = Brush("#ECF2F5"),
+            Foreground = Brush("#F1F3F5"),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -327,7 +327,7 @@ internal sealed class CodexFilePickerWindow : Window
         var details = new TextBlock
         {
             Text = entry.Details,
-            Foreground = Brush("#8494A2"),
+            Foreground = Brush("#8D95A2"),
             FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 4, 0)

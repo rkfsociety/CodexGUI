@@ -50,8 +50,8 @@ internal sealed class CodexActionsWindow : Window
     private readonly TextBox _search = new();
     private readonly ListBox _list = new()
     {
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
         BorderThickness = new Thickness(0)
     };
     private readonly Button _editButton = new() { Content = "Изменить", IsEnabled = false };
@@ -63,7 +63,7 @@ internal sealed class CodexActionsWindow : Window
     private readonly TextBlock _empty = new()
     {
         Text = "Пока нет сохранённых личных или проектных действий.",
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         TextWrapping = TextWrapping.Wrap,
         FontSize = 12,
         Margin = new Thickness(8, 8, 8, 0)
@@ -118,7 +118,7 @@ internal sealed class CodexActionsWindow : Window
         {
             Text = "Личные действия хранятся в CodexGUI. Действия проекта сохраняются в .codex/codexgui-actions.json; добавляйте команды в Git только после проверки их содержимого. Prompt-действия вставляют текст в черновик. Команды PowerShell запускаются только по явному выбору и открывают терминал.",
             FontSize = 11,
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 14)
         };
@@ -131,7 +131,7 @@ internal sealed class CodexActionsWindow : Window
         filter.Children.Add(new TextBlock
         {
             Text = "Поиск",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 11,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 10, 0)
@@ -139,8 +139,8 @@ internal sealed class CodexActionsWindow : Window
         _search.Height = 36;
         _search.Padding = new Thickness(10, 8, 10, 5);
         _search.Background = Brush("#25272C");
-        _search.Foreground = Brush("#ECF2F5");
-        _search.BorderBrush = Brush("#2A3946");
+        _search.Foreground = Brush("#F1F3F5");
+        _search.BorderBrush = Brush("#34373E");
         _search.ToolTip = "Фильтр по названию, тексту и области действия";
         AutomationProperties.SetName(_search, "Фильтр действий по названию, тексту и области");
         Grid.SetColumn(_search, 1);
@@ -209,7 +209,7 @@ internal sealed class CodexActionsWindow : Window
                 Text = action.Name,
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brush("#ECF2F5"),
+                Foreground = Brush("#F1F3F5"),
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             var scope = new TextBlock
@@ -228,7 +228,7 @@ internal sealed class CodexActionsWindow : Window
             {
                 Text = action.IsCommand ? "PowerShell: " + action.Command : action.Prompt,
                 FontSize = 11,
-                Foreground = Brush("#A7B5C0"),
+                Foreground = Brush("#B0B5BE"),
                 TextWrapping = TextWrapping.Wrap,
                 MaxHeight = 38,
                 Margin = new Thickness(0, 4, 0, 0)
@@ -239,8 +239,8 @@ internal sealed class CodexActionsWindow : Window
                 Tag = entry,
                 Padding = new Thickness(12, 9, 12, 9),
                 Margin = new Thickness(0, 0, 0, 7),
-                Background = Brush("#16212B"),
-                BorderBrush = Brush("#2A3946"),
+                Background = Brush("#1D1F23"),
+                BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1)
             };
             _list.Items.Add(item);
@@ -435,9 +435,9 @@ internal sealed class CodexActionsWindow : Window
     {
         Content = text,
         Padding = new Thickness(11, 7, 11, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 
@@ -450,7 +450,7 @@ internal sealed class CodexActionsWindow : Window
                 <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
               </Border>
               <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#20303D" /></Trigger>
+                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#282B30" /></Trigger>
                 <Trigger Property="IsSelected" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#203A34" /><Setter TargetName="Chrome" Property="BorderBrush" Value="#4B7668" /></Trigger>
                 <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#92E5C7" /></Trigger>
               </ControlTemplate.Triggers>
@@ -519,8 +519,8 @@ internal sealed class CodexActionEditorWindow : Window
         _name.MaxLength = 80;
         _name.Padding = new Thickness(10, 7, 10, 5);
         _name.Background = Brush("#25272C");
-        _name.Foreground = Brush("#ECF2F5");
-        _name.BorderBrush = Brush("#2A3946");
+        _name.Foreground = Brush("#F1F3F5");
+        _name.BorderBrush = Brush("#34373E");
         _name.BorderThickness = new Thickness(1);
         form.Children.Add(_name);
         AddLabel(form, "Тип действия", new Thickness(0, 15, 0, 6));
@@ -533,7 +533,7 @@ internal sealed class CodexActionEditorWindow : Window
         _payloadLabel.Text = "Текст для композера";
         _payloadLabel.FontSize = 11;
         _payloadLabel.FontWeight = FontWeights.SemiBold;
-        _payloadLabel.Foreground = Brush("#A7B5C0");
+        _payloadLabel.Foreground = Brush("#B0B5BE");
         _payloadLabel.Margin = new Thickness(0, 15, 0, 6);
         form.Children.Add(_payloadLabel);
         _prompt.AcceptsReturn = true;
@@ -543,8 +543,8 @@ internal sealed class CodexActionEditorWindow : Window
         _prompt.MinHeight = 210;
         _prompt.Padding = new Thickness(10, 8, 10, 8);
         _prompt.Background = Brush("#25272C");
-        _prompt.Foreground = Brush("#ECF2F5");
-        _prompt.BorderBrush = Brush("#2A3946");
+        _prompt.Foreground = Brush("#F1F3F5");
+        _prompt.BorderBrush = Brush("#34373E");
         _prompt.BorderThickness = new Thickness(1);
         AutomationProperties.SetName(_prompt, "Текст prompt-действия");
         form.Children.Add(_prompt);
@@ -556,13 +556,13 @@ internal sealed class CodexActionEditorWindow : Window
         _command.Padding = new Thickness(10, 8, 10, 8);
         _command.FontFamily = new System.Windows.Media.FontFamily("Consolas");
         _command.Background = Brush("#25272C");
-        _command.Foreground = Brush("#ECF2F5");
-        _command.BorderBrush = Brush("#2A3946");
+        _command.Foreground = Brush("#F1F3F5");
+        _command.BorderBrush = Brush("#34373E");
         _command.BorderThickness = new Thickness(1);
         _command.Visibility = Visibility.Collapsed;
         AutomationProperties.SetName(_command, "Команда PowerShell");
         form.Children.Add(_command);
-        _payloadHelp.Foreground = Brush("#A7B5C0");
+        _payloadHelp.Foreground = Brush("#B0B5BE");
         _payloadHelp.FontSize = 10;
         _payloadHelp.TextWrapping = TextWrapping.Wrap;
         _payloadHelp.Margin = new Thickness(0, 8, 0, 0);
@@ -620,7 +620,7 @@ internal sealed class CodexActionEditorWindow : Window
             Text = text,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             Margin = margin ?? new Thickness(0, 0, 0, 6)
         });
 
@@ -628,9 +628,9 @@ internal sealed class CodexActionEditorWindow : Window
     {
         Content = text,
         Padding = new Thickness(13, 7, 13, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

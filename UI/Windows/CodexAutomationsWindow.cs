@@ -360,8 +360,8 @@ internal sealed class CodexAutomationsWindow : Window
 
     private static Border Card(UIElement content) => new()
     {
-        Background = Brush("#16212B"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(11),
         Padding = new Thickness(4),
@@ -381,9 +381,9 @@ internal sealed class CodexAutomationsWindow : Window
     {
         Content = text,
         Padding = new Thickness(10, 6, 10, 6),
-        Background = accent ? Brush("#223B38") : Brush("#20303D"),
+        Background = accent ? Brush("#223B38") : Brush("#282B30"),
         Foreground = accent ? Brush("#92E5C7") : Brush("#D3DCE6"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1),
         Cursor = System.Windows.Input.Cursors.Hand
     };

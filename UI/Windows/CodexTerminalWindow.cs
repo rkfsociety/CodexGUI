@@ -80,7 +80,7 @@ internal sealed class CodexTerminalWindow : Window
         header.Children.Add(actions);
         root.Children.Add(header);
 
-        _tabs.Background = Brush("#0B1117");
+        _tabs.Background = Brush("#101114");
         _tabs.BorderThickness = new Thickness(0);
         Grid.SetRow(_tabs, 1);
         root.Children.Add(_tabs);
@@ -171,9 +171,9 @@ internal sealed class CodexTerminalWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
             Padding = new Thickness(12),
-            Background = Brush("#101820"),
+            Background = Brush("#151619"),
             Foreground = Brush("#D5DEE9"),
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
         layout.Children.Add(tab.Output);
@@ -182,9 +182,9 @@ internal sealed class CodexTerminalWindow : Window
             MinHeight = 36,
             Padding = new Thickness(10, 7, 10, 7),
             Margin = new Thickness(0, 8, 0, 0),
-            Background = Brush("#16212B"),
-            Foreground = Brush("#ECF2F5"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             ToolTip = "Введите команду и нажмите Enter. Выделенный текст копируется через Ctrl+C; без выделения Ctrl+C прерывает команду."
         };
@@ -321,7 +321,7 @@ internal sealed class CodexTerminalWindow : Window
         Padding = new Thickness(10, 6, 10, 6),
         Background = Brush(accent ? "#223B38" : "#263344"),
         Foreground = Brush(accent ? "#92E5C7" : "#D3DCE6"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

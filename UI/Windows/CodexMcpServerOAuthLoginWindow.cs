@@ -13,7 +13,7 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
     private readonly TaskCompletionSource<bool> _cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TextBlock _status = new()
     {
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, 12, 0, 0)
     };
@@ -110,9 +110,9 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
     {
         Content = text,
         Padding = new Thickness(12, 7, 12, 7),
-        Background = Brush(accent ? "#223B38" : "#16212B"),
-        Foreground = Brush(accent ? "#92E5C7" : "#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush(accent ? "#223B38" : "#1D1F23"),
+        Foreground = Brush(accent ? "#92E5C7" : "#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

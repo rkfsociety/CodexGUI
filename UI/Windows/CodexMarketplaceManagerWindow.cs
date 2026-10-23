@@ -12,16 +12,16 @@ internal sealed class CodexMarketplaceManagerWindow : Window
 {
     private readonly IList<CodexMarketplace> _marketplaces;
     private readonly Func<CodexMarketplace, Task> _removeMarketplace;
-    private readonly ListBox _list = new() { Background = Brush("#101820"), BorderBrush = Brush("#2A3946") };
+    private readonly ListBox _list = new() { Background = Brush("#151619"), BorderBrush = Brush("#34373E") };
     private readonly TextBlock _empty = new()
     {
         Text = "Настроенных маркетплейсов нет.",
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         Margin = new Thickness(12)
     };
     private readonly TextBlock _status = new()
     {
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, 10, 0, 0)
     };
@@ -63,7 +63,7 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         var note = new TextBlock
         {
             Text = "Список загружается из Codex CLI. Удаление убирает запись из профиля Codex и локальный корень каталога, если он установлен.",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 12)
@@ -115,7 +115,7 @@ internal sealed class CodexMarketplaceManagerWindow : Window
             labels.Children.Add(new TextBlock
             {
                 Text = marketplace.Root,
-                Foreground = Brush("#A7B5C0"),
+                Foreground = Brush("#B0B5BE"),
                 FontSize = 10,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 ToolTip = marketplace.Root,
@@ -127,8 +127,8 @@ internal sealed class CodexMarketplaceManagerWindow : Window
                 Content = labels,
                 Padding = new Thickness(10, 8, 10, 8),
                 Margin = new Thickness(0, 0, 0, 5),
-                Background = Brush("#16212B"),
-                BorderBrush = Brush("#2A3946"),
+                Background = Brush("#1D1F23"),
+                BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1)
             });
         }
@@ -173,9 +173,9 @@ internal sealed class CodexMarketplaceManagerWindow : Window
     {
         Content = text,
         Padding = new Thickness(13, 7, 13, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

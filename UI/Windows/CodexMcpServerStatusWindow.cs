@@ -20,29 +20,29 @@ internal sealed class CodexMcpServerStatusWindow : Window
     {
         Height = 34,
         Padding = new Thickness(10, 7, 10, 7),
-        Background = Brush("#16212B"),
-        Foreground = Brush("#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        Foreground = Brush("#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         ToolTip = "Поиск по имени сервера, инструментам, статусу и адресу"
     };
-    private readonly ListBox _servers = new() { Background = Brush("#101820"), BorderBrush = Brush("#2A3946") };
+    private readonly ListBox _servers = new() { Background = Brush("#151619"), BorderBrush = Brush("#34373E") };
     private readonly TextBlock _empty = new()
     {
         Text = "В общем профиле Codex нет настроенных MCP-серверов.",
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         Margin = new Thickness(12),
         TextWrapping = TextWrapping.Wrap
     };
     private readonly TextBlock _details = new()
     {
         Text = "Выберите сервер, чтобы посмотреть его авторизацию и инструменты.",
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(16)
     };
     private readonly TextBlock _status = new()
     {
-        Foreground = Brush("#A7B5C0"),
+        Foreground = Brush("#B0B5BE"),
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, 10, 0, 0)
     };
@@ -108,7 +108,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var note = new TextBlock
         {
             Text = "Состояние загружается из общего профиля Codex. App Server может запустить настроенные серверы и запросить список инструментов. Кнопка «Войти» появляется для HTTP-серверов, которым требуется авторизация; страницу входа нужно открыть отдельно.",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
@@ -122,7 +122,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         searchRow.Children.Add(new TextBlock
         {
             Text = "Фильтр",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 10, 0)
         });
@@ -138,7 +138,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
               <StackPanel>
                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{Binding ListSummary}" Foreground="#A7B5C0" FontSize="10" Margin="0,3,0,0" />
+                <TextBlock Text="{Binding ListSummary}" Foreground="#B0B5BE" FontSize="10" Margin="0,3,0,0" />
               </StackPanel>
             </DataTemplate>
             """);
@@ -148,8 +148,8 @@ internal sealed class CodexMcpServerStatusWindow : Window
         content.Children.Add(listArea);
         var detailsFrame = new Border
         {
-            Background = Brush("#101820"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#151619"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             Child = new ScrollViewer
             {
@@ -418,9 +418,9 @@ internal sealed class CodexMcpServerStatusWindow : Window
     {
         Content = text,
         Padding = new Thickness(12, 7, 12, 7),
-        Background = Brush(accent ? "#223B38" : "#16212B"),
-        Foreground = Brush(accent ? "#92E5C7" : "#ECF2F5"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush(accent ? "#223B38" : "#1D1F23"),
+        Foreground = Brush(accent ? "#92E5C7" : "#F1F3F5"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

@@ -57,7 +57,7 @@ internal sealed class CodexAppServerLoginWindow : Window
             TextAlignment = TextAlignment.Center,
             Padding = new Thickness(8, 5, 8, 5),
             Margin = new Thickness(0, 12, 0, 10),
-            Background = Color("#20303D"),
+            Background = Color("#282B30"),
             BorderThickness = new Thickness(0),
             SelectionBrush = Color("#3D655E")
         };

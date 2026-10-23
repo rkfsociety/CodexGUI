@@ -14,7 +14,7 @@ internal sealed class CodexSubagentsWindow : Window
 {
     private readonly Func<IReadOnlyList<CodexSubagentInfo>> _readSubagents;
     private readonly Func<string, Task> _openSubagent;
-    private readonly ListBox _list = new() { Background = Brush("#16212B"), BorderThickness = new Thickness(0) };
+    private readonly ListBox _list = new() { Background = Brush("#1D1F23"), BorderThickness = new Thickness(0) };
     private readonly TextBlock _details = new();
     private readonly Button _openButton = new() { Content = "Открыть историю субагента" };
 
@@ -160,8 +160,8 @@ internal sealed class CodexSubagentsWindow : Window
 
     private static Border Card(UIElement child) => new()
     {
-        Background = Brush("#16212B"),
-        BorderBrush = Brush("#2A3946"),
+        Background = Brush("#1D1F23"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(10),
         Padding = new Thickness(5),
@@ -174,7 +174,7 @@ internal sealed class CodexSubagentsWindow : Window
         Padding = new Thickness(11, 7, 11, 7),
         Background = Brush("#263344"),
         Foreground = Brush("#D3DCE6"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 

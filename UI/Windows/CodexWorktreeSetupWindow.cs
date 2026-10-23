@@ -76,7 +76,7 @@ internal sealed class CodexWorktreeSetupWindow : Window
         details.Children.Add(new TextBlock
         {
             Text = $"Сценарий: {_scriptPath}",
-            Foreground = Brush("#A7B5C0"),
+            Foreground = Brush("#B0B5BE"),
             FontSize = 11,
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = _scriptPath
@@ -84,7 +84,7 @@ internal sealed class CodexWorktreeSetupWindow : Window
         details.Children.Add(new TextBlock
         {
             Text = $"Папка: {_worktreePath}",
-            Foreground = Brush("#8494A2"),
+            Foreground = Brush("#8D95A2"),
             FontSize = 10,
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = _worktreePath,
@@ -95,8 +95,8 @@ internal sealed class CodexWorktreeSetupWindow : Window
 
         var outputBorder = new Border
         {
-            Background = Brush("#0D151D"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#14161A"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(10)
@@ -116,7 +116,7 @@ internal sealed class CodexWorktreeSetupWindow : Window
 
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0), LastChildFill = false };
         _status.Text = "Сценарий выполняется с правами текущего пользователя.";
-        _status.Foreground = Brush("#A7B5C0");
+        _status.Foreground = Brush("#B0B5BE");
         _status.FontSize = 10;
         _status.VerticalAlignment = VerticalAlignment.Center;
         _status.TextTrimming = TextTrimming.CharacterEllipsis;

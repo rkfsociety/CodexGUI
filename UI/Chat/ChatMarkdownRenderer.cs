@@ -106,7 +106,7 @@ internal static class ChatMarkdownRenderer
         FontWeight = weight,
         LineHeight = 25,
         TextWrapping = TextWrapping.Wrap,
-        Foreground = Brush("#ECF2F5"),
+        Foreground = Brush("#F1F3F5"),
         Margin = margin
     };
 
@@ -125,7 +125,7 @@ internal static class ChatMarkdownRenderer
                     FontFamily = new FontFamily("Consolas"),
                     FontSize = 13,
                     Foreground = Brush("#A9E3CE"),
-                    Background = Brush("#1B2935")
+                    Background = Brush("#24272D")
                 });
             else if (match.Groups["bold"].Success)
                 block.Inlines.Add(new Run(match.Value[2..^2]) { FontWeight = FontWeights.SemiBold });
@@ -181,15 +181,15 @@ internal static class ChatMarkdownRenderer
                 {
                     FontSize = 12,
                     FontWeight = row == 0 ? FontWeights.SemiBold : FontWeights.Normal,
-                    Foreground = Brush(row == 0 ? "#ECF2F5" : "#D5E1E8"),
+                    Foreground = Brush(row == 0 ? "#F1F3F5" : "#D5E1E8"),
                     TextWrapping = TextWrapping.Wrap,
                     LineHeight = 20
                 };
                 AppendInlineFormatting(text, cellText);
                 var cell = new Border
                 {
-                    Background = Brush(row == 0 ? "#22333F" : row % 2 == 0 ? "#141F28" : "#101A22"),
-                    BorderBrush = Brush("#2A3946"),
+                    Background = Brush(row == 0 ? "#2C3037" : row % 2 == 0 ? "#202227" : "#191B1F"),
+                    BorderBrush = Brush("#34373E"),
                     BorderThickness = new Thickness(0, 0, 1, 1),
                     Padding = new Thickness(10, 8, 10, 8),
                     Child = text
@@ -207,7 +207,7 @@ internal static class ChatMarkdownRenderer
         };
         return new Border
         {
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Margin = new Thickness(0, 7, 0, 9),
@@ -254,8 +254,8 @@ internal static class ChatMarkdownRenderer
         };
         content.Children.Add(new Border
         {
-            Background = Brush("#0D151D"),
-            BorderBrush = Brush("#2A3946"),
+            Background = Brush("#14161A"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(13, 10, 13, 10),

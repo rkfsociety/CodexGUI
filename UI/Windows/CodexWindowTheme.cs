@@ -23,7 +23,7 @@ internal static class CodexWindowTheme
         var enabled = 1;
         _ = DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int));
         _ = DwmSetWindowAttribute(handle, 19, ref enabled, sizeof(int));
-        uint captionColor = 0x001B1511;
+        uint captionColor = 0x00141110;
         uint textColor = 0x00F1F0F0;
         _ = DwmSetWindowAttribute(handle, 35, ref captionColor, sizeof(uint));
         _ = DwmSetWindowAttribute(handle, 36, ref textColor, sizeof(uint));

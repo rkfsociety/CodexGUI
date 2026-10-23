@@ -37,7 +37,7 @@ internal sealed class DiffReviewerWindow : Window
     private readonly Func<IReadOnlyList<DiffCommentThread>, bool> _attachThreads;
     private readonly ListBox _threadList = new()
     {
-        Background = Brush("#16212B"),
+        Background = Brush("#1D1F23"),
         Foreground = Brush("#E2E8F0"),
         BorderThickness = new Thickness(0)
     };
@@ -139,9 +139,9 @@ internal sealed class DiffReviewerWindow : Window
             AcceptsReturn = true,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Background = Brush("#16212B"),
+            Background = Brush("#1D1F23"),
             Foreground = Brush("#D2D9E3"),
-            BorderBrush = Brush("#2A3946"),
+            BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
             ToolTip = _hunkActionsAvailable
                 ? "Выделите строки одного diff-блока для stage, unstage или отмены"
@@ -318,7 +318,7 @@ internal sealed class DiffReviewerWindow : Window
             _conversation.Children.Add(new Border
             {
                 Background = Brush(accent ? "#1B2A28" : "#202936"),
-                BorderBrush = Brush("#2A3946"),
+                BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(8),
@@ -371,7 +371,7 @@ internal sealed class DiffReviewerWindow : Window
         button.Padding = new Thickness(9, 5, 9, 5);
         button.Background = Brush(background);
         button.Foreground = Brush("#E2E8F0");
-        button.BorderBrush = Brush("#2A3946");
+        button.BorderBrush = Brush("#34373E");
         button.BorderThickness = new Thickness(1);
         button.ToolTip = tooltip;
     }
@@ -392,7 +392,7 @@ internal sealed class DiffReviewerWindow : Window
             PagePadding = new Thickness(12),
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
-            Background = Brush("#16212B")
+            Background = Brush("#1D1F23")
         };
         var paragraphs = new List<Paragraph>();
         foreach (var line in diff.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
@@ -568,7 +568,7 @@ internal sealed class DiffReviewerWindow : Window
     private static Border Card(UIElement child) => new()
     {
         Background = Brush("#141A22"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(9),
         Padding = new Thickness(4),
@@ -578,9 +578,9 @@ internal sealed class DiffReviewerWindow : Window
     private static void StyleInput(Control input)
     {
         input.Padding = new Thickness(9, 7, 9, 7);
-        input.Background = Brush("#16212B");
+        input.Background = Brush("#1D1F23");
         input.Foreground = Brush("#D2D9E3");
-        input.BorderBrush = Brush("#2A3946");
+        input.BorderBrush = Brush("#34373E");
         input.BorderThickness = new Thickness(1);
     }
 
@@ -590,7 +590,7 @@ internal sealed class DiffReviewerWindow : Window
         Padding = new Thickness(12, 7, 12, 7),
         Background = Brush(background),
         Foreground = Brush("#E2E8F0"),
-        BorderBrush = Brush("#2A3946"),
+        BorderBrush = Brush("#34373E"),
         BorderThickness = new Thickness(1)
     };
 
