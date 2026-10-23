@@ -197,7 +197,7 @@
             <ScrollViewer MaxHeight="90" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="PromptQueueList"/></ScrollViewer>
           </StackPanel>
         </Border>
-        <Border x:Name="ComposerBorder" Background="{StaticResource Surface}" BorderThickness="1" Padding="22,18,22,16">
+        <Border x:Name="ComposerBorder" Background="{StaticResource Surface}" BorderThickness="1" Padding="16,12,16,12">
           <Border.Style>
             <Style TargetType="Border">
               <Setter Property="BorderBrush" Value="{StaticResource Line}" />
@@ -225,7 +225,7 @@
                 <WrapPanel x:Name="ComposerAttachmentsPanel" Orientation="Horizontal" />
               </ScrollViewer>
             </Border>
-            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="76" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,9,4,12" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Опишите задачу или изменение проекта…" />
+            <TextBox x:Name="PromptInput" Grid.Row="1" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="52" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,7,4,10" FontSize="16" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Опишите задачу или изменение проекта…" />
             <Grid Grid.Row="2" Margin="0,10,0,0" MinHeight="42">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -274,7 +274,7 @@
                 <Button x:Name="SendButton" Width="42" Height="42" Padding="0" Background="#92E5C7" Foreground="#121D27" ToolTip="Отправить (Enter)"><TextBlock x:Name="SendButtonIcon" Text="↑" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" /></Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="3" BorderBrush="#314454" BorderThickness="0,1,0,0" Padding="3,8,3,0" Margin="0,8,0,0">
+            <Border Grid.Row="3" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="3,6,3,0" Margin="0,6,0,0">
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
