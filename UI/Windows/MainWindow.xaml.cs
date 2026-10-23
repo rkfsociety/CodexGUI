@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private const string PromptPlaceholder = "Опишите задачу или изменение проекта…";
     private const string DefaultModel = "gpt-6-luna";
     private const string DefaultEffort = "high";
+    private const string PromptQueueDragFormat = "CodexGUI.PromptQueueItem";
     private static readonly JsonSerializerOptions StateSerializerOptions = new() { WriteIndented = true };
     private readonly ObservableCollection<ChatThread> _threads = [];
     private readonly List<ProjectEntry> _projects = [];
@@ -586,13 +587,12 @@ public partial class MainWindow : Window
 
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
-            prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
             UpdatePromptSpellCheck(prompt);
             prompt.TextChanged += (_, _) => UpdatePromptSpellCheck(prompt);
             prompt.Foreground = Brush(prompt.Text == PromptPlaceholder ? "#8D95A2" : "#F1F3F5");
             prompt.GotKeyboardFocus += (_, _) =>
             {
-                prompt.Language = XmlLanguage.GetLanguage(_inputLanguageManager.CurrentInputLanguage.IetfLanguageTag);
+                UpdatePromptSpellCheck(prompt);
                 if (prompt.Text == PromptPlaceholder)
                 {
                     prompt.Clear();
@@ -619,14 +619,40 @@ public partial class MainWindow : Window
     private void PromptInputLanguageChanged(object? sender, InputLanguageEventArgs e)
     {
         if (Control<TextBox>("PromptInput") is { IsKeyboardFocusWithin: true } prompt)
-            prompt.Language = XmlLanguage.GetLanguage(e.NewLanguage.IetfLanguageTag);
+            UpdatePromptSpellCheck(prompt, e.NewLanguage.IetfLanguageTag);
     }
 
-    private static void UpdatePromptSpellCheck(TextBox prompt)
+    private void UpdatePromptSpellCheck(TextBox prompt, string? fallbackLanguageTag = null)
     {
+        var languageTag = DetectPromptLanguage(prompt.Text)
+            ?? fallbackLanguageTag
+            ?? _inputLanguageManager.CurrentInputLanguage.IetfLanguageTag;
+        if (!string.Equals(prompt.Language.IetfLanguageTag, languageTag, StringComparison.OrdinalIgnoreCase))
+            prompt.Language = XmlLanguage.GetLanguage(languageTag);
+
         var enabled = prompt.Text != PromptPlaceholder;
         if (SpellCheck.GetIsEnabled(prompt) != enabled)
             SpellCheck.SetIsEnabled(prompt, enabled);
+    }
+
+    private static string? DetectPromptLanguage(string text)
+    {
+        var cyrillicLetters = 0;
+        var latinLetters = 0;
+        foreach (var character in text)
+        {
+            if (!char.IsLetter(character))
+                continue;
+
+            if (character is >= '\u0400' and <= '\u052F')
+                cyrillicLetters++;
+            else if (character <= '\u024F' || character is >= '\u1E00' and <= '\u1EFF')
+                latinLetters++;
+        }
+
+        return cyrillicLetters > latinLetters
+            ? "ru-RU"
+            : latinLetters > cyrillicLetters ? "en-US" : null;
     }
 
     private void RefreshView()
@@ -3256,7 +3282,7 @@ public partial class MainWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new Border
+            var dragHandle = new Border
             {
                 Background = Brush("#29453F"),
                 CornerRadius = new CornerRadius(6),
@@ -3264,6 +3290,8 @@ public partial class MainWindow : Window
                 Height = 20,
                 Margin = new Thickness(0, 0, 7, 0),
                 VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.SizeAll,
+                ToolTip = "Перетащите, чтобы изменить порядок отправки",
                 Child = new TextBlock
                 {
                     Text = (++position).ToString(),
@@ -3272,7 +3300,31 @@ public partial class MainWindow : Window
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 }
-            });
+            };
+            var dragStart = new Point();
+            var dragCandidate = false;
+            dragHandle.PreviewMouseLeftButtonDown += (_, e) =>
+            {
+                dragCandidate = !_isPumpingPromptQueue && !_isEditingQueuedPrompt;
+                dragStart = e.GetPosition(list);
+            };
+            dragHandle.PreviewMouseLeftButtonUp += (_, _) => dragCandidate = false;
+            dragHandle.PreviewMouseMove += (_, e) =>
+            {
+                if (!dragCandidate || e.LeftButton != MouseButtonState.Pressed
+                    || _isPumpingPromptQueue || _isEditingQueuedPrompt)
+                    return;
+
+                var current = e.GetPosition(list);
+                if (Math.Abs(current.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+                    && Math.Abs(current.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+                    return;
+
+                dragCandidate = false;
+                var data = new DataObject(PromptQueueDragFormat, queued);
+                DragDrop.DoDragDrop(dragHandle, data, DragDropEffects.Move);
+            };
+            row.Children.Add(dragHandle);
             var summary = string.Join(" ", messageText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             if (attachments.Length > 0)
                 summary += $"  · Вложения: {attachments.Length}";
@@ -3298,14 +3350,32 @@ public partial class MainWindow : Window
             remove.Click += (_, _) => RemovePromptFromQueue(queued.Id);
             Grid.SetColumn(remove, 3);
             row.Children.Add(remove);
-            list.Children.Add(new Border
+            var queueRow = new Border
             {
                 Background = Brush("#24272D"),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(5, 1, 3, 1),
                 Margin = new Thickness(0, 2, 0, 0),
+                AllowDrop = true,
                 Child = row
-            });
+            };
+            queueRow.DragOver += (_, e) =>
+            {
+                var canMove = !_isPumpingPromptQueue && !_isEditingQueuedPrompt
+                    && e.Data.GetDataPresent(PromptQueueDragFormat);
+                e.Effects = canMove ? DragDropEffects.Move : DragDropEffects.None;
+                e.Handled = true;
+            };
+            queueRow.Drop += (_, e) =>
+            {
+                if (e.Data.GetData(PromptQueueDragFormat) is not QueuedPrompt dragged)
+                    return;
+
+                var insertAfter = e.GetPosition(queueRow).Y >= queueRow.ActualHeight / 2;
+                e.Handled = true;
+                ReorderQueuedPrompt(dragged, queued, insertAfter);
+            };
+            list.Children.Add(queueRow);
         }
 
         UpdateChatQuickOverview();
@@ -3325,14 +3395,16 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("SendButtonIcon") is { } icon)
             icon.Text = canControlTurn && activeRun?.SteerFollowUps == true ? "↑" : queueing ? "＋" : "↑";
         if (Control<Button>("SendButton") is { } sendButton && canControlTurn)
-            sendButton.ToolTip = activeRun?.SteerFollowUps == true ? "Направить в текущий ход (Enter)" : "Добавить в очередь (Enter)";
+            sendButton.ToolTip = activeRun?.SteerFollowUps == true
+                ? "Направить в текущий ход (Enter) · без очереди (Ctrl+Enter)"
+                : "Добавить в очередь (Enter) · Ctrl+Enter направит без очереди";
         if (Control<Button>("FollowUpModeButton") is { } followUpMode)
         {
             followUpMode.Visibility = canControlTurn ? Visibility.Visible : Visibility.Collapsed;
             followUpMode.Content = activeRun?.SteerFollowUps == true ? "Направить" : "В очередь";
             followUpMode.ToolTip = activeRun?.SteerFollowUps == true
-                ? "Отправить следующее сообщение прямо в текущий ход Codex"
-                : "Поставить сообщение в очередь после текущего хода Codex";
+                ? "Enter направляет сообщения в текущий ход Codex; Ctrl+Enter делает это независимо от режима"
+                : "Enter ставит сообщения в очередь; Ctrl+Enter направляет их в текущий ход Codex";
             followUpMode.IsEnabled = canControlTurn && activeRun?.StopRequested != true;
         }
         if (Control<Button>("StopButton") is { } stop)
@@ -3595,6 +3667,23 @@ public partial class MainWindow : Window
         RenderPromptQueue();
     }
 
+    private void ReorderQueuedPrompt(QueuedPrompt dragged, QueuedPrompt target, bool insertAfter)
+    {
+        if (_isPumpingPromptQueue || _isEditingQueuedPrompt) return;
+        var sourceIndex = _promptQueue.IndexOf(dragged);
+        var targetIndex = _promptQueue.IndexOf(target);
+        if (sourceIndex < 0 || targetIndex < 0) return;
+
+        var insertIndex = targetIndex + (insertAfter ? 1 : 0);
+        if (sourceIndex < insertIndex) insertIndex--;
+        if (sourceIndex == insertIndex) return;
+
+        _promptQueue.RemoveAt(sourceIndex);
+        _promptQueue.Insert(insertIndex, dragged);
+        RequestStateSave();
+        RenderPromptQueue();
+    }
+
     private void ClearPromptQueue()
     {
         if (_promptQueue.Count == 0) return;
@@ -3609,7 +3698,7 @@ public partial class MainWindow : Window
         RenderPromptQueue();
     }
 
-    private async Task SendPromptAsync()
+    private async Task SendPromptAsync(bool bypassQueue = false)
     {
         if (_isSavingPrompt) return;
         if (_isClosing || Control<TextBox>("PromptInput") is not { } input) return;
@@ -3641,7 +3730,9 @@ public partial class MainWindow : Window
 
         _currentThread ??= NewThread();
         var thread = _currentThread;
-        if (thread.ActiveRun is { AppServerMode: true, SteerFollowUps: true, StopRequested: false } activeRun)
+        var activeRun = thread.ActiveRun;
+        if (activeRun is { AppServerMode: true, StopRequested: false }
+            && (bypassQueue || activeRun.SteerFollowUps))
         {
             try
             {
@@ -3654,6 +3745,14 @@ public partial class MainWindow : Window
             }
             input.Clear();
             ClearComposerAttachments();
+            return;
+        }
+        if (bypassQueue && activeRun is not null)
+        {
+            var detail = activeRun.AppServerMode
+                ? "Текущий ход уже останавливается; сообщение оставлено в поле ввода."
+                : "Этот ход не поддерживает прямую отправку; нажмите Enter, чтобы поставить сообщение в очередь.";
+            SetStatus("Не удалось отправить сообщение без очереди", detail, isError: true);
             return;
         }
         if (thread.Messages.Count == 0 && thread.ActiveRun is null && !_promptQueue.Any(item => item.ThreadId == thread.Id))
@@ -6020,6 +6119,12 @@ public partial class MainWindow : Window
 
     private async void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            await SendPromptAsync(bypassQueue: true);
+            return;
+        }
         if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control && sender is TextBox input)
         {
             e.Handled = TryPasteContext(input);
