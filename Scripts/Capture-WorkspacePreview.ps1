@@ -3,7 +3,7 @@
 Renders a CodexGUI interface view to PNG without launching CodexGUI.
 
 .DESCRIPTION
-Loads App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
+Loads Application/App.xaml resources and renders Views/WorkspaceView.xaml, the shared empty-chat welcome view,
 the built-in Activity and Actions windows and action editor, the dark file, folder, or save picker, the automation
 editor and its calendar, the marketplace-add dialog and source manager, the MCP server status and OAuth login windows,
 or the Pull Request editor with local preview data in a standalone STA PowerShell process. It never starts CodexGUI or the App Server.
@@ -91,10 +91,10 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentSta
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$appXamlPath = Join-Path $projectRoot 'App.xaml'
+$appXamlPath = Join-Path $projectRoot 'Application\App.xaml'
 $workspaceXamlPath = Join-Path $projectRoot 'Views\WorkspaceView.xaml'
 if (-not (Test-Path -LiteralPath $appXamlPath)) {
-    throw 'App.xaml was not found beside this script.'
+    throw 'Application/App.xaml was not found in the project.'
 }
 
 if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'ActionEditor') { 620 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'McpServers') { 840 } elseif ($View -eq 'McpOAuthLogin') { 520 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
@@ -115,7 +115,7 @@ $appDocument = [xml]::new()
 $appDocument.Load($appXamlPath)
 $resourceNode = $appDocument.SelectSingleNode("/*[local-name()='Application']/*[local-name()='Application.Resources']")
 if ($null -eq $resourceNode) {
-    throw 'App.xaml does not contain Application.Resources.'
+    throw 'Application/App.xaml does not contain Application.Resources.'
 }
 $resourcesXaml = @"
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

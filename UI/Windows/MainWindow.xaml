@@ -1,7 +1,7 @@
 <Window x:Class="CodexGUI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Codex" Icon="Assets/codex-assistant.ico" Width="1520" Height="930" MinWidth="900" MinHeight="620"
+        Title="Codex" Icon="/Assets/codex-assistant.ico" Width="1520" Height="930" MinWidth="900" MinHeight="620"
         WindowStartupLocation="CenterScreen" Background="#0B1117"
         UseLayoutRounding="True" FontFamily="Segoe UI" FontSize="14" Foreground="#ECF2F5">
   <ContentControl x:Name="ViewHost" />

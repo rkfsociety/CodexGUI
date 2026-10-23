@@ -8,9 +8,10 @@
     <ApplicationIcon>Assets\codex-assistant.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationManifest>Properties\app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <ApplicationDefinition Include="Application\App.xaml" />
     <Compile Remove="Tests\**\*.cs" />
     <InternalsVisibleTo Include="CodexGUI.Checks" />
     <Content Include="Views\WorkspaceView.xaml" CopyToOutputDirectory="PreserveNewest" />
