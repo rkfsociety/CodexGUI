@@ -146,17 +146,29 @@ jobs:
             Changed = [System.Collections.Generic.List[string]]::new()
             Fixed   = [System.Collections.Generic.List[string]]::new()
           }
-          $history = git log --no-merges '--format=%s%x1f%b%x1e' $range | Out-String
+          $history = git log --no-merges '--format=%H%x1f%s%x1f%b%x1e' $range | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'Could not read the release commit history.' }
           foreach ($record in $history.Split([char]0x1e, [StringSplitOptions]::RemoveEmptyEntries)) {
-            $fields = $record.Trim() -split ([char]0x1f), 2
-            if ($fields.Count -ne 2) { continue }
-            $subject = $fields[0].Trim()
+            $fields = $record.Trim() -split ([char]0x1f), 3
+            if ($fields.Count -ne 3) { continue }
+            $commit = $fields[0].Trim()
+            $subject = $fields[1].Trim()
+            $body = $fields[2]
             if ($subject -match '^Bump version to [0-9]+\.[0-9]+\.[0-9]+$') { continue }
+            $changedPaths = @(git diff-tree --no-commit-id --name-only -r $commit)
+            if ($LASTEXITCODE -ne 0) { throw "Could not inspect files changed by commit '$subject'." }
+            $hasProductChanges = @($changedPaths | Where-Object {
+              $_ -notmatch '^(?:\.github/|\.codex/|Tests/|AGENTS\.md$|README\.md$)'
+            }).Count -gt 0
+            if (-not $hasProductChanges) { continue }
             $noteCount = 0
-            foreach ($line in ($fields[1] -split '\r?\n')) {
+            foreach ($line in ($body -split '\r?\n')) {
               if ($line -match '^Release-Note-(Added|Changed|Fixed):\s*(.+)$') {
-                $notes[$Matches[1]].Add($Matches[2].Trim())
+                $note = $Matches[2].Trim()
+                if ($note -notmatch '\p{IsCyrillic}') {
+                  throw "Release note in commit '$subject' must be written in Russian."
+                }
+                $notes[$Matches[1]].Add($note)
                 $noteCount++
               }
             }
