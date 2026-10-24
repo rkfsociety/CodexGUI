@@ -63,20 +63,20 @@ function Set-WorkspaceReferenceFixture {
     $times = @('2 часа назад', 'Вчера', '3 дня назад', '1 неделю назад')
     for ($i = 0; $i -lt $titles.Count; $i++) {
         $row = [System.Windows.Controls.Grid]::new(); $row.Height = 33
-        foreach ($width in @('23', '*', 'Auto')) {
+        foreach ($width in @('28', '*', 'Auto')) {
             $column = [System.Windows.Controls.ColumnDefinition]::new()
             $column.Width = [System.Windows.GridLengthConverter]::new().ConvertFromString($width)
             [void]$row.ColumnDefinitions.Add($column)
         }
         $icon = [System.Windows.Shapes.Path]::new()
         $icon.Data = [System.Windows.Media.Geometry]::Parse('M4,2 H13 L19,8 V22 H4 Z M13,2 V8 H19 M8,13 H15')
-        $icon.Width = 13; $icon.Height = 14; $icon.Stretch = 'Uniform'; $icon.StrokeThickness = 1.4
+        $icon.Width = 14; $icon.Height = 18; $icon.Stretch = 'Uniform'; $icon.StrokeThickness = 1.4
         $icon.Stroke = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#8DA6B5')
         $icon.HorizontalAlignment = 'Left'; $icon.VerticalAlignment = 'Center'; [void]$row.Children.Add($icon)
         $label = [System.Windows.Controls.TextBlock]::new(); $label.Text = $titles[$i]; $label.FontSize = 12
         $label.TextTrimming = 'CharacterEllipsis'; $label.VerticalAlignment = 'Center'
         [System.Windows.Controls.Grid]::SetColumn($label, 1); [void]$row.Children.Add($label)
-        $date = [System.Windows.Controls.TextBlock]::new(); $date.Text = $times[$i]; $date.FontSize = 11
+        $date = [System.Windows.Controls.TextBlock]::new(); $date.Text = $times[$i]; $date.FontSize = 11.8
         $date.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#8198A7')
         $date.VerticalAlignment = 'Center'; $date.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
         [System.Windows.Controls.Grid]::SetColumn($date, 2); [void]$row.Children.Add($date)

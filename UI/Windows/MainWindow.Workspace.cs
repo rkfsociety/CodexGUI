@@ -194,18 +194,18 @@ public partial class MainWindow
     private static void AddWorkspaceContextRow(StackPanel context, string title, string modified, string tooltip, RoutedEventHandler select)
     {
         var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(23) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Children.Add(new System.Windows.Shapes.Path
         {
             Data = Geometry.Parse("M4,2 H13 L19,8 V22 H4 Z M13,2 V8 H19 M8,13 H15"),
-            Width = 13, Height = 14, Stretch = Stretch.Uniform, Stroke = Brush("#8DA6B5"), StrokeThickness = 1.4,
+            Width = 14, Height = 18, Stretch = Stretch.Uniform, Stroke = Brush("#8DA6B5"), StrokeThickness = 1.4,
             HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center
         });
         var label = new TextBlock { Text = title, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(label, 1); row.Children.Add(label);
-        var date = new TextBlock { Text = modified, FontSize = 11, Foreground = Brush("#8198A7"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var date = new TextBlock { Text = modified, FontSize = 11.8, Foreground = Brush("#8198A7"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         Grid.SetColumn(date, 2); row.Children.Add(date);
         var button = new Button { Content = row, Height = 33, FontSize = 12, Padding = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Stretch, ToolTip = tooltip };

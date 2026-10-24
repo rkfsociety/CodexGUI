@@ -54,8 +54,19 @@ internal static class WorkspaceMapView
             } : new Border { Width = 11, Height = 11, CornerRadius = new CornerRadius(3), Background = Brush(color), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
             DockPanel.SetDock(icon, Dock.Left); content.Children.Add(icon);
             content.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            Brush background = Brush("#15252D");
+            if (center)
+            {
+                var centerFill = new LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+                centerFill.GradientStops.Add(new GradientStop(Color.FromRgb(10, 46, 40), 0));
+                centerFill.GradientStops.Add(new GradientStop(Color.FromRgb(9, 56, 46), 0.1));
+                centerFill.GradientStops.Add(new GradientStop(Color.FromRgb(13, 54, 49), 0.3));
+                centerFill.GradientStops.Add(new GradientStop(Color.FromRgb(9, 30, 31), 0.86));
+                centerFill.GradientStops.Add(new GradientStop(Color.FromRgb(11, 43, 39), 1));
+                background = centerFill;
+            }
             var button = new Button { Content = content, Width = center ? 104 : Math.Clamp(label.Length * 6.5 + 34, 62, 100), Height = center ? 36 : 30, FontSize = center ? 12 : 11,
-                Padding = new Thickness(7, 3, 7, 3), Background = Brush(center ? "#104B46" : "#15252D"), Foreground = Brush("#D4EBED"),
+                Padding = new Thickness(7, 3, 7, 3), Background = background, Foreground = Brush("#D4EBED"),
                 BorderBrush = Brush(color), BorderThickness = new Thickness(center ? 1.3 : 0.6), ToolTip = label + "\n" + path };
             if (center) button.Effect = new System.Windows.Media.Effects.DropShadowEffect
             {

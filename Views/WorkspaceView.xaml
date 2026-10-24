@@ -392,7 +392,7 @@
             <Button x:Name="MapFullButton" Content="Открыть полный вид" FontSize="11" Margin="50,0,0,0" Padding="6,4" />
           </StackPanel>
           <Viewbox Stretch="Uniform" Margin="10,7,10,0">
-            <Canvas x:Name="ProjectMap" Width="300" Height="230" ClipToBounds="True" />
+            <Canvas x:Name="ProjectMap" Width="300" Height="230" Background="#0A1318" ClipToBounds="True" />
           </Viewbox>
         </DockPanel>
       </Border>
@@ -624,7 +624,7 @@
           </Expander>
         </Border>
         <StackPanel Grid.Row="4">
-          <Border MinHeight="214" Margin="0,12,0,0" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="13" x:Name="ContextMemoryCard">
+          <Border MinHeight="214" Margin="0,12,0,0" Background="#090F14" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="13" x:Name="ContextMemoryCard">
             <DockPanel>
               <Border Height="46" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" DockPanel.Dock="Top">
                 <Grid Margin="14,0,12,0">
@@ -639,7 +639,7 @@
                   <Button Content="Все  →" FontSize="11" Foreground="{StaticResource TextMuted}" Padding="4,2" ToolTip="Открыть файл контекста" x:Name="WorkspaceMemoryButton" Grid.Column="1" />
                 </Grid>
               </Border>
-              <StackPanel Margin="14,12,14,8" x:Name="WorkspaceContextList" />
+              <StackPanel Margin="23,12,21,8" x:Name="WorkspaceContextList" />
             </DockPanel>
           </Border>
           <Border MinHeight="226" Margin="0,11,0,0" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="13" x:Name="QuickToolsCard">
