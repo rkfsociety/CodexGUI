@@ -28,7 +28,6 @@ internal static class AppUpdater
     private const long MaximumMetadataBytes = 4096;
     private const long MaximumReleaseMetadataBytes = 2L * 1024 * 1024;
     private const string ReleasePublicKey = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjKDFJz59PcWpOLTJqcxFN3FsM+Ah\nvbzdlyTJhKnLZ93rxwqsrOGJOigTcx6Ntn1DlNg5vVA6AihvsTZOXq+rDQ==\n-----END PUBLIC KEY-----";
-    private static readonly HttpClient Client = CreateClient();
 
     public static string CurrentVersion =>
         Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
@@ -37,7 +36,8 @@ internal static class AppUpdater
 
     public static async Task<AppUpdate?> FindUpdateAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await GetResponseAsync(Client, new Uri(LatestReleaseApi), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var client = CreateClient();
+        using var response = await GetResponseAsync(client, new Uri(LatestReleaseApi), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > MaximumReleaseMetadataBytes)
             throw new InvalidDataException("Метаданные релиза GitHub превышают допустимый размер.");
@@ -227,7 +227,8 @@ internal static class AppUpdater
     private static async Task DownloadFileAsync(Uri uri, string path, long maximumBytes, CancellationToken cancellationToken,
         Action<long, long?>? onProgress = null)
     {
-        using var response = await GetResponseAsync(Client, uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var client = CreateClient();
+        using var response = await GetResponseAsync(client, uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         var total = response.Content.Headers.ContentLength;
         if (total is { } contentLength && contentLength > maximumBytes)

@@ -1539,12 +1539,12 @@ public partial class MainWindow : Window
     private static bool IsNearConversationBottom(ScrollViewer scroll) =>
         scroll.ScrollableHeight - scroll.VerticalOffset <= 72;
 
-    private async void SendWelcomeSuggestion(string text)
+    private void SendWelcomeSuggestion(string text)
     {
         if (Control<TextBox>("PromptInput") is not { } input) return;
         input.Text = text;
         input.CaretIndex = input.Text.Length;
-        await SendPromptAsync();
+        _ = SendPromptAsync();
     }
 
     private FrameworkElement CreateMessage(ChatMessage message)
@@ -4924,6 +4924,12 @@ public partial class MainWindow : Window
             run.WorkerStartTimeUtcTicks = serverProcess.StartTime.ToUniversalTime().Ticks;
             RequestStateSave();
             return serverProcess;
+            serverProcess.EnableRaisingEvents = true;
+            serverProcess.Exited += (sender, args) =>
+            {
+                try { serverProcess.Dispose(); }
+                catch (Exception ex) { System.Diagnostics.Trace.TraceError("Error disposing server process: {0}", ex); }
+            };
         }
 
         using var workerResource = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.CodexCliWorker.ps1")
@@ -4963,6 +4969,12 @@ public partial class MainWindow : Window
         run.WorkerStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
         RequestStateSave();
         return process;
+        process.EnableRaisingEvents = true;
+        process.Exited += (sender, args) =>
+        {
+            try { process.Dispose(); }
+            catch (Exception ex) { System.Diagnostics.Trace.TraceError("Error disposing CLI process: {0}", ex); }
+        };
     }
 
     private static List<string> BuildCodexArguments(ChatThread thread, ActiveCliRun run)
@@ -6284,12 +6296,12 @@ public partial class MainWindow : Window
         else if (e.Key == Key.N) { NewChat(); e.Handled = true; }
     }
 
-    private async void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control)
         {
             e.Handled = true;
-            await SendPromptAsync(bypassQueue: true);
+            _ = SendPromptAsync(bypassQueue: true);
             return;
         }
         if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control && sender is TextBox input)
@@ -6300,7 +6312,7 @@ public partial class MainWindow : Window
         if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
         {
             e.Handled = true;
-            await SendPromptAsync();
+            _ = SendPromptAsync();
         }
     }
 
