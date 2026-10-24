@@ -362,6 +362,8 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             catch (IOException) { }
             if (!process.HasExited)
             {
+                // Closing stdin normally lets the server exit. If it already exited after
+                // an EOF/error, don't wait out the graceful-shutdown deadline unnecessarily.
                 try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
                 catch (TimeoutException)
                 {
@@ -374,17 +376,17 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                     }
                 }
             }
-            // Ignore lingering inherited stderr handles during shutdown.
-            try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (TimeoutException)
+            // A descendant can inherit stderr after the server exits, leaving the drain
+            // blocked even though the RPC process itself has already shut down.
+            if (!errorsTask.IsCompleted)
             {
                 try { process.StandardError.Dispose(); }
                 catch (Exception error) when (error is IOException or ObjectDisposedException) { }
-                try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(1)); }
-                catch (TimeoutException error)
-                {
-                    throw new TimeoutException("Codex app-server stderr reader remained blocked after closing its stream.", error);
-                }
+            }
+            try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(1)); }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException("Codex app-server stderr reader remained blocked after closing its stream.", error);
             }
         }
     }
