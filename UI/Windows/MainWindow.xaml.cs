@@ -39,6 +39,8 @@ public partial class MainWindow : Window
     private const string DefaultModel = "gpt-6-luna";
     private const string DefaultEffort = "high";
     private const string PromptQueueDragFormat = "CodexGUI.PromptQueueItem";
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 2;
     private static readonly JsonSerializerOptions StateSerializerOptions = new() { WriteIndented = true };
     private readonly ObservableCollection<ChatThread> _threads = [];
     private readonly List<ProjectEntry> _projects = [];
@@ -60,6 +62,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _repositoryRefreshTimer;
     private readonly DispatcherTimer _automationTimer;
     private readonly InputLanguageManager _inputLanguageManager;
+    private readonly HwndSourceHook _maximizeWorkAreaHook = MainWindowWindowProc;
     private readonly CancellationTokenSource _appServerCancellation = new();
     private CancellationTokenSource _threadSelectionCancellation = new();
     private readonly CancellationTokenSource _updateCheckCancellation = new();
@@ -131,6 +134,11 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         CodexWindowTheme.Apply(this);
+        SourceInitialized += (_, _) =>
+        {
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.AddHook(_maximizeWorkAreaHook);
+        };
         _inputLanguageManager = InputLanguageManager.Current;
         _inputLanguageManager.InputLanguageChanged += PromptInputLanguageChanged;
         _updateReadyAnimationTimer.Tick += (_, _) => AdvanceUpdateReadyAnimation();
@@ -6439,6 +6447,83 @@ public partial class MainWindow : Window
 
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));
     private static string TrimTitle(string text) => text.Length <= 34 ? text : text[..31].TrimEnd() + "…";
+
+    internal static (int X, int Y, int Width, int Height) CalculateMaximizedWorkArea(
+        int monitorLeft,
+        int monitorTop,
+        int workLeft,
+        int workTop,
+        int workRight,
+        int workBottom) =>
+        (workLeft - monitorLeft, workTop - monitorTop, workRight - workLeft, workBottom - workTop);
+
+    private static IntPtr MainWindowWindowProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message != WmGetMinMaxInfo || lParam == IntPtr.Zero) return IntPtr.Zero;
+
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+        if (monitor == IntPtr.Zero) return IntPtr.Zero;
+        var monitorInfo = new NativeMonitorInfo { Size = (uint)Marshal.SizeOf<NativeMonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo)) return IntPtr.Zero;
+
+        var bounds = CalculateMaximizedWorkArea(
+            monitorInfo.Monitor.Left,
+            monitorInfo.Monitor.Top,
+            monitorInfo.Work.Left,
+            monitorInfo.Work.Top,
+            monitorInfo.Work.Right,
+            monitorInfo.Work.Bottom);
+        var minMaxInfo = Marshal.PtrToStructure<NativeMinMaxInfo>(lParam);
+        minMaxInfo.MaxPosition.X = bounds.X;
+        minMaxInfo.MaxPosition.Y = bounds.Y;
+        minMaxInfo.MaxSize.X = bounds.Width;
+        minMaxInfo.MaxSize.Y = bounds.Height;
+        Marshal.StructureToPtr(minMaxInfo, lParam, false);
+        handled = true;
+        return IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref NativeMonitorInfo monitorInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMonitorInfo
+    {
+        public uint Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
 
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {

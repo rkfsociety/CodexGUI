@@ -28,6 +28,7 @@ internal static class Program
             await Check("Workspace search is bounded and honors cancellation", () => WorkspaceSearchLimitsAsync(root));
             await Check("Workspace map reads real folders, frameworks and package dependencies", () => WorkspaceMapAsync(root));
             await Check("Workspace map buttons select their actual paths and search UI returns results", () => WorkspaceControlsAsync(root));
+            await Check("Borderless maximize bounds respect monitor work areas", MaximizedWorkAreaAsync);
             await Check("Local goal steps round-trip without breaking legacy thread state", WorkspaceGoalStateAsync);
             await Check("JSON recovery preserves corrupt primary and repairs it", () => RecoveryAsync(root));
             await Check("Unrecoverable JSON does not overwrite either snapshot", () => BrokenRecoveryAsync(root));
@@ -797,6 +798,18 @@ internal static class Program
         Require(dependencies.Any(node => node.Label == "Example.Package") && dependencies.Any(node => node.Label == "net10.0-windows")
             && dependencies.Any(node => node.Label == "example-module"), "Map lost declared dependencies");
         Require(WorkspaceProjectMap.Read(directory, 2).Any(node => node.Label == ".cs · 1"), "File-type layer missing");
+        return Task.CompletedTask;
+    }
+
+    private static Task MaximizedWorkAreaAsync()
+    {
+        var secondaryMonitorWithTopTaskbar = MainWindow.CalculateMaximizedWorkArea(-1920, 0, -1920, 40, 0, 1080);
+        Require(secondaryMonitorWithTopTaskbar == (0, 40, 1920, 1040),
+            "Maximize bounds ignored the top taskbar on a monitor with negative coordinates");
+
+        var primaryMonitorWithLeftTaskbar = MainWindow.CalculateMaximizedWorkArea(0, 0, 80, 0, 1920, 1080);
+        Require(primaryMonitorWithLeftTaskbar == (80, 0, 1840, 1080),
+            "Maximize bounds ignored the left taskbar");
         return Task.CompletedTask;
     }
 
