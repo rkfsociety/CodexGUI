@@ -2298,6 +2298,9 @@ public partial class MainWindow : Window
         _threadSelectionCancellation = new CancellationTokenSource();
     }
 
+    private bool IsCurrentThreadSelection(ChatThread thread, CancellationToken cancellationToken) =>
+        !_isClosing && !cancellationToken.IsCancellationRequested && ReferenceEquals(_currentThread, thread);
+
     private async Task LoadThreadGoalForDisplayAsync(string threadId)
     {
         try
@@ -2344,6 +2347,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var selectionToken = _threadSelectionCancellation.Token;
         try
         {
             var threadId = thread.CodexSessionId;
@@ -2355,8 +2359,8 @@ public partial class MainWindow : Window
             else if (!string.IsNullOrWhiteSpace(threadId))
             {
                 client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
-                var response = await client.ReadThreadGoalAsync(threadId);
-                if (_isClosing) return;
+                var response = await client.ReadThreadGoalAsync(threadId, selectionToken);
+                if (!IsCurrentThreadSelection(thread, selectionToken)) return;
                 existing = ReadThreadGoal(response);
                 _threadGoalCache[threadId] = existing;
                 _threadGoalLoadFailures.Remove(threadId);
@@ -2429,6 +2433,7 @@ public partial class MainWindow : Window
             UpdateThreadGoalButton();
             SetStatus("Цель чата сохранена", ThreadGoalStatusLabel(updatedGoal.Status));
         }
+        catch (OperationCanceledException) when (selectionToken.IsCancellationRequested) { }
         catch (Exception error)
         {
             if (!_isClosing) SetStatus("Не удалось обновить цель чата", error.Message, isError: true);
@@ -2475,6 +2480,7 @@ public partial class MainWindow : Window
             SetStatus("Цель сейчас недоступна", "Дождитесь завершения текущего хода Codex.");
             return;
         }
+        var selectionToken = _threadSelectionCancellation.Token;
         if (thread.PendingGoal is { } pendingGoal)
         {
             var threadIdForPending = thread.CodexSessionId;
@@ -2504,12 +2510,14 @@ public partial class MainWindow : Window
                 _threadGoalLoadFailures.Remove(threadIdForPending);
                 RequestStateSave();
                 UpdateThreadGoalButton();
-                SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
+                if (ReferenceEquals(_currentThread, thread))
+                    SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
                 return;
             }
             catch (Exception error)
             {
-                if (!_isClosing) SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
+                if (!_isClosing && ReferenceEquals(_currentThread, thread))
+                    SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
                 return;
             }
         }
@@ -2521,7 +2529,8 @@ public partial class MainWindow : Window
         try
         {
             var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
-            var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            var current = ReadThreadGoal(await client.ReadThreadGoalAsync(threadId, selectionToken));
+            if (!IsCurrentThreadSelection(thread, selectionToken)) return;
             if (current is null)
             {
                 SetStatus("Цель ещё не задана", "Используйте /goal или кнопку «Цель», чтобы создать её.");
@@ -2533,11 +2542,14 @@ public partial class MainWindow : Window
             _threadGoalCache[threadId] = updated;
             _threadGoalLoadFailures.Remove(threadId);
             UpdateThreadGoalButton();
-            SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
+            if (ReferenceEquals(_currentThread, thread))
+                SetStatus("Статус цели изменён", ThreadGoalStatusLabel(updated.Status));
         }
+        catch (OperationCanceledException) when (selectionToken.IsCancellationRequested) { }
         catch (Exception error)
         {
-            if (!_isClosing) SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
+            if (!_isClosing && ReferenceEquals(_currentThread, thread))
+                SetStatus("Не удалось изменить статус цели", error.Message, isError: true);
         }
     }
 
@@ -2554,6 +2566,7 @@ public partial class MainWindow : Window
             SetStatus("Цель сейчас недоступна", "Дождитесь завершения текущего хода Codex.");
             return;
         }
+        var selectionToken = _threadSelectionCancellation.Token;
         if (string.IsNullOrWhiteSpace(thread.CodexSessionId) && thread.PendingGoal is not null)
         {
             var answer = CodexMessageDialog.Show(this, "Удалить черновик цели этого чата?", "Очистить цель",
@@ -2580,7 +2593,8 @@ public partial class MainWindow : Window
         {
             var client = new CodexAppServerClient(CodexAppServerRuntime.ResolveExecutable(), _appServerCancellation.Token);
             var hasPending = thread.PendingGoal is not null;
-            var current = hasPending ? null : ReadThreadGoal(await client.ReadThreadGoalAsync(threadId));
+            var current = hasPending ? null : ReadThreadGoal(await client.ReadThreadGoalAsync(threadId, selectionToken));
+            if (!IsCurrentThreadSelection(thread, selectionToken)) return;
             if (current is null && !hasPending)
             {
                 _threadGoalCache[threadId] = null;
@@ -2600,9 +2614,11 @@ public partial class MainWindow : Window
             UpdateThreadGoalButton();
             SetStatus(cleared || hasPending ? "Цель очищена" : "Цели уже нет", "Изменение сохранено в истории App Server.");
         }
+        catch (OperationCanceledException) when (selectionToken.IsCancellationRequested) { }
         catch (Exception error)
         {
-            if (!_isClosing) SetStatus("Не удалось очистить цель чата", error.Message, isError: true);
+            if (!_isClosing && ReferenceEquals(_currentThread, thread))
+                SetStatus("Не удалось очистить цель чата", error.Message, isError: true);
         }
     }
 
