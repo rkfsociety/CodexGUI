@@ -121,7 +121,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             if (!metadata.TryGetProperty("thread", out var thread) || thread.ValueKind != JsonValueKind.Object)
                 throw new InvalidDataException("Codex App Server не вернул метаданные чата.");
 
-            long historyBytes = Encoding.UTF8.GetByteCount(thread.GetRawText());
+            long historyBytes = GetSerializedUtf8Length(thread);
             if (historyBytes > MaximumThreadHistoryBytes)
                 throw new InvalidDataException("Метаданные чата превышают допустимый размер 64 МиБ.");
             var turns = new List<JsonElement>();
@@ -164,12 +164,44 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             throw new InvalidDataException("Страница истории чата должна быть JSON-массивом.");
         foreach (var item in data.EnumerateArray())
         {
-            var itemBytes = Encoding.UTF8.GetByteCount(item.GetRawText());
+            var itemBytes = GetSerializedUtf8Length(item);
             if (itemBytes > maximumBytes - currentBytes)
                 throw new InvalidDataException($"История чата превышает допустимый размер {maximumBytes / 1024 / 1024} МиБ.");
             currentBytes += itemBytes;
             turns.Add(item.Clone());
         }
+    }
+
+    private static long GetSerializedUtf8Length(JsonElement value)
+    {
+        using var stream = new CountingWriteStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            value.WriteTo(writer);
+            writer.Flush();
+        }
+        return stream.BytesWritten;
+    }
+
+    private sealed class CountingWriteStream : Stream
+    {
+        public long BytesWritten { get; private set; }
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => BytesWritten;
+        public override long Position
+        {
+            get => BytesWritten;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => BytesWritten = checked(BytesWritten + count);
+        public override void Write(ReadOnlySpan<byte> buffer) => BytesWritten = checked(BytesWritten + buffer.Length);
     }
 
     public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null, CancellationToken cancellationToken = default)
