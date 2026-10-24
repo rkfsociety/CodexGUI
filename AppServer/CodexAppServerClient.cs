@@ -382,12 +382,13 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             {
                 try { process.StandardError.Dispose(); }
                 catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+                _ = errorsTask.ContinueWith(task =>
+                    System.Diagnostics.Trace.TraceWarning("Ошибка при завершении stderr reader Codex app-server: {0}", task.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
-            try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(1)); }
-            catch (TimeoutException error)
-            {
-                throw new TimeoutException("Codex app-server stderr reader remained blocked after closing its stream.", error);
-            }
+            else await errorsTask;
         }
     }
 
