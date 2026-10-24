@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0  # release notes need the previous version tag and its commit history
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6.0.0
@@ -72,7 +74,9 @@ jobs:
           } else {
             Write-Host "Release v$version already exists; nothing to publish."
           }
+          $previousTag = if ($latestVersion -eq '0.0.000') { '' } else { "v$latestVersion" }
           "version=$version" >> $env:GITHUB_OUTPUT
+          "previous_tag=$previousTag" >> $env:GITHUB_OUTPUT
           "should_release=$($shouldRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Run focused regression checks
@@ -119,6 +123,81 @@ jobs:
           }
           finally { $signer.Dispose() }
 
+      - name: Build release notes from changes since the previous version
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          PREVIOUS_RELEASE_TAG: ${{ steps.version.outputs.previous_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $previousTag = $env:PREVIOUS_RELEASE_TAG
+          $range = 'HEAD'
+          if ($previousTag) {
+            git rev-parse --verify --quiet "refs/tags/$previousTag^{commit}" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Previous release tag $previousTag is not available." }
+            git merge-base --is-ancestor $previousTag HEAD
+            if ($LASTEXITCODE -ne 0) { throw "Previous release tag $previousTag is not an ancestor of HEAD." }
+            $range = "$previousTag..HEAD"
+          }
+
+          # Prefer explicit Release-Note-* commit trailers. Other commits fall back to
+          # their conventional-commit subject, including direct pushes without PRs.
+          $notes = @{
+            Added   = [System.Collections.Generic.List[string]]::new()
+            Changed = [System.Collections.Generic.List[string]]::new()
+            Fixed   = [System.Collections.Generic.List[string]]::new()
+            Other   = [System.Collections.Generic.List[string]]::new()
+          }
+          $history = git log --no-merges '--format=%s%x1f%b%x1e' $range | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the release commit history.' }
+          foreach ($record in $history.Split([char]0x1e, [StringSplitOptions]::RemoveEmptyEntries)) {
+            $fields = $record.Trim() -split ([char]0x1f), 2
+            if ($fields.Count -ne 2) { continue }
+            $subject = $fields[0].Trim()
+            $explicitNotes = $false
+            foreach ($line in ($fields[1] -split '\r?\n')) {
+              if ($line -match '^Release-Note-(Added|Changed|Fixed):\s*(.+)$') {
+                $notes[$Matches[1]].Add($Matches[2].Trim())
+                $explicitNotes = $true
+              }
+            }
+            if ($explicitNotes) { continue }
+            if ($subject -match '^feat(?:\([^)]*\))?!?:\s*(.+)$') {
+              $notes.Added.Add($Matches[1])
+            } elseif ($subject -match '^fix(?:\([^)]*\))?!?:\s*(.+)$') {
+              $notes.Fixed.Add($Matches[1])
+            } elseif ($subject -match '^(?:perf|refactor|build|ci)(?:\([^)]*\))?!?:\s*(.+)$') {
+              $notes.Changed.Add($Matches[1])
+            } elseif ($subject) {
+              $notes.Other.Add($subject)
+            }
+          }
+
+          $sections = [ordered]@{
+            Added = '✨ Добавлено'
+            Changed = '⚡ Улучшено'
+            Fixed = '🛠 Исправлено'
+            Other = 'Другие изменения'
+          }
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("# CodexGUI v$env:RELEASE_VERSION")
+          $lines.Add('')
+          if ($previousTag) { $lines.Add("Изменения после $previousTag.") }
+          else { $lines.Add('Изменения с начала истории проекта.') }
+          foreach ($category in $sections.Keys) {
+            if ($notes[$category].Count -eq 0) { continue }
+            $lines.Add('')
+            $lines.Add("## $($sections[$category])")
+            foreach ($item in $notes[$category]) { $lines.Add("- $item") }
+          }
+          if (($notes.Added.Count + $notes.Changed.Count + $notes.Fixed.Count + $notes.Other.Count) -eq 0) {
+            $lines.Add('')
+            $lines.Add('В этом диапазоне нет коммитов с описанием изменений.')
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          [System.IO.File]::WriteAllLines('artifacts/release-notes.md', $lines, [System.Text.UTF8Encoding]::new($false))
+
       - name: Publish GitHub Release
         if: steps.version.outputs.should_release == 'true'
         env:
@@ -132,7 +211,7 @@ jobs:
           "artifacts/CodexGUI-win-x64.zip.sig"
           --target "${{ github.sha }}"
           --title "v${{ steps.version.outputs.version }}"
-          --generate-notes
+          --notes-file "artifacts/release-notes.md"
 
       - name: Delete older releases and tags
         if: steps.version.outputs.should_release == 'true'

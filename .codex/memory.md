@@ -34,3 +34,5 @@
 - `.github/workflows/release.yml` publishes and prunes releases when `main` receives a push. Work directly on `main`; no additional branches are used.
 
 - `Tests/CodexGUI.Checks.csproj` is the dependency-free regression runner for persistence/recovery, concurrent action writers, schedules, and RPC cancellation/process cleanup. See `README.md` for its command; the release workflow runs it before publishing. Fixtures use temporary paths and fake App Server processes.
+
+- Git status porcelain v2 now captures and validates the HEAD object ID for the agent's explicit Git preflight snapshot. Git-context counters and sensitive-filename checks run in one pass, and safe .env suffixes are reused. The release workflow builds categorized notes from commits since the previous version tag (using Release-Note-Added/Changed/Fixed trailers when provided) before it prunes older releases.

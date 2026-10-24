@@ -29,6 +29,8 @@ internal sealed record GitRepositorySnapshot(
 {
     public long? UnpushedAddedLines { get; init; }
     public long? UnpushedRemovedLines { get; init; }
+    // Exact repository revision at snapshot time, independent of uncommitted changes.
+    public string? HeadCommit { get; init; }
 }
 
 internal static class GitRepositoryInspector
@@ -43,14 +45,32 @@ internal static class GitRepositoryInspector
         if (maximumFiles < 1) throw new ArgumentOutOfRangeException(nameof(maximumFiles));
 
         static string OneLine(string value) => EscapeAgentField(value);
-        var staged = snapshot.Changes.Count(file => !file.IsUntracked && file.IndexStatus != '.');
-        var modified = snapshot.Changes.Count(file => !file.IsUntracked && file.WorktreeStatus != '.');
-        var untracked = snapshot.Changes.Count(file => file.IsUntracked);
-        var conflicted = snapshot.Changes.Count(file => file.IsConflicted);
+        var staged = 0;
+        var modified = 0;
+        var untracked = 0;
+        var conflicted = 0;
+        var possibleSecrets = 0;
+        var stagedSecrets = 0;
+        // A single pass avoids repeatedly scanning large worktrees and secret filenames.
+        foreach (var file in snapshot.Changes)
+        {
+            var isStaged = !file.IsUntracked && file.IndexStatus != '.';
+            if (isStaged) staged++;
+            if (!file.IsUntracked && file.WorktreeStatus != '.') modified++;
+            if (file.IsUntracked) untracked++;
+            if (file.IsConflicted) conflicted++;
+            if (IsPotentialSecretFile(file.Path))
+            {
+                possibleSecrets++;
+                if (isStaged) stagedSecrets++;
+            }
+        }
         var result = new StringBuilder();
         result.AppendLine("Контекст локального Git-репозитория (снимок; проверь актуальность перед изменениями):");
         result.Append("Рабочая папка: ").AppendLine(OneLine(snapshot.Root));
         result.Append("Ветка: ").AppendLine(OneLine(snapshot.Branch));
+        if (!string.IsNullOrWhiteSpace(snapshot.HeadCommit))
+            result.Append("Исходный HEAD-коммит: ").AppendLine(OneLine(snapshot.HeadCommit));
         if (!string.IsNullOrWhiteSpace(snapshot.Upstream))
             result.Append("Upstream: ").AppendLine(OneLine(snapshot.Upstream));
         result.Append("Коммиты относительно upstream: +").Append(snapshot.Ahead)
@@ -66,11 +86,8 @@ internal static class GitRepositoryInspector
         if (conflicted > 0)
             result.Append("ВНИМАНИЕ: неразрешённых Git-конфликтов: ").Append(conflicted)
                 .AppendLine(". Не перезаписывайте конфликтные файлы без проверки.");
-        var possibleSecrets = snapshot.Changes.Count(file => IsPotentialSecretFile(file.Path));
         if (possibleSecrets > 0)
         {
-            var stagedSecrets = snapshot.Changes.Count(file =>
-                !file.IsUntracked && file.IndexStatus != '.' && IsPotentialSecretFile(file.Path));
             result.Append("ВНИМАНИЕ: потенциально чувствительных файлов: ").Append(possibleSecrets)
                 .Append(" (в индексе: ").Append(stagedSecrets)
                 .AppendLine("). Проверьте их перед коммитом или отправкой.");
@@ -123,6 +140,9 @@ internal static class GitRepositoryInspector
         return escaped?.ToString() ?? value;
     }
 
+    private static readonly string[] SafeEnvTemplateSuffixes =
+        [".example", ".sample", ".template", ".dist", ".default"];
+
     // Filename-only preflight: do not open files or inject their secrets into agent context.
     internal static bool IsPotentialSecretFile(string path)
     {
@@ -132,8 +152,9 @@ internal static class GitRepositoryInspector
         if (name.Equals(".env", StringComparison.OrdinalIgnoreCase) ||
             name.StartsWith(".env.", StringComparison.OrdinalIgnoreCase))
         {
-            return !new[] { ".example", ".sample", ".template", ".dist", ".default" }
-                .Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+            foreach (var suffix in SafeEnvTemplateSuffixes)
+                if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         return name.Equals(".npmrc", StringComparison.OrdinalIgnoreCase)
@@ -175,7 +196,7 @@ internal static class GitRepositoryInspector
                     ? "Не удалось прочитать Git status."
                     : status.Error.Trim());
 
-            var (branch, upstream, ahead, behind, changes, hasHead) = ParseStatus(status.Output);
+            var (branch, upstream, ahead, behind, changes, hasHead, headCommit) = ParseStatus(status.Output);
             var remoteResult = await remoteTask;
             var remoteUrl = remoteResult.ExitCode == 0 ? SanitizeRemoteUrl(remoteResult.Output.Trim()) : null;
             var comparisonBase = await ResolveUnpushedComparisonBaseAsync(root, upstream, hasHead,
@@ -195,7 +216,8 @@ internal static class GitRepositoryInspector
                 remoteResult.ExitCode == 0, hasHead, changes, null)
             {
                 UnpushedAddedLines = addedLines,
-                UnpushedRemovedLines = removedLines
+                UnpushedRemovedLines = removedLines,
+                HeadCommit = headCommit
             };
         }
         catch (OperationCanceledException)
@@ -665,13 +687,14 @@ internal static class GitRepositoryInspector
     }
 
     internal static (string Branch, string? Upstream, int Ahead, int Behind,
-        IReadOnlyList<RepositoryFileStatus> Changes, bool HasHead) ParseStatus(string output)
+        IReadOnlyList<RepositoryFileStatus> Changes, bool HasHead, string? HeadCommit) ParseStatus(string output)
     {
         var branch = "(detached)";
         string? upstream = null;
         var ahead = 0;
         var behind = 0;
         var hasHead = true;
+        string? headCommit = null;
         var changes = new List<RepositoryFileStatus>();
 
         // Parse porcelain v2 records in-place. Split('\0') allocates a large array and
@@ -691,7 +714,9 @@ internal static class GitRepositoryInspector
             }
             if (record.StartsWith("# branch.oid ".AsSpan(), StringComparison.Ordinal))
             {
-                hasHead = !record.EndsWith("(initial)".AsSpan(), StringComparison.Ordinal);
+                var objectId = record[13..];
+                hasHead = !objectId.SequenceEqual("(initial)".AsSpan());
+                headCommit = hasHead && IsGitObjectId(objectId) ? objectId.ToString() : null;
                 continue;
             }
             if (record.StartsWith("# branch.upstream ".AsSpan(), StringComparison.Ordinal))
@@ -701,11 +726,14 @@ internal static class GitRepositoryInspector
             }
             if (record.StartsWith("# branch.ab ".AsSpan(), StringComparison.Ordinal))
             {
-                var parts = record.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 4)
+                var counts = record[12..];
+                var separator = counts.IndexOf(' ');
+                if (separator > 0 &&
+                    int.TryParse(counts[..separator].TrimStart('+'), out var parsedAhead) &&
+                    int.TryParse(counts[(separator + 1)..].TrimStart('-'), out var parsedBehind))
                 {
-                    _ = int.TryParse(parts[2].TrimStart('+'), out ahead);
-                    _ = int.TryParse(parts[3].TrimStart('-'), out behind);
+                    ahead = parsedAhead;
+                    behind = parsedBehind;
                 }
                 continue;
             }
@@ -731,7 +759,16 @@ internal static class GitRepositoryInspector
             }
         }
 
-        return (branch, upstream, ahead, behind, changes, hasHead);
+        return (branch, upstream, ahead, behind, changes, hasHead, headCommit);
+    }
+
+    private static bool IsGitObjectId(ReadOnlySpan<char> objectId)
+    {
+        if (objectId.Length is not (40 or 64)) return false;
+        foreach (var character in objectId)
+            if (character is not (>= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F'))
+                return false;
+        return true;
     }
 
     private static ReadOnlySpan<char> GetField(ReadOnlySpan<char> record, int fieldIndex)

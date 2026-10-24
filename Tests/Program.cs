@@ -38,6 +38,7 @@ internal static class Program
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
+            await Check("Git context records a validated HEAD baseline", GitHeadBaselineAsync);
             await Check("Agent Git context detects potentially sensitive files", GitSecretsAsync);
             await Check("Agent Git context escapes terminal and Unicode formatting characters", GitContextEscapingAsync);
             await Check("Git status parsing handles large repositories and renamed paths", GitStatusScaleAsync);
@@ -95,6 +96,24 @@ internal static class Program
         var behindContext = GitRepositoryInspector.FormatAgentContext(behind);
         Require(behindContext.Contains("отстаёт от upstream", StringComparison.Ordinal), "Behind warning was omitted");
         Require(behindContext.Contains("HEAD отсутствует", StringComparison.Ordinal), "Unborn HEAD warning was omitted");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitHeadBaselineAsync()
+    {
+        const string head = "0123456789abcdef0123456789abcdef01234567";
+        var status = GitRepositoryInspector.ParseStatus("# branch.oid " + head + "\0# branch.head main\0");
+        Require(status.HasHead && status.HeadCommit == head, "Git status lost the baseline revision");
+
+        var snapshot = new GitRepositorySnapshot(true, @"C:\project", "main", "origin/main", 0, 0,
+            null, true, true, [], null) { HeadCommit = status.HeadCommit };
+        Require(GitRepositoryInspector.FormatAgentContext(snapshot).Contains("Исходный HEAD-коммит: " + head,
+            StringComparison.Ordinal), "Agent preflight omitted the baseline revision");
+
+        var unborn = GitRepositoryInspector.ParseStatus("# branch.oid (initial)\0");
+        Require(!unborn.HasHead && unborn.HeadCommit is null, "Unborn HEAD was treated as a commit");
+        var malformed = GitRepositoryInspector.ParseStatus("# branch.oid suspicious\ncontent\0");
+        Require(malformed.HeadCommit is null, "Invalid object ID was exposed to the agent");
         return Task.CompletedTask;
     }
 
