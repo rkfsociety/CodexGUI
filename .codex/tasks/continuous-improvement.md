@@ -315,4 +315,5 @@
 - `command/exec/write`, `resize` и `terminate` использовали общий 30-секундный RPC timeout. `CloseTerminalAsync` удалял вкладку до ответа, поэтому потерянный terminate ack оставлял невидимую сессию; Dispose завершал терминалы последовательно.
 - Terminal control RPC теперь ограничены 8 секундами; disposal отправляет terminate запросы параллельно с общим deadline. Вкладка закрывается только после подтверждения, а при timeout остаётся для повтора. Добавлен fake-peer check на timeout и последующий успешный retry.
 - Fake-peer regression с коротким timeout подтверждает отказ при пропавшем terminate ack и успешную повторную попытку. Версия повышена с `0.0.139` до `0.0.140`; сборки приложения и Checks проекта прошли без предупреждений/ошибок, runner локально не запускался.
+- Release workflow `40119470861` прошёл terminal timeout regression и опубликовал `v0.0.140` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит таймаутов App Server и поведения terminal host при потере соединения.
