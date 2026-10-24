@@ -97,6 +97,10 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -p:Version=${{ steps.version.outputs.version }}
 
+      - name: Verify single-file executable without an installed .NET runtime
+        if: steps.version.outputs.should_release == 'true'
+        run: pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1 -ExecutablePath artifacts/single-file/CodexGUI.exe
+
       - name: Package release and checksum
         if: steps.version.outputs.should_release == 'true'
         shell: pwsh

@@ -83,3 +83,11 @@
 - Версия повышена с `0.0.111` до `0.0.112`. Сборка прошла без предупреждений и ошибок; regression runner прошёл 39 проверок.
 - Публикация: коммит `6f6d795` отправлен в `origin/main`; release workflow `40107005700` завершился успешно. Опубликован `v0.0.112` с EXE, ZIP, checksum и signature; старый версионированный release/tag удалён политикой workflow. HEAD: `6f6d795`.
 - Следующий цикл: продолжить аудит control-файлов и обработки повреждённых output строк.
+
+## Цикл — убрать системное окно установки .NET из штатного launcher
+
+- Причина: `Run-CodexGUI.cmd` собирал framework-dependent `Build/bin/Release/net10.0-windows/CodexGUI.exe` и запускал его напрямую. На машине без .NET Desktop Runtime Windows показывал системное окно установки .NET до входа в код CodexGUI.
+- Исправление: launcher теперь публикует и запускает portable self-contained single-file EXE. Release workflow также проверяет именно публикуемый single-file артефакт с пустым `DOTNET_ROOT`.
+- Ограничение проверки: не запускать приложение или EXE локально; достаточно проверки сборки/исходников. CI изолированный runtime smoke test запускает только на GitHub runner.
+- Версия повышена с `0.0.112` до `0.0.113`. Проверки ожидают выполнения.
+- Следующий цикл: проверить другие локальные entry point’ы, которые могут запускать framework-dependent EXE.
