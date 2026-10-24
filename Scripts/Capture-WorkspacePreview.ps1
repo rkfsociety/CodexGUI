@@ -80,6 +80,8 @@ param(
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [switch]$VerifyLayout,
+    [ValidateSet('Empty', 'Draft', 'Attachments', 'Queued', 'Running')]
+    [string]$ComposerState = 'Empty',
     [int]$Width = 0,
     [int]$Height = 0
 )
@@ -974,6 +976,32 @@ else {
     [void]$visual.Children.Add($windowContent)
 }
 
+if ($View -in @('Workspace', 'Welcome', 'Reference') -and $ComposerState -ne 'Empty') {
+    # Local visual fixtures only: no actual prompts, files, queues or running turns are changed.
+    $visual.FindName('PromptInput').Text = if ($ComposerState -eq 'Draft') {
+        "Проверь интерфейс композера.`nСохрани рабочие действия.`nПроверь перенос текста.`nПроверь вложения.`nСравни с референсом.`nНе отправляй запрос автоматически."
+    } else { 'Проверь оформление, сохранив текущий контекст.' }
+    $visual.FindName('PromptInput').Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#EAF0F5')
+    if ($ComposerState -eq 'Attachments') {
+        $visual.FindName('ComposerAttachmentsBorder').Visibility = 'Visible'
+        $chip = [System.Windows.Controls.TextBlock]::new()
+        $chip.Text = '▧  design-reference.png'; $chip.Padding = [System.Windows.Thickness]::new(8, 5, 8, 5)
+        [void]$visual.FindName('ComposerAttachmentsPanel').Children.Add($chip)
+    }
+    if ($ComposerState -eq 'Queued') {
+        $visual.FindName('PromptQueueBorder').Visibility = 'Visible'
+        $item = [System.Windows.Controls.TextBlock]::new()
+        $item.Text = '1  Затем проверь состояния кнопок'; $item.Margin = [System.Windows.Thickness]::new(6)
+        [void]$visual.FindName('PromptQueueList').Children.Add($item)
+    }
+    if ($ComposerState -eq 'Running') {
+        $visual.FindName('FollowUpModeButton').Visibility = 'Visible'
+        $visual.FindName('FollowUpModeButton').Content = 'В очередь'
+        $visual.FindName('StopButton').Visibility = 'Visible'
+        $visual.FindName('SendButtonIcon').Text = '＋'
+    }
+}
+
 $size = [System.Windows.Size]::new($Width, $Height)
 $visual.Measure($size)
 $visual.Arrange([System.Windows.Rect]::new(0, 0, $Width, $Height))
@@ -985,7 +1013,7 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
         if ($null -eq $element) { throw "Layout control not found: $Name" }
         return $element.TransformToAncestor($visual).TransformBounds([System.Windows.Rect]::new(0, 0, $element.ActualWidth, $element.ActualHeight))
     }
-    if ($Width -eq 1585 -and $Height -eq 992) {
+    if ($Width -eq 1585 -and $Height -eq 992 -and $ComposerState -eq 'Empty') {
         $anchors = @{
             ProjectStructureCard = @(16, 80, 384, 378)
             ProjectMapCard = @(16, 468, 384, 390)
@@ -993,6 +1021,13 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
             ContextMemoryCard = @(1187, 373, 386, 214)
             QuickToolsCard = @(1187, 598, 386, 226)
             WorkspaceDock = @(148, 853, 1289, 135)
+            ComposerBorder = @(366, 867, 1041, 106)
+            WorkspaceChatsButton = @(196, 867, 170, 36)
+            ModelButton = @(1045, 873, 160, 36)
+            ModeButton = @(1218, 873, 162, 36)
+            AddContextButton = @(388, 929, 38, 38)
+            WorkspaceComposerSettings = @(1150, 929, 42, 38)
+            SendButton = @(1224, 929, 164, 38)
         }
         foreach ($entry in $anchors.GetEnumerator()) {
             $actual = Get-PreviewBounds $entry.Key
@@ -1009,6 +1044,9 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     $send = Get-PreviewBounds 'SendButton'
     if (-not $composer.Contains($input) -or -not $composer.Contains($send)) {
         throw "Composer controls overflow their panel: input=$input send=$send composer=$composer"
+    }
+    foreach ($name in @('ModelButton', 'ModeButton', 'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton', 'ScreenshotButton', 'WorkspaceWebButton', 'WorkspaceComposerSettings')) {
+        if (-not $composer.Contains((Get-PreviewBounds $name))) { throw "Composer control overflows its surface: $name" }
     }
     foreach ($name in @('WorkspaceSearchButton', 'WindowCloseButton')) {
         if (-not [System.Windows.Rect]::new(0, 0, $Width, $Height).Contains((Get-PreviewBounds $name))) {

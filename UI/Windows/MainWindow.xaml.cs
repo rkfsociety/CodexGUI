@@ -2091,8 +2091,10 @@ public partial class MainWindow : Window
         var hasGitChanges = snapshot?.Changes.Count is > 0
             || snapshot?.UnpushedAddedLines is > 0
             || snapshot?.UnpushedRemovedLines is > 0;
+        var showingWelcome = _currentThread?.CodexSessionId is null && (_currentThread?.Messages.Count ?? 0) == 0;
         if (Control<Border>("ChatOverviewCard") is { } overview)
-            overview.Visibility = attachments.Length > 0 || hasGitChanges ? Visibility.Visible : Visibility.Collapsed;
+            overview.Visibility = !showingWelcome && (attachments.Length > 0 || hasGitChanges)
+                ? Visibility.Visible : Visibility.Collapsed;
         if (Control<TextBlock>("GitAddedLines") is { } added)
             added.Text = snapshot?.UnpushedAddedLines is { } unpushedAdded ? $"+{unpushedAdded:N0}" : "+—";
         if (Control<TextBlock>("GitRemovedLines") is { } removed)
@@ -5354,7 +5356,7 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("WorkspaceProjectPrefix") is { } projectPrefix) projectPrefix.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
         if (Control<StackPanel>("WorkspaceAgentStatus") is { } agentStatus) agentStatus.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var name in new[] { "WorkspaceChatsButton", "WorkspaceAgentButton", "WorkspaceToolsButton" })
-            if (Control<Button>(name) is { } tab) tab.Margin = new Thickness(view.ActualWidth >= 1100 ? 30 : 0, 0, 0, 0);
+            if (Control<Button>(name) is { } tab) tab.Margin = new Thickness(view.ActualWidth >= 1100 ? 30 : 0, 0, view.ActualWidth >= 1100 ? -10 : 0, 0);
         if (Control<Grid>("WorkspaceHeaderGrid") is { } headerGrid)
             headerGrid.ColumnDefinitions[0].Width = view.ActualWidth >= 1450 ? new GridLength(425) : GridLength.Auto;
         if (Control<StackPanel>("WorkspaceHeaderControls") is { } headerControls)
