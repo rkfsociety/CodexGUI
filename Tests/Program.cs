@@ -775,6 +775,13 @@ internal static class Program
                     && System.Windows.Controls.Grid.GetColumn(newChatButton) == 1
                     && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(newChatButton),
                     "New chat button is not visible and interactive in the workspace header");
+                var updateButton = (System.Windows.Controls.Button)workspace.FindName("UpdateButton");
+                Require(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(updateButton),
+                    "Update button is not interactive in the custom title bar");
+                var updateFrames = MainWindow.LoadUpdateReadyAnimationFrames();
+                Require(updateFrames.Length == 8 && updateFrames.All(frame => frame.IsFrozen
+                    && frame.PixelWidth == frame.PixelHeight && frame.PixelWidth > 0),
+                    "Update animation frames are missing, unfrozen or not square");
                 workspace.Background = WorkspaceBackdrop.Create();
                 Require(workspace.Background.IsFrozen && ReferenceEquals(workspace.Background, WorkspaceBackdrop.Create()), "Background is not cached and frozen");
                 var tree = (System.Windows.Controls.TreeView)workspace.FindName("FileTree");

@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _stateSaveDebounce;
     private readonly DispatcherTimer _usageRefreshTimer;
     private readonly DispatcherTimer _updateCheckTimer;
+    private readonly DispatcherTimer _updateReadyAnimationTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private readonly DispatcherTimer _repositoryRefreshTimer;
     private readonly DispatcherTimer _automationTimer;
     private readonly InputLanguageManager _inputLanguageManager;
@@ -75,6 +76,8 @@ public partial class MainWindow : Window
     private long? _updateTotalBytes;
     private string _updateDownloadStage = "";
     private string? _updateDownloadError;
+    private BitmapSource[]? _updateReadyAnimationFrames;
+    private int _updateReadyAnimationFrameIndex;
     private GitRepositorySnapshot? _repositorySnapshot;
     private string? _snapshotProjectPath;
     private bool _isRefreshingRepository;
@@ -130,6 +133,7 @@ public partial class MainWindow : Window
         CodexWindowTheme.Apply(this);
         _inputLanguageManager = InputLanguageManager.Current;
         _inputLanguageManager.InputLanguageChanged += PromptInputLanguageChanged;
+        _updateReadyAnimationTimer.Tick += (_, _) => AdvanceUpdateReadyAnimation();
         _reloadDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(320) };
         _reloadDebounce.Tick += (_, _) =>
         {
@@ -190,6 +194,7 @@ public partial class MainWindow : Window
             _automationTimer.Stop();
             _repositoryRefreshTimer.Stop();
             _reloadDebounce.Stop();
+            _updateReadyAnimationTimer.Stop();
             _isClosing = true;
             _threadSelectionCancellation.Cancel();
             _threadSelectionCancellation.Dispose();
@@ -310,7 +315,12 @@ public partial class MainWindow : Window
             Control<Button>("UpdateButton") is not { } button) return;
 
         panel.Visibility = _availableUpdateVersion is null ? Visibility.Collapsed : Visibility.Visible;
-        if (_availableUpdateVersion is null) return;
+        if (_availableUpdateVersion is null)
+        {
+            _updateReadyAnimationTimer.Stop();
+            if (Control<Image>("UpdateReadySprite") is { } hiddenSprite) hiddenSprite.Visibility = Visibility.Collapsed;
+            return;
+        }
 
         var ready = _preparedUpdate is not null && !_isInstallingUpdate;
         button.IsEnabled = ready;
@@ -324,14 +334,41 @@ public partial class MainWindow : Window
 
         AutomationProperties.SetName(button, button.ToolTip.ToString());
 
+        if (ready && Control<Image>("UpdateReadySprite") is { } readySprite)
+        {
+            _updateReadyAnimationFrames ??= LoadUpdateReadyAnimationFrames();
+            if (!_updateReadyAnimationTimer.IsEnabled)
+            {
+                _updateReadyAnimationFrameIndex = 0;
+                _updateReadyAnimationTimer.Start();
+            }
+            readySprite.Source = _updateReadyAnimationFrames[_updateReadyAnimationFrameIndex];
+            readySprite.Visibility = Visibility.Visible;
+            if (Control<TextBlock>("UpdateProgressLabel") is { } readyLabel) readyLabel.Visibility = Visibility.Collapsed;
+            if (Control<System.Windows.Shapes.Path>("UpdateProgressArc") is { } readyArc) readyArc.Visibility = Visibility.Collapsed;
+            if (Control<System.Windows.Shapes.Ellipse>("UpdateProgressTrack") is { } readyTrack) readyTrack.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _updateReadyAnimationTimer.Stop();
+        if (Control<Image>("UpdateReadySprite") is { } sprite)
+        {
+            sprite.Visibility = Visibility.Collapsed;
+            sprite.Source = null;
+        }
+        if (Control<System.Windows.Shapes.Ellipse>("UpdateProgressTrack") is { } track)
+            track.Visibility = Visibility.Visible;
+
         if (Control<TextBlock>("UpdateProgressLabel") is { } label)
         {
+            label.Visibility = Visibility.Visible;
             label.Text = _isInstallingUpdate ? "…" : _updateDownloadError is not null ? "!" : ready ? "✓" : "↓";
             label.Foreground = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#D1F9E8");
         }
 
         if (Control<System.Windows.Shapes.Path>("UpdateProgressArc") is { } arc)
         {
+            arc.Visibility = Visibility.Visible;
             arc.Stroke = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#92E5C7");
             // The final full ring and install action are reserved for a verified download.
             var percent = ready || _isInstallingUpdate ? 100 : _updateDownloadError is not null ? 0
@@ -360,6 +397,53 @@ public partial class MainWindow : Window
                 arc.Data = new PathGeometry([figure]);
             }
         }
+    }
+
+    private void AdvanceUpdateReadyAnimation()
+    {
+        if (_preparedUpdate is null || _isInstallingUpdate || _isClosing)
+        {
+            _updateReadyAnimationTimer.Stop();
+            return;
+        }
+
+        if (Control<Image>("UpdateReadySprite") is not { } sprite) return;
+        _updateReadyAnimationFrames ??= LoadUpdateReadyAnimationFrames();
+        _updateReadyAnimationFrameIndex = (_updateReadyAnimationFrameIndex + 1) % _updateReadyAnimationFrames.Length;
+        sprite.Source = _updateReadyAnimationFrames[_updateReadyAnimationFrameIndex];
+    }
+
+    internal static BitmapSource[] LoadUpdateReadyAnimationFrames()
+    {
+        var sheet = new BitmapImage();
+        sheet.BeginInit();
+        sheet.UriSource = new Uri("pack://application:,,,/CodexGUI;component/Assets/UpdateReadySpriteSheet.png", UriKind.Absolute);
+        sheet.CacheOption = BitmapCacheOption.OnLoad;
+        sheet.EndInit();
+        sheet.Freeze();
+
+        var frames = new BitmapSource[8];
+        for (var frameIndex = 0; frameIndex < frames.Length; frameIndex++)
+        {
+            var column = frameIndex % 4;
+            var row = frameIndex / 4;
+            var cellLeft = (int)Math.Round(column * sheet.PixelWidth / 4.0);
+            var cellRight = (int)Math.Round((column + 1) * sheet.PixelWidth / 4.0);
+            var cellTop = (int)Math.Round(row * sheet.PixelHeight / 2.0);
+            var cellBottom = (int)Math.Round((row + 1) * sheet.PixelHeight / 2.0);
+            var cellWidth = cellRight - cellLeft;
+            var cellHeight = cellBottom - cellTop;
+            var frameSize = (int)(Math.Min(cellWidth, cellHeight) * 0.82);
+            var frame = new CroppedBitmap(sheet, new Int32Rect(
+                cellLeft + (cellWidth - frameSize) / 2,
+                cellTop + (cellHeight - frameSize) / 2,
+                frameSize,
+                frameSize));
+            frame.Freeze();
+            frames[frameIndex] = frame;
+        }
+
+        return frames;
     }
 
     private void SetTrayTooltip(string text)

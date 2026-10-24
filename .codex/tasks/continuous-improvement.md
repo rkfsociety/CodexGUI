@@ -301,3 +301,10 @@
 - Добавлен fake-peer regression, который блокирует initialize и проверяет отмену старта и завершение App Server child. Версия повышена с `0.0.137` до `0.0.138`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
 - Первый CI-run `40117549610` выявил ошибку тестового fake-peer запуска без stdio redirection; test-only коммит `05ddbed` настроил stdin/stdout/stderr. Run `40117729238` прошёл и опубликовал `v0.0.138` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит terminal session write/resize/terminate timeout и disposal failure.
+
+## Цикл — кликабельная кнопка обновления и сгенерированная анимация
+
+- `UpdateButton` находится внутри `WindowChrome.CaptionHeight`, но не имел `IsHitTestVisibleInChrome`; кнопка могла выглядеть готовой к установке, но hit-test попадал в область заголовка.
+- Включён hit-testing кнопки. Через built-in imagegen создан прозрачный 8-кадровый sprite sheet с анимированным glint для проверенного обновления; кадры переключаются WPF timer, сам рисунок не создаётся кодом. UI-check проверяет hit-test и загрузку всех кадров.
+- Версия повышена с `0.0.138` до `0.0.139`. Сборки приложения и Checks проекта прошли без предупреждений/ошибок; локально UI и test runner не запускались.
+- Следующий цикл: продолжить аудит terminal session write/resize/terminate timeout и disposal failure.

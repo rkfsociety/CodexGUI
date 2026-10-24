@@ -4,7 +4,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <Version>0.0.138</Version>
+    <Version>0.0.139</Version>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>..\Assets\codex-assistant.ico</ApplicationIcon>
@@ -24,6 +24,7 @@
     <EmbeddedResource Include="..\Scripts\Update-CodexGUI.ps1" LogicalName="CodexGUI.Update-CodexGUI.ps1" />
     <EmbeddedResource Include="..\Scripts\CodexCliWorker.ps1" LogicalName="CodexGUI.CodexCliWorker.ps1" />
     <Resource Include="..\Assets\codex-assistant.ico" Link="Assets\codex-assistant.ico" />
+    <Resource Include="..\Assets\UpdateReadySpriteSheet.png" Link="Assets\UpdateReadySpriteSheet.png" />
     <EmbeddedResource Include="..\Assets\Workspace\terrain.png" LogicalName="CodexGUI.Workspace.Terrain.png" />
     <Content Include="..\Assets\codex-assistant.png" Link="Assets\codex-assistant.png" TargetPath="Assets\codex-assistant.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
