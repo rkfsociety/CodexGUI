@@ -597,7 +597,28 @@ internal static class Program
     {
         var marker = Path.Combine(root, "terminal-initialize.pid");
         var host = new CodexAppServerTerminalHost(() =>
-            Task.FromResult(new CodexAppServerConnection(Start("--fake-appserver-block-initialize", marker))));
+        {
+            var startInfo = new ProcessStartInfo(Executable)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add("--fake-appserver-block-initialize");
+            startInfo.ArgumentList.Add(marker);
+            var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Could not start the blocking app-server peer");
+            try { return Task.FromResult(new CodexAppServerConnection(process)); }
+            catch
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                process.Dispose();
+                throw;
+            }
+        });
         var start = host.StartSessionAsync("terminal-startup-cancel", root, fullAccess: false);
         try
         {
