@@ -44,6 +44,7 @@ internal static class Program
             await Check("Thread history rejects repeated pagination cursors", () => ThreadHistoryPaginationAsync(root));
             await Check("Cancelling a later history page stops its RPC process", () => ThreadHistoryCancellationAsync(root));
             await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
+            await Check("Thread context usage reads the latest event and honors cancellation", () => ThreadContextUsageAsync(root));
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
@@ -85,6 +86,52 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task ThreadContextUsageAsync(string root)
+    {
+        const string sessionId = "thread-context-usage";
+        var sessionsRoot = Path.Combine(root, "context-usage-sessions");
+        var sessionDirectory = Path.Combine(sessionsRoot, "2026", "10");
+        Directory.CreateDirectory(sessionDirectory);
+        var path = Path.Combine(sessionDirectory, $"rollout-2026-10-24-{sessionId}.jsonl");
+        var lines = new[]
+        {
+            JsonSerializer.Serialize(new { type = "session_meta", payload = new { session_id = sessionId } }),
+            JsonSerializer.Serialize(new
+            {
+                type = "event_msg",
+                payload = new
+                {
+                    type = "token_count",
+                    info = new { last_token_usage = new { total_tokens = 12 }, model_context_window = 100 }
+                }
+            }),
+            JsonSerializer.Serialize(new
+            {
+                type = "event_msg",
+                payload = new
+                {
+                    type = "token_count",
+                    info = new { last_token_usage = new { total_tokens = 24 }, model_context_window = 120 }
+                }
+            })
+        };
+        File.WriteAllLines(path, lines);
+
+        var usage = MainWindow.ReadThreadContextUsage(sessionsRoot, sessionId, CancellationToken.None);
+        Require(usage is { Tokens: 24, Window: 120 }, "The latest token usage event was not returned");
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        try
+        {
+            _ = MainWindow.ReadThreadContextUsage(sessionsRoot, sessionId, cancellation.Token);
+            throw new InvalidOperationException("A pre-cancelled context scan continued");
+        }
+        catch (OperationCanceledException) { }
+
+        return Task.CompletedTask;
     }
 
     private static Task WorkerIdentityRecoveryAsync(string root)

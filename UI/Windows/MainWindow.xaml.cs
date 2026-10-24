@@ -5231,38 +5231,50 @@ public partial class MainWindow : Window
 
     private async Task RestoreThreadContextUsageAsync(ChatThread thread)
     {
-        if (thread.ContextTokens is not null || string.IsNullOrWhiteSpace(thread.CodexSessionId)) return;
+        var sessionId = thread.CodexSessionId;
+        if (_isClosing || thread.ContextTokens is not null || string.IsNullOrWhiteSpace(sessionId)) return;
+        var cancellationToken = _threadSelectionCancellation.Token;
 
         try
         {
-            var usage = await ReadThreadContextUsageAsync(thread.CodexSessionId);
-            if (usage is null) return;
+            var sessionsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+            var usage = await Task.Run(
+                () => ReadThreadContextUsage(sessionsRoot, sessionId, cancellationToken), cancellationToken);
+            if (usage is null || cancellationToken.IsCancellationRequested || _isClosing) return;
             thread.ContextTokens = usage.Value.Tokens;
             thread.ContextWindowTokens = usage.Value.Window;
             ScheduleStateSave();
             if (_currentThread == thread) UpdateContextIndicator();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {
             // The indicator remains unavailable when this session has no readable usage event.
         }
     }
 
-    private static Task<(long Tokens, long Window)?> ReadThreadContextUsageAsync(string sessionId)
+    internal static (long Tokens, long Window)? ReadThreadContextUsage(
+        string sessionsRoot,
+        string sessionId,
+        CancellationToken cancellationToken)
     {
-        var sessionsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
-        if (!Directory.Exists(sessionsRoot))
-            return Task.FromResult<(long Tokens, long Window)?>(null);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Directory.Exists(sessionsRoot)) return null;
 
         var files = Directory.EnumerateFiles(sessionsRoot, $"rollout-*-{sessionId}.jsonl", SearchOption.AllDirectories);
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var reader = new StreamReader(file);
             string? line;
             var isSession = false;
             (long Tokens, long Window)? latestUsage = null;
-            while ((line = reader.ReadLine()) is not null)
+            while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                line = reader.ReadLine();
+                if (line is null) break;
+
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
                 if (GetString(root, "type") == "session_meta" && root.TryGetProperty("payload", out var metadata))
@@ -5279,10 +5291,10 @@ public partial class MainWindow : Window
                 latestUsage = (tokenCount, windowSize);
             }
 
-            if (isSession && latestUsage is not null) return Task.FromResult(latestUsage);
+            if (isSession && latestUsage is not null) return latestUsage;
         }
 
-        return Task.FromResult<(long Tokens, long Window)?>(null);
+        return null;
     }
 
     private void SelectProject(ProjectEntry project)
