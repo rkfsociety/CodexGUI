@@ -172,7 +172,7 @@ jobs:
             $changedPaths = @(git diff-tree --no-commit-id --name-only -r $commit)
             if ($LASTEXITCODE -ne 0) { throw "Could not inspect files changed by commit '$subject'." }
             $productPaths = @($changedPaths | Where-Object {
-              $_ -notmatch '^(?:\.github/|\.codex/|Tests/|AGENTS\.md$|README\.md$)'
+              $_ -notmatch '^(?:\.github/|\.codex/|Tests/|AGENTS\.md$|README\.md$|Scripts/Test-PortablePackage\.ps1$)'
             })
             $hasProductChanges = $productPaths.Count -gt 0
             if ($productPaths.Count -eq 1 -and $productPaths[0] -eq 'Build/CodexGUI.csproj') {

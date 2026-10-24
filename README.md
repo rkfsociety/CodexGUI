@@ -37,17 +37,18 @@
 
 ```powershell
 dotnet build Build/CodexGUI.csproj --no-restore
-dotnet run --project Tests/CodexGUI.Checks.csproj
+dotnet build Tests/CodexGUI.Checks.csproj --no-restore
 ```
+
+Запуск тестового EXE и проверка запуска приложения выполняются в GitHub Actions; локально используйте только сборку.
 
 Автономный `.exe` для запуска или передачи на другую машину:
 
 ```powershell
 dotnet publish Build/CodexGUI.csproj -p:PublishProfile=Portable
-pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1
 ```
 
-Готовый файл: `Build/bin/Portable/CodexGUI.exe`. Профиль использует тот же self-contained single-file формат, что и релизный workflow; runtime уже внутри файла. Проверка копирует только `.exe` в пустую временную папку, отключает поиск внешнего .NET и подтверждает по host trace загрузку встроенного CoreCLR и WPF. Она запускает безопасную ветку фонового процесса с отсутствующим запросом: без входа, пользовательского состояния, App Server и расписаний.
+Готовый файл: `Build/bin/Portable/CodexGUI.exe`. Профиль использует тот же self-contained single-file формат, что и релизный workflow; runtime уже внутри файла. Smoke-проверка запускает `.exe` и выполняется только в GitHub Actions; локально используйте `dotnet build` и не запускайте `Scripts/Test-PortablePackage.ps1`.
 
 Проверки используют временные файлы и тестовые дочерние процессы; пользовательские чаты и расписания не затрагиваются. Они также запускаются перед публикацией релиза в GitHub CI.
 

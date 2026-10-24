@@ -4,6 +4,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not [string]::Equals($env:GITHUB_ACTIONS, 'true', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'This check starts CodexGUI.exe and may only run in GitHub Actions. Use a local build check instead.'
+}
+
 $executable = (Resolve-Path -LiteralPath $ExecutablePath).Path
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $testDirectory = Join-Path $tempBase ('CodexGUI-package-check-' + [Guid]::NewGuid().ToString('N'))
