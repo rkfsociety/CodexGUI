@@ -495,6 +495,22 @@ internal static class Program
         Require(await reader.ReadLineAsync() == "third", "The protocol reader lost an unterminated final line");
         Require(await reader.ReadLineAsync() is null, "The protocol reader did not report end of stream");
 
+        const string maximumLengthLine = "12345678";
+        var exactCrlfReader = new BoundedTextLineReader(new StringReader(maximumLengthLine + "\r\n"), 8);
+        Require(await exactCrlfReader.ReadLineAsync() == maximumLengthLine,
+            "A CRLF-terminated line at the character limit was rejected or altered");
+        var splitCrlfReader = new BoundedTextLineReader(new ChunkedTextReader(maximumLengthLine + "\r\nnext\r\n", 9), 8);
+        Require(await splitCrlfReader.ReadLineAsync() == maximumLengthLine,
+            "A CRLF split across read buffers counted its carriage return against the limit");
+        Require(await splitCrlfReader.ReadLineAsync() == "next",
+            "The protocol reader lost the line following a split CRLF");
+        var repeatedCarriageReader = new BoundedTextLineReader(new StringReader("x\r\r\n"), 2);
+        Require(await repeatedCarriageReader.ReadLineAsync() == "x\r",
+            "The protocol reader removed a carriage return that was part of the line");
+        var dataCarriageReader = new BoundedTextLineReader(new ChunkedTextReader("x\rZ\n", 2), 3);
+        Require(await dataCarriageReader.ReadLineAsync() == "x\rZ",
+            "A carriage return split from the following non-newline character was lost");
+
         var oversizedReader = new BoundedTextLineReader(new StringReader("123456789"), 8);
         try
         {
@@ -1848,6 +1864,20 @@ internal static class Program
         var info = new ProcessStartInfo(Executable) { UseShellExecute = false, CreateNoWindow = true };
         foreach (var argument in args) info.ArgumentList.Add(argument);
         return Process.Start(info) ?? throw new InvalidOperationException("Could not start check process");
+    }
+
+    private sealed class ChunkedTextReader(string text, int maximumChunkSize) : TextReader
+    {
+        private int _position;
+
+        public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(Math.Min(buffer.Length, maximumChunkSize), text.Length - _position);
+            text.AsMemory(_position, count).CopyTo(buffer);
+            _position += count;
+            return ValueTask.FromResult(count);
+        }
     }
 
     private static async Task WaitForFileAsync(string path)

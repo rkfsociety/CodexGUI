@@ -534,30 +534,41 @@ internal sealed class BoundedTextLineReader
     {
         var line = new StringBuilder(Math.Min(_maximumLineCharacters, _buffer.Length));
         var truncated = false;
+        var pendingCarriageReturn = false;
         while (true)
         {
             if (_position == _length)
             {
                 _length = await _reader.ReadAsync(_buffer.AsMemory(), cancellationToken);
                 _position = 0;
-                if (_length == 0) return line.Length == 0 && !truncated ? null : CompleteLine(line, truncated);
+                if (_length == 0)
+                    return line.Length == 0 && !pendingCarriageReturn && !truncated
+                        ? null
+                        : CompleteLine(line, truncated);
             }
 
             var available = _buffer.AsSpan(_position, _length - _position);
+            if (pendingCarriageReturn)
+            {
+                if (available[0] == '\n')
+                {
+                    _position++;
+                    return CompleteLine(line, truncated);
+                }
+                AppendBounded(line, "\r".AsSpan(), ref truncated);
+                pendingCarriageReturn = false;
+                available = _buffer.AsSpan(_position, _length - _position);
+            }
+
             var newlineIndex = available.IndexOf('\n');
             var segmentLength = newlineIndex >= 0 ? newlineIndex : available.Length;
-            var remainingCharacters = _maximumLineCharacters - line.Length;
-            if (segmentLength > remainingCharacters && !_truncateLongLines)
-                throw new InvalidDataException($"Codex app-server JSONL message exceeds {_maximumLineCharacters} characters.");
-            if (segmentLength > remainingCharacters)
+            var contentLength = segmentLength;
+            if (segmentLength > 0 && available[segmentLength - 1] == '\r')
             {
-                line.Append(available[..remainingCharacters]);
-                truncated = true;
+                contentLength--;
+                pendingCarriageReturn = newlineIndex < 0;
             }
-            else
-            {
-                line.Append(available[..segmentLength]);
-            }
+            AppendBounded(line, available[..contentLength], ref truncated);
             _position += segmentLength;
             if (newlineIndex >= 0)
             {
@@ -567,9 +578,18 @@ internal sealed class BoundedTextLineReader
         }
     }
 
+    private void AppendBounded(StringBuilder line, ReadOnlySpan<char> value, ref bool truncated)
+    {
+        var remainingCharacters = _maximumLineCharacters - line.Length;
+        if (value.Length > remainingCharacters && !_truncateLongLines)
+            throw new InvalidDataException($"Codex app-server JSONL message exceeds {_maximumLineCharacters} characters.");
+        var appendedCharacters = Math.Min(value.Length, remainingCharacters);
+        line.Append(value[..appendedCharacters]);
+        if (appendedCharacters < value.Length) truncated = true;
+    }
+
     private string CompleteLine(StringBuilder line, bool truncated)
     {
-        if (line.Length > 0 && line[^1] == '\r') line.Length--;
         if (truncated)
         {
             if (line.Length >= _maximumLineCharacters) line.Length = Math.Max(0, _maximumLineCharacters - 1);
