@@ -42,6 +42,7 @@ internal static class Program
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Short RPC session reuses one process across pages", () => RpcSessionPaginationAsync(root));
             await Check("Thread history rejects repeated pagination cursors", () => ThreadHistoryPaginationAsync(root));
+            await Check("Cancelling a later history page stops its RPC process", () => ThreadHistoryCancellationAsync(root));
             await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
@@ -1255,6 +1256,36 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static async Task ThreadHistoryCancellationAsync(string root)
+    {
+        const string modeKey = "CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE";
+        const string markerKey = "CODEXGUI_CHECK_RPC_THREAD_BLOCK_MARKER";
+        var marker = Path.Combine(root, "rpc-thread-cancel-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable(modeKey, "block-second");
+        Environment.SetEnvironmentVariable(markerKey, marker);
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            var client = new CodexAppServerClient(Executable);
+            var read = client.ReadThreadAsync("thread-id", cancellation.Token);
+            await WaitForFileAsync(marker);
+            var processId = int.Parse(await File.ReadAllTextAsync(marker));
+            cancellation.Cancel();
+            await ThrowsAsync<OperationCanceledException>(() => read.WaitAsync(TimeSpan.FromSeconds(10)));
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                Require(process.HasExited, "Cancelling paged thread history left its RPC process running");
+            }
+            catch (ArgumentException) { }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(modeKey, null);
+            Environment.SetEnvironmentVariable(markerKey, null);
+        }
+    }
+
     private static async Task PreCancelledAsync()
     {
         using var cancellation = new CancellationTokenSource();
@@ -1318,9 +1349,15 @@ internal static class Program
                     && cursorValue.ValueKind == JsonValueKind.String ? cursorValue.GetString() : null;
                 var repeated = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE") == "repeat";
                 var marker = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_MARKER");
+                var page = cursor is null ? 1 : 2;
+                if (page == 2 && Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE") == "block-second")
+                {
+                    var blockMarker = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_BLOCK_MARKER")!;
+                    File.WriteAllText(blockMarker, Environment.ProcessId.ToString());
+                    continue;
+                }
                 if (marker is { Length: > 0 })
                     await File.AppendAllTextAsync(marker, repeated ? $"repeated-cursor{Environment.NewLine}" : $"{cursor ?? "none"}{Environment.NewLine}");
-                var page = cursor is null ? 1 : 2;
                 var result = new
                 {
                     data = new[] { new { id = $"turn-{page}", items = Array.Empty<object>() } },
