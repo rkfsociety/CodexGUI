@@ -61,7 +61,15 @@ pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Reference -Width 1585 -Height 992 -VerifyLayout
 ```
 
-`Reference` использует только тестовые данные из `Scripts/WorkspaceReferenceFixture.ps1`. Проверка сравнивает координаты и размеры панелей с допуском 2 пикселя, а также проверяет границы элементов ввода и отсутствие обрезания текста карточек. Для реальной компоновки с пустым чатом используйте `-View Welcome`, для примера переписки — `-View Workspace`; уменьшенный размер окна можно проверить с `-Width 900 -Height 620`. Состояния композера проверяются параметром `-ComposerState Draft`, `Attachments`, `Queued` или `Running`; без него используется пустой ввод. Все состояния — локальные визуальные фикстуры, запросы не отправляются.
+`Reference` использует только тестовые данные из `Scripts/WorkspaceReferenceFixture.ps1`. Проверка сравнивает координаты и размеры панелей с допуском 2 пикселя, а также проверяет границы элементов ввода и отсутствие обрезания текста карточек. Для пустого приветственного экрана используйте `-View Reference`, для примера переписки — `-View Workspace`; уменьшенный размер окна можно проверить с `-Width 900 -Height 620`. Состояния композера проверяются параметром `-ComposerState Draft`, `Attachments`, `Queued` или `Running`; без него используется пустой ввод. Все состояния — локальные визуальные фикстуры, запросы не отправляются.
 
+Для быстрого снимка интерфейса из текущего исходного кода, не запуская CodexGUI:
+
+```powershell
+pwsh -NoProfile -File Scripts/Capture-CurrentInterface.ps1
+pwsh -NoProfile -File Scripts/Capture-CurrentInterface.ps1 -View Reference -VerifyLayout
+```
+
+Скрипт запускает только скрытый STA-процесс PowerShell для WPF-рендера: окно не появляется, фокус не меняется, CodexGUI не запускается. По умолчанию рендерится текущая разметка с дизайн-фикстурой референса и проверяются её контрольные координаты. PNG сохраняется как `%TEMP%\CodexGUI-current.png`; `-View Workspace` рендерит ту же разметку с примером переписки.
 
 При каждом новом релизе workflow составляет описание по коммитам после предыдущей версии. Для точных формулировок коммит может содержать строки `Release-Note-Added:`, `Release-Note-Changed:` и `Release-Note-Fixed:`; без них используются заголовки коммитов.

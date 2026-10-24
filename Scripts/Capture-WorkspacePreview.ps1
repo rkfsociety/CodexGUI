@@ -87,6 +87,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$VerifyLayout = $VerifyLayout -or $View -in @('Welcome', 'Reference')
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) {
     throw 'Run this preview with: pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1'
 }
@@ -231,8 +232,8 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
         throw 'WorkspaceView.xaml must have a Grid root element.'
     }
     $workspace.ColumnDefinitions[0].Width = [System.Windows.GridLength]::new(0)
-    $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 416 } else { 300 }))
-    $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 414 } else { 310 }))
+    $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 400 } else { 300 }))
+    $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 398 } else { 310 }))
     if ($Width -lt 1260) { $workspace.FindName('SidebarPanel').Visibility = 'Collapsed' }
     $dockMargin = if ($Width -ge 1400) { 148 } else { 12 }
     $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new($dockMargin, 0, $dockMargin, 4)
@@ -1012,14 +1013,14 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($Width -eq 1585 -and $Height -eq 992 -and $ComposerState -eq 'Empty') {
         $anchors = @{
-            ProjectStructureCard = @(16, 80, 400, 383)
-            ProjectMapCard = @(16, 473, 400, 385)
-            GoalCard = @(1171, 81, 402, 280)
-            ContextMemoryCard = @(1171, 373, 402, 214)
-            QuickToolsCard = @(1171, 598, 402, 226)
-            WorkspaceDock = @(148, 849, 1289, 139)
-            ComposerBorder = @(366, 861, 1041, 114)
-            WorkspaceChatsButton = @(196, 864, 170, 36)
+            ProjectStructureCard = @(16, 80, 384, 378)
+            ProjectMapCard = @(16, 468, 384, 390)
+            GoalCard = @(1187, 81, 386, 280)
+            ContextMemoryCard = @(1187, 373, 386, 214)
+            QuickToolsCard = @(1187, 598, 386, 226)
+            WorkspaceDock = @(148, 853, 1289, 135)
+            ComposerBorder = @(366, 867, 1041, 106)
+            WorkspaceChatsButton = @(196, 867, 170, 36)
             ModelButton = @(1045, 873, 160, 36)
             ModeButton = @(1218, 873, 162, 36)
             AddContextButton = @(388, 929, 38, 38)

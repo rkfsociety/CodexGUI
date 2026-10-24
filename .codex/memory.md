@@ -1,5 +1,7 @@
 # CodexGUI working memory
 
+- `Scripts/Capture-CurrentInterface.ps1` renders the checked-out WPF interface in a hidden STA PowerShell process without starting CodexGUI, App Server, or accessing user chat state. It defaults to the reference fixture and can also render `Workspace`; the PNG is written to `%TEMP%` by default.
+
 - Use `dotnet publish Build/CodexGUI.csproj -p:PublishProfile=Portable` for a user-launchable local EXE at `Build/bin/Portable/CodexGUI.exe`; a normal Debug apphost still requires installed .NET Desktop Runtime 10. `Scripts/Test-PortablePackage.ps1` checks only the isolated bundled-runtime startup branch, not a live chat or full main-window launch.
 - `Application/App.xaml.cs` handles startup, user installation, single-instance activation, app updates, App Server runtime setup, and first-run ChatGPT device-code login. `Infrastructure/Updates/AppUpdater.cs` verifies downloaded release archives and signatures.
 - `UI/Windows/MainWindow.xaml.cs` owns chat/project state, request queues, repository context, and the UI event loop; state persistence is in `UI/Windows/MainWindow.State.cs`, and scheduling/run reconciliation is in `UI/Windows/MainWindow.Automations.cs`. `Views/WorkspaceView.xaml` is the hot-reloaded layout.

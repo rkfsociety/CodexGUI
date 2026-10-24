@@ -5370,12 +5370,12 @@ public partial class MainWindow : Window
             Grid.SetColumn(settings, view.ActualWidth >= 1100 ? 1 : 0);
             Grid.SetRow(settings, view.ActualWidth >= 1100 ? 0 : 1);
         }
-        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 416 : 300));
+        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 400 : 300));
         if (Control<Border>("SidebarPanel") is { } sidebar)
             sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
         if (Control<Border>("ChatOverviewCard") is { } overview)
             overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 280 : 390;
-        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? (view.ActualWidth >= 1400 ? 414 : 310) : 0);
+        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? (view.ActualWidth >= 1400 ? 398 : 310) : 0);
     }
 
     private void ToggleSidebar()
