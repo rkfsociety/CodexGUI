@@ -293,3 +293,10 @@
 - Добавлена fake-peer regression для отмены initialization и завершения дочернего процесса. Версия повышена с `0.0.136` до `0.0.137`; сборки приложения и Checks проекта прошли без предупреждений/ошибок, runner локально не запускался.
 - Release workflow `40117057247` прошёл успешно и опубликовал `v0.0.137` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит других долгих UI RPC, включая terminal host startup/disposal.
+
+## Цикл — отмена запуска terminal host при закрытии окна
+
+- `CodexAppServerTerminalHost.DisposeAsync` ждал `_startLock` до отмены lifetime; если `EnsureConnectedAsync` был заблокирован на initialization, закрытие окна не могло отменить этот запрос.
+- Добавлен отдельный startup token: Dispose отменяет его до ожидания lock, initialization закрывает зависшее соединение; notification reader остаётся активен до завершения активных terminal sessions. Окно подавляет сообщение об ошибке старта при собственном закрытии.
+- Добавлен fake-peer regression, который блокирует initialize и проверяет отмену старта и завершение App Server child. Версия повышена с `0.0.137` до `0.0.138`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
+- Следующий цикл: продолжить аудит terminal session write/resize/terminate timeout и disposal failure.

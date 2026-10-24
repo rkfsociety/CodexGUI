@@ -109,8 +109,10 @@ internal sealed class CodexTerminalWindow : Window
                 await SendInputAsync(tab, initialCommand + "\r");
             tab.Input.Focus();
         }
+        catch (OperationCanceledException) when (_isClosing) { }
         catch (Exception error)
         {
+            if (_isClosing) return;
             tab.IsRunning = false;
             AppendOutput(tab, "\r\nНе удалось запустить PowerShell: " + error.Message + "\r\n");
             _status.Text = "Терминал не запущен";

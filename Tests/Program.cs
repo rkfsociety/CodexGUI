@@ -14,6 +14,7 @@ internal static class Program
     {
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
+        if (args.FirstOrDefault() == "--fake-appserver-block-initialize") return await FakeAppServerBlockInitializeAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-flood") return await FakeAppServerFloodAsync();
         if (args.FirstOrDefault() == "--fake-appserver-ignore-shutdown") return await FakeAppServerIgnoreShutdownAsync();
         if (args.FirstOrDefault() == "write-actions") return WriteActions(args);
@@ -60,6 +61,7 @@ internal static class Program
             await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
             await Check("App-server initialization forwards cancellation and closes its child", AppServerConnectionCancellationAsync);
+            await Check("Closing terminal host cancels pending app-server initialization", () => TerminalHostStartupCancellationAsync(root));
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
@@ -589,6 +591,32 @@ internal static class Program
             Require(leftover.HasExited, "Cancelled app-server initialization left its child running");
         }
         catch (ArgumentException) { }
+    }
+
+    private static async Task TerminalHostStartupCancellationAsync(string root)
+    {
+        var marker = Path.Combine(root, "terminal-initialize.pid");
+        var host = new CodexAppServerTerminalHost(() =>
+            Task.FromResult(new CodexAppServerConnection(Start("--fake-appserver-block-initialize", marker))));
+        var start = host.StartSessionAsync("terminal-startup-cancel", root, fullAccess: false);
+        try
+        {
+            await WaitForFileAsync(marker);
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            await ThrowsAsync<OperationCanceledException>(() => start.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            var processId = int.Parse(await File.ReadAllTextAsync(marker));
+            try
+            {
+                using var leftover = Process.GetProcessById(processId);
+                Require(leftover.HasExited, "Closing the terminal host left its initializing App Server running");
+            }
+            catch (ArgumentException) { }
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
     }
 
     private static async Task<int> FakeAppServerFloodAsync()
@@ -1456,6 +1484,24 @@ internal static class Program
             }
             await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { ok = true } }));
             await Console.Out.FlushAsync();
+        }
+        return 0;
+    }
+
+    private static async Task<int> FakeAppServerBlockInitializeAsync(string[] args)
+    {
+        var marker = args.ElementAtOrDefault(1)
+            ?? throw new InvalidOperationException("The initialization marker path is required");
+        while (await Console.In.ReadLineAsync() is { } line)
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.TryGetProperty("method", out var method) && method.GetString() == "initialize")
+            {
+                await File.WriteAllTextAsync(marker, Environment.ProcessId.ToString());
+                await Console.In.ReadToEndAsync();
+                return 0;
+            }
         }
         return 0;
     }

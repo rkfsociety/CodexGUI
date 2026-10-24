@@ -19,12 +19,20 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationTokenSource _startupCancellation = new();
+    private readonly Func<Task<CodexAppServerConnection>> _connect;
     private CodexAppServerConnection? _connection;
     private Task? _notificationTask;
     private int _disposed;
 
     public event Action<CodexTerminalOutput>? OutputReceived;
     public event Action<CodexTerminalExit>? SessionExited;
+
+    internal CodexAppServerTerminalHost()
+        : this(() => CodexAppServerConnection.StartAsync(CodexAppServerRuntime.ResolveExecutable())) { }
+
+    internal CodexAppServerTerminalHost(Func<Task<CodexAppServerConnection>> connect) =>
+        _connect = connect ?? throw new ArgumentNullException(nameof(connect));
 
     public async Task StartSessionAsync(string processId, string workingDirectory, bool fullAccess, int rows = 28, int cols = 100)
     {
@@ -99,13 +107,14 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     {
         if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
         if (_connection is not null) return;
-        await _startLock.WaitAsync();
+        var cancellationToken = _startupCancellation.Token;
+        await _startLock.WaitAsync(cancellationToken);
         try
         {
             if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
             if (_connection is not null) return;
-            var connection = await CodexAppServerConnection.StartAsync(CodexAppServerRuntime.ResolveExecutable());
-            try { await connection.InitializeAsync(); }
+            var connection = await _connect();
+            try { await connection.InitializeAsync(cancellationToken); }
             catch
             {
                 await connection.DisposeAsync();
@@ -182,20 +191,31 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _startupCancellation.Cancel();
         await _startLock.WaitAsync();
         try
         {
-            foreach (var processId in _sessions.Keys.ToArray())
-                await TerminateSessionAsync(processId);
-            _lifetime.Cancel();
-            if (_notificationTask is not null)
+            try
             {
-                try { await _notificationTask; }
-                catch (OperationCanceledException) { }
+                foreach (var processId in _sessions.Keys.ToArray())
+                    await TerminateSessionAsync(processId);
             }
-            if (_connection is not null) await _connection.DisposeAsync();
+            finally
+            {
+                _lifetime.Cancel();
+                if (_notificationTask is not null)
+                {
+                    try { await _notificationTask; }
+                    catch (OperationCanceledException) { }
+                }
+                if (_connection is not null) await _connection.DisposeAsync();
+            }
         }
-        finally { _startLock.Release(); }
-        _lifetime.Dispose();
+        finally
+        {
+            _startLock.Release();
+            _startupCancellation.Dispose();
+            _lifetime.Dispose();
+        }
     }
 }
