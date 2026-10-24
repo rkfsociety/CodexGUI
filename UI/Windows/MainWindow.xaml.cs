@@ -540,7 +540,6 @@ public partial class MainWindow : Window
         Click("RailSearchButton", (_, _) => ShowSearch());
         Click("RailActivityButton", (_, _) => ShowActivityWindow());
         Click("RailAutomationsButton", async (_, _) => await ShowAutomationsAsync());
-        Click("RailAgentsButton", async (_, _) => await ShowSubagentsAsync());
         Click("RailExtensionsButton", (_, _) => ShowExtensions(showSkills: false));
         Click("RailMcpServersButton", (_, _) => ShowMcpServers());
         Click("RailContextButton", (_, _) => ToggleContext());
@@ -548,7 +547,6 @@ public partial class MainWindow : Window
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
         Click("ChatDiffButton", (_, _) => ShowWorkspaceGit());
         Click("CloseContextButton", (_, _) => ToggleContext(false));
-        Click("TerminalButton", (_, _) => ShowTerminalWindow());
         Click("RefreshRepositoryButton", (_, _) => ShowWorkspaceProjectTools());
         Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
         Click("InsertGitContextButton", async (_, _) => await InsertRepositoryContextAsync());
@@ -564,7 +562,6 @@ public partial class MainWindow : Window
         Click("CreatePullRequestButton", async (_, _) => await CreatePullRequestAsync());
         if (Control<TextBox>("CommitMessageInput") is { } commitMessageInput)
             commitMessageInput.TextChanged += (_, _) => UpdateGitActionButtons();
-        Click("OpenFolderButton", (_, _) => OpenProjectFolder());
         Click("ProjectButton", (_, _) => ChooseProjectFolder());
         Click("AddProjectButton", (_, _) => ShowProjectMenu());
         Click("ArchivedChatsButton", (_, _) => ToggleArchivedChats());
@@ -5534,7 +5531,7 @@ public partial class MainWindow : Window
 
     private async Task ShowEffortMenuAsync()
     {
-        if ((Control<Button>("EffortButton") ?? Control<Button>("WorkspaceToolsButton")) is not { } anchor) return;
+        if ((Control<Button>("EffortButton") ?? Control<Button>("WorkspaceComposerSettings")) is not { } anchor) return;
         await EnsureModelCatalogAsync(anchor);
         if (_availableModels.Count == 0) return;
 

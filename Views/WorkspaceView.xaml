@@ -440,9 +440,6 @@
           <Button x:Name="RailAutomationsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Расписания и результаты" AutomationProperties.Name="Расписания и результаты">
             <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3,4 H17 V17 H3 Z M6,2 V6 M14,2 V6 M3,8 H17 M6,11 H9 M6,14 H9 M13,11 L15,13 L13,15" />
           </Button>
-          <Button x:Name="RailAgentsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Субагенты текущего чата" AutomationProperties.Name="Субагенты текущего чата">
-            <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4,3 V15 M4,7 H13 V4 M4,11 H13 V15 M13,4 H17 M13,15 H17" />
-          </Button>
           <Button x:Name="RailExtensionsButton" Style="{StaticResource SidebarRailIconButton}" ToolTip="Плагины и скиллы" AutomationProperties.Name="Плагины и скиллы">
             <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeLineJoin="Round" Data="M2,4 H5 V16 H2 Z M7,3 H11 V17 H7 Z M13,5 H16 V18 H13 Z M3,7 H4 M8,6 H10 M14,8 H15" />
           </Button>
@@ -472,14 +469,6 @@
             <Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="{StaticResource Green}" VerticalAlignment="Center" Margin="0,0,6,0" />
             <TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="11" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis" />
           </StackPanel>
-        </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="TerminalButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть терминалы Codex">
-            <TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="13" />
-          </Button>
-          <Button x:Name="OpenFolderButton" Padding="9,8" Foreground="{StaticResource TextMuted}" ToolTip="Открыть папку проекта">
-            <TextBlock Text="↗" FontSize="17" />
-          </Button>
         </StackPanel>
       </Grid>
     </Border>
@@ -778,7 +767,7 @@
         </Path.Style>
       </Path>
       <StackPanel VerticalAlignment="Center">
-        <Button x:Name="WorkspaceChatsButton" HorizontalContentAlignment="Left" Margin="30,0,-10,0" ToolTip="Открыть историю чатов" Height="36" Padding="0" FontSize="12" Style="{StaticResource ComposerTabButton}" Tag="Selected">
+        <Button x:Name="WorkspaceChatsButton" HorizontalContentAlignment="Left" Margin="30,0,-10,0" ToolTip="Перейти к вводу сообщения" Height="36" Padding="0" FontSize="12" Style="{StaticResource ComposerTabButton}" Tag="Selected">
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="32" />
@@ -808,7 +797,7 @@
             <TextBlock Grid.Column="1" Text="Агент" FontSize="12" VerticalAlignment="Center" />
           </Grid>
         </Button>
-        <Button x:Name="WorkspaceToolsButton" HorizontalContentAlignment="Left" Margin="30,0,-10,0" Height="36" Padding="0" FontSize="12" Style="{StaticResource ComposerTabButton}" Background="Transparent">
+        <Button x:Name="WorkspaceToolsButton" HorizontalContentAlignment="Left" Margin="30,0,-10,0" Height="36" Padding="0" FontSize="12" Style="{StaticResource ComposerTabButton}" Background="Transparent" ToolTip="Скрыть быстрые инструменты">
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="32" />
@@ -898,6 +887,16 @@
                       <Path Data="M2,3 H18 V17 H2 Z M5,6 H8 M11,6 H15 M5,10 H15 M5,13 H11" Width="14" Height="14" Stretch="Uniform" Stroke="#B6CBD9" StrokeThickness="1.3" Margin="0" VerticalAlignment="Center" Grid.Column="0" HorizontalAlignment="Left" />
                       <TextBlock x:Name="ModelLabel" Text="gpt-6-luna" FontSize="12" FontWeight="SemiBold" Margin="12,0,0,0" VerticalAlignment="Center" Grid.Column="1" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                       <Path Width="8" Height="5" Stretch="Fill" Margin="0" VerticalAlignment="Center" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4,4.2 L7.2,0.8" Grid.Column="2" HorizontalAlignment="Right" />
+                    </Grid>
+                  </Button>
+                  <Button x:Name="EffortButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="11,0,10,0" Margin="0,0,13,0" Background="#11181E" Foreground="#D8E3E9" ToolTip="Выбрать уровень усилий" Width="128" HorizontalContentAlignment="Stretch">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock x:Name="EffortLabel" Text="Максимальные" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                      <Path Width="8" Height="5" Stretch="Fill" Margin="0" VerticalAlignment="Center" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4,4.2 L7.2,0.8" Grid.Column="1" HorizontalAlignment="Right" />
                     </Grid>
                   </Button>
                   <Button x:Name="ModeButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="12,0,11,0" Margin="0" Background="#10171D" Foreground="#D8E3E9" ToolTip="Настроить доступ и подтверждения" Width="162" HorizontalContentAlignment="Stretch">

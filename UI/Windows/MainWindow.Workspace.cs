@@ -22,7 +22,7 @@ public partial class MainWindow
         Click("WindowCloseButton", (_, _) => Close());
         Click("WorkspaceMemoryButton", (_, _) => ShowWorkspaceMemoryMenu());
         Click("WorkspaceGoalMenuButton", (_, _) => ShowWorkspaceGoalMenu());
-        Click("WorkspaceComposerSettings", (_, _) => ShowWorkspaceTools());
+        Click("WorkspaceComposerSettings", (_, _) => ShowWorkspacePromptSettings());
         Click("WorkspaceProjectButton", (_, _) => ShowProjectMenu());
         Click("WorkspaceFolderButton", (_, _) => OpenProjectFolder());
         Click("WorkspaceBranchButton", (_, _) => ShowWorkspaceGit());
@@ -41,9 +41,9 @@ public partial class MainWindow
         Click("WorkspaceAttachButton", (_, _) => AddFileContext());
         Click("WorkspaceContextButton", async (_, _) => await InsertRepositoryContextAsync());
         Click("WorkspaceWebButton", (_, _) => ShowWorkspaceWebSearch());
-        Click("WorkspaceChatsButton", (_, _) => ShowSearch());
+        Click("WorkspaceChatsButton", (_, _) => FocusWorkspaceComposer());
         Click("WorkspaceAgentButton", async (_, _) => await ShowSubagentsAsync());
-        Click("WorkspaceToolsButton", (_, _) => ShowWorkspaceTools());
+        Click("WorkspaceToolsButton", (_, _) => ToggleWorkspaceQuickTools());
         Click("MapFilesButton", (_, _) => { _workspaceMapMode = 0; RenderWorkspaceMap(); });
         Click("MapDependenciesButton", (_, _) => { _workspaceMapMode = 1; RenderWorkspaceMap(); });
         Click("MapLayersButton", (_, _) => { _workspaceMapMode = 2; RenderWorkspaceMap(); });
@@ -90,25 +90,27 @@ public partial class MainWindow
         }
     }
 
-    private void ShowWorkspaceTools()
+    private void FocusWorkspaceComposer()
     {
-        if (Control<Button>("WorkspaceToolsButton") is not { } button) return;
+        if (Control<TextBox>("PromptInput") is not { } input) return;
+        input.Focus();
+        input.CaretIndex = input.Text.Length;
+    }
+
+    private void ToggleWorkspaceQuickTools()
+    {
+        if (Control<Border>("QuickToolsCard") is not { } card) return;
+        card.Visibility = card.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        if (Control<Button>("WorkspaceToolsButton") is { } button)
+            button.ToolTip = card.Visibility == Visibility.Visible ? "Скрыть быстрые инструменты" : "Показать быстрые инструменты";
+    }
+
+    private void ShowWorkspacePromptSettings()
+    {
+        if (Control<Button>("WorkspaceComposerSettings") is not { } button) return;
         var menu = new ContextMenu();
-        Add("Новый чат", NewChat);
-        Add("Проекты", ShowProjectMenu);
-        Add("История чатов", ShowSearch);
-        Add("Активность", ShowActivityWindow);
-        Add("Расписания", async () => await ShowAutomationsAsync());
-        Add("Плагины", () => ShowExtensions(showSkills: false));
-        Add("Скиллы", () => ShowExtensions(showSkills: true));
-        Add("MCP-серверы", ShowMcpServers);
-        Add("Действия", ShowActionsWindow);
-        Add("Терминал", ShowTerminalWindow);
-        Add("Усилия · " + EffortDisplayName(_selectedEffort), async () => await ShowEffortMenuAsync());
         Add(_currentThread?.UseWorktree == true ? "Рабочая копия · изолированная" : "Рабочая копия · локальная", async () => await ToggleWorktreeModeAsync());
         Add("Лимиты аккаунта", () => CodexMessageDialog.Show(this, _usageLimitsText + "\n" + _usageLimitsTooltip, "Лимиты аккаунта", MessageBoxButton.OK, MessageBoxImage.Information));
-        Add("Показать / скрыть проект", ToggleSidebar);
-        Add("Показать / скрыть контекст", () => ToggleContext());
         menu.PlacementTarget = button; menu.IsOpen = true;
         void Add(string title, Action action)
         {
