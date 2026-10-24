@@ -5047,6 +5047,8 @@ public partial class MainWindow : Window
                     root.TryGetProperty("ProcessId", out var pid) && pid.TryGetInt32(out var processId) &&
                     root.TryGetProperty("StartTimeUtcTicks", out var ticks) && ticks.TryGetInt64(out var startTicks))
                 {
+                    if (processId <= 0 || startTicks < 0 || startTicks > DateTime.MaxValue.Ticks)
+                        return null;
                     run.WorkerProcessId = processId;
                     run.WorkerStartTimeUtcTicks = startTicks;
                 }

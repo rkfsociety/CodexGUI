@@ -40,6 +40,7 @@ internal static class Program
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
+            await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -65,6 +66,46 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task WorkerIdentityRecoveryAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublic = System.Reflection.BindingFlags.NonPublic;
+        var runType = typeof(MainWindow).GetNestedType("ActiveCliRun", nonPublic)
+            ?? throw new InvalidOperationException("ActiveCliRun type was not found");
+        var run = Activator.CreateInstance(runType)
+            ?? throw new InvalidOperationException("ActiveCliRun could not be created");
+        var runId = Guid.NewGuid().ToString("N");
+        var startedPath = Path.Combine(root, "worker-identity", "started.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(startedPath)!);
+        runType.GetProperty("RunId")!.SetValue(run, runId);
+        runType.GetProperty("StartedPath")!.SetValue(run, startedPath);
+
+        var process = Process.GetCurrentProcess();
+        var processStartTicks = process.StartTime.ToUniversalTime().Ticks;
+        var method = typeof(MainWindow).GetMethod("TryGetCliWorkerProcess", nonPublic | System.Reflection.BindingFlags.Static)
+            ?? throw new InvalidOperationException("Worker process recovery method was not found");
+
+        Process? InvokeRecovery(long startTicks)
+        {
+            File.WriteAllText(startedPath, JsonSerializer.Serialize(new
+            {
+                RunId = runId,
+                ProcessId = Environment.ProcessId,
+                StartTimeUtcTicks = startTicks
+            }));
+            return (Process?)method.Invoke(null, [run]);
+        }
+
+        using (var recovered = InvokeRecovery(processStartTicks))
+            Require(recovered?.Id == Environment.ProcessId, "A matching worker identity was not recovered");
+        using (var stale = InvokeRecovery(processStartTicks + TimeSpan.TicksPerSecond * 10))
+            Require(stale is null, "A reused process id with a mismatched start time was accepted");
+        using (var corrupt = InvokeRecovery(long.MinValue))
+            Require(corrupt is null, "A negative process start timestamp was accepted");
+        using (var outOfRange = InvokeRecovery(long.MaxValue))
+            Require(outOfRange is null, "An out-of-range process start timestamp was accepted");
+        return Task.CompletedTask;
     }
 
     private static Task WorkspaceSearchAsync(string root)
