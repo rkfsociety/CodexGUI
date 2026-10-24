@@ -21,7 +21,6 @@ internal static class CodexAppServerRuntime
     private const string PackageName = "codex-app-server-package-x86_64-pc-windows-msvc.tar.gz";
     private const string ReleaseBaseUrl = "https://releases.openai.com/codex/releases/";
     private const long MaximumPackageBytes = 512L * 1024 * 1024;
-    private static readonly HttpClient Client = CreateClient();
     public static bool UseInstalledCliFallback { get; set; }
 
     public static string RuntimeRoot => Path.Combine(
@@ -148,7 +147,8 @@ internal static class CodexAppServerRuntime
         IProgress<AppServerRuntimeProgress>? progress, CancellationToken cancellationToken)
     {
         var url = new Uri($"{ReleaseBaseUrl}{Version}/{PackageName}");
-        using var response = await AppUpdater.GetResponseAsync(Client, url,
+        using var client = CreateClient();
+        using var response = await AppUpdater.GetResponseAsync(client, url,
             HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         var totalBytes = response.Content.Headers.ContentLength;
