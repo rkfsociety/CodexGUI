@@ -560,7 +560,7 @@ internal sealed class BoundedTextLineReader
 
 internal sealed class CodexAppServerConnection : IAsyncDisposable
 {
-    private const int IncomingMessageQueueCapacity = 128;
+    internal const int IncomingMessageQueueCapacity = 128;
     private const int MaximumProtocolLineCharacters = 32 * 1024 * 1024;
     private readonly Process _process;
     private readonly StreamWriter _writer;
@@ -577,7 +577,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     private int _nextRequestId;
     private int _readerCompleted;
 
-    private CodexAppServerConnection(Process process)
+    internal CodexAppServerConnection(Process process)
     {
         _process = process;
         _writer = process.StandardInput;
@@ -745,6 +745,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     {
         try
         {
+            _incoming.Writer.TryComplete();
             try { _writer.Close(); }
             catch (IOException) { }
             if (!_process.HasExited)

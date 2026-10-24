@@ -14,6 +14,7 @@ internal static class Program
     {
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
+        if (args.FirstOrDefault() == "--fake-appserver-flood") return await FakeAppServerFloodAsync();
         if (args.FirstOrDefault() == "write-actions") return WriteActions(args);
 
         var root = Path.Combine(Path.GetTempPath(), "CodexGUI-checks-" + Guid.NewGuid().ToString("N"));
@@ -51,6 +52,7 @@ internal static class Program
             await Check("Malformed worker controls are reported and removed", () => MalformedControlFileAsync(root));
             await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
+            await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -429,6 +431,80 @@ internal static class Program
             throw new InvalidOperationException("The protocol reader accepted a line over its limit");
         }
         catch (InvalidDataException) { }
+    }
+
+    private static async Task BoundedQueueShutdownAsync()
+    {
+        var startInfo = new ProcessStartInfo(Executable)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("--fake-appserver-flood");
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the fake app-server peer");
+        var processId = process.Id;
+        var connection = new CodexAppServerConnection(process);
+        try
+        {
+            var incomingField = typeof(CodexAppServerConnection).GetField("_incoming",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Incoming app-server queue was not found");
+            var incoming = (System.Threading.Channels.Channel<JsonElement>)incomingField.GetValue(connection)!;
+            Require(incoming.Reader.CanCount, "Incoming queue count is unavailable for the bounded channel");
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (incoming.Reader.Count < CodexAppServerConnection.IncomingMessageQueueCapacity
+                && DateTime.UtcNow < deadline && !connection.ReaderTask.IsCompleted)
+                await Task.Delay(10);
+            Require(incoming.Reader.Count == CodexAppServerConnection.IncomingMessageQueueCapacity,
+                "Fake app-server did not fill the incoming message queue");
+
+            await connection.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Require(connection.ReaderTask.IsCompleted, "Disposal left the stdout reader blocked on the full queue");
+            Require(!IsProcessRunning(processId), "Disposal left the fake app-server process running");
+        }
+        finally
+        {
+            if (IsProcessRunning(processId))
+            {
+                try
+                {
+                    using var leftover = Process.GetProcessById(processId);
+                    leftover.Kill(entireProcessTree: true);
+                    await leftover.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (ArgumentException) { }
+                catch (InvalidOperationException) { }
+            }
+        }
+
+        static bool IsProcessRunning(int id)
+        {
+            try
+            {
+                using var candidate = Process.GetProcessById(id);
+                return !candidate.HasExited;
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+        }
+    }
+
+    private static async Task<int> FakeAppServerFloodAsync()
+    {
+        try
+        {
+            const string message = "{\"method\":\"test/notification\",\"params\":{}}";
+            for (var index = 0; index < 4096; index++)
+                await Console.Out.WriteLineAsync(message);
+            await Console.Out.FlushAsync();
+            await Console.In.ReadToEndAsync();
+        }
+        catch (IOException) { }
+        return 0;
     }
 
     private static Task WorkspaceSearchAsync(string root)
