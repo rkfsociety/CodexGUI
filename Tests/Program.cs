@@ -37,6 +37,9 @@ internal static class Program
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
+            await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
+            await Check("Git porcelain v2 detects unmerged entries", GitConflictParsingAsync);
+            await Check("NUL-delimited Git numstat handles renames and special filenames", GitNumstatAsync);
             await Check("Untracked text lines are counted without loading large files", () => TextLineCountingAsync(root));
             Console.WriteLine($"PASS: {_passed} checks");
             return 0;
@@ -70,6 +73,47 @@ internal static class Program
             "Filename newline was not escaped");
         Require(!context.Contains("src/local.cs", StringComparison.Ordinal) && context.Contains("не показано файлов: 1", StringComparison.Ordinal),
             "Context file limit was not enforced");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitPreflightAsync()
+    {
+        var snapshot = new GitRepositorySnapshot(true, "C:\\project", "(detached)", null, 0, 3, null,
+            false, true,
+            [new RepositoryFileStatus("conflicted\\nname.cs", 'U', 'U', false, true)], null);
+        var context = GitRepositoryInspector.FormatAgentContext(snapshot);
+        Require(context.Contains("Рабочая папка: C:\\project", StringComparison.Ordinal), "Working directory was omitted");
+        Require(context.Contains("detached HEAD", StringComparison.Ordinal), "Detached HEAD warning was omitted");
+        Require(context.Contains("upstream не настроен", StringComparison.Ordinal), "Missing upstream warning was omitted");
+        Require(context.Contains("неразрешённых Git-конфликтов: 1", StringComparison.Ordinal), "Conflict warning was omitted");
+        Require(context.Contains("[конфликт]", StringComparison.Ordinal), "Conflicted file was not marked");
+
+        var behind = snapshot with { Branch = "main", Upstream = "origin/main", HasHead = false };
+        var behindContext = GitRepositoryInspector.FormatAgentContext(behind);
+        Require(behindContext.Contains("отстаёт от upstream", StringComparison.Ordinal), "Behind warning was omitted");
+        Require(behindContext.Contains("HEAD отсутствует", StringComparison.Ordinal), "Unborn HEAD warning was omitted");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitConflictParsingAsync()
+    {
+        const string status = "# branch.head main\0u UU N... 100644 100644 100644 100644 abc def ghi conflict.cs\0";
+        var parsed = GitRepositoryInspector.ParseStatus(status);
+        Require(parsed.Changes.Count == 1 && parsed.Changes[0].Path == "conflict.cs"
+            && parsed.Changes[0].IsConflicted, "Unmerged Git status was not identified");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitNumstatAsync()
+    {
+        var report = "3\t1\tsrc\n12\t15\tfake.cs\0"
+            + "4\t2\t\0"
+            + "30\t40\told-name-with-tabs\0"
+            + "6\t7\tnew-name-with-tabs\0"
+            + "-\t-\timage.png\0";
+        // The first filename contains a newline and numeric-looking tab fields.
+        var counts = GitRepositoryInspector.ParseNumstat(report);
+        Require(counts == (7L, 3L), "Numstat counted embedded path data or renamed filenames");
         return Task.CompletedTask;
     }
 

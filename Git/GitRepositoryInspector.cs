@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace CodexGUI;
 
-internal sealed record RepositoryFileStatus(string Path, char IndexStatus, char WorktreeStatus, bool IsUntracked);
+internal sealed record RepositoryFileStatus(string Path, char IndexStatus, char WorktreeStatus, bool IsUntracked, bool IsConflicted = false);
 internal enum RepositoryDiffScope { Unstaged, Staged }
 internal enum GitHunkAction { Stage, Unstage, Revert }
 internal sealed record RepositoryDiffHunk(int StartLine, int EndLine, string Patch);
@@ -48,20 +48,34 @@ internal static class GitRepositoryInspector
         var staged = snapshot.Changes.Count(file => !file.IsUntracked && file.IndexStatus != '.');
         var modified = snapshot.Changes.Count(file => !file.IsUntracked && file.WorktreeStatus != '.');
         var untracked = snapshot.Changes.Count(file => file.IsUntracked);
+        var conflicted = snapshot.Changes.Count(file => file.IsConflicted);
         var result = new StringBuilder();
         result.AppendLine("Контекст локального Git-репозитория (снимок; проверь актуальность перед изменениями):");
+        result.Append("Рабочая папка: ").AppendLine(OneLine(snapshot.Root));
         result.Append("Ветка: ").AppendLine(OneLine(snapshot.Branch));
         if (!string.IsNullOrWhiteSpace(snapshot.Upstream))
             result.Append("Upstream: ").AppendLine(OneLine(snapshot.Upstream));
         result.Append("Коммиты относительно upstream: +").Append(snapshot.Ahead)
             .Append(" / -").AppendLine(snapshot.Behind.ToString());
+        if (!snapshot.HasHead)
+            result.AppendLine("ВНИМАНИЕ: репозиторий без первого коммита (HEAD отсутствует).");
+        if (snapshot.Branch == "(detached)")
+            result.AppendLine("ВНИМАНИЕ: detached HEAD; коммиты могут оказаться вне ветки.");
+        if (string.IsNullOrWhiteSpace(snapshot.Upstream))
+            result.AppendLine("ВНИМАНИЕ: upstream не настроен; сравнение с удалённой веткой недоступно.");
+        else if (snapshot.Behind > 0)
+            result.AppendLine("ВНИМАНИЕ: локальная ветка отстаёт от upstream; проверьте изменения перед отправкой.");
+        if (conflicted > 0)
+            result.Append("ВНИМАНИЕ: неразрешённых Git-конфликтов: ").Append(conflicted)
+                .AppendLine(". Не перезаписывайте конфликтные файлы без проверки.");
         result.Append("Файлов с изменениями: ").Append(snapshot.Changes.Count)
             .Append(" (в индексе: ").Append(staged)
             .Append(", изменены: ").Append(modified)
             .Append(", новые: ").Append(untracked).AppendLine(").");
         foreach (var file in snapshot.Changes.Take(maximumFiles))
         {
-            var state = file.IsUntracked ? "новый"
+            var state = file.IsConflicted ? "конфликт"
+                : file.IsUntracked ? "новый"
                 : file.IndexStatus != '.' && file.WorktreeStatus != '.' ? "индекс + рабочая папка"
                 : file.IndexStatus != '.' ? "в индексе" : "в рабочей папке";
             result.Append("- [").Append(state).Append("] ").AppendLine(OneLine(file.Path));
@@ -158,33 +172,58 @@ internal static class GitRepositoryInspector
     private static async Task<(long Added, long Removed)?> ReadUnpushedLineCountsAsync(
         string root, IReadOnlyList<RepositoryFileStatus> changes, string comparisonBase, CancellationToken cancellationToken)
     {
-        var diff = await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", comparisonBase);
-        long added = 0;
-        long removed = 0;
+        var diff = await RunGitAsync(root, cancellationToken, "diff", "--no-ext-diff", "--no-textconv", "--numstat", "-z", comparisonBase);
         if (diff.ExitCode != 0) return null;
 
-        foreach (var line in diff.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = line.Split('\t', 3);
-            if (parts.Length < 3) continue; // Binary files have '-' rather than line counts.
-            if (long.TryParse(parts[0], out var insertions)) added += insertions;
-            if (long.TryParse(parts[1], out var deletions)) removed += deletions;
-        }
-
-        foreach (var file in changes.Where(item => item.IsUntracked))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+        var (added, removed) = ParseNumstat(diff.Output);
+        var rootPrefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
+        // Bound disk activity for projects with many untracked files; do not block the UI on serial reads.
+        await Parallel.ForEachAsync(changes.Where(file => file.IsUntracked),
+            new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = cancellationToken },
+            async (file, token) =>
             {
-                var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
-                if (!fullPath.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar,
-                        StringComparison.OrdinalIgnoreCase)) continue;
-                var lineCount = await CountTextLinesAsync(fullPath, cancellationToken);
-                if (lineCount is { } count) added += count;
+                try
+                {
+                    var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
+                    if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return;
+                    var lineCount = await CountTextLinesAsync(fullPath, token);
+                    if (lineCount is { } count) Interlocked.Add(ref added, count);
+                }
+                catch (IOException) { } // Untracked files can disappear during refresh.
+                catch (UnauthorizedAccessException) { }
+                catch (ArgumentException) { }
+            });
+        return (added, removed);
+    }
+
+    // Git -z separates records with NULs, not newlines. A rename has a blank path field
+    // followed by two standalone NUL-delimited names that must not be counted as numstat.
+    internal static (long Added, long Removed) ParseNumstat(string output)
+    {
+        long added = 0;
+        long removed = 0;
+        var remaining = output.AsSpan();
+        while (!remaining.IsEmpty)
+        {
+            var end = remaining.IndexOf('\0');
+            var record = end >= 0 ? remaining[..end] : remaining;
+            remaining = end >= 0 ? remaining[(end + 1)..] : ReadOnlySpan<char>.Empty;
+
+            var firstTab = record.IndexOf('\t');
+            if (firstTab < 0) continue;
+            var nextTab = record[(firstTab + 1)..].IndexOf('\t');
+            if (nextTab < 0) continue;
+            var secondTab = firstTab + 1 + nextTab;
+            if (long.TryParse(record[..firstTab], out var insertions)) added += insertions;
+            if (long.TryParse(record[(firstTab + 1)..secondTab], out var deletions)) removed += deletions;
+
+            if (secondTab != record.Length - 1) continue;
+            // Skip the two paths of a rename/copy, even if they contain tabs or numbers.
+            for (var index = 0; index < 2 && !remaining.IsEmpty; index++)
+            {
+                var pathEnd = remaining.IndexOf('\0');
+                remaining = pathEnd >= 0 ? remaining[(pathEnd + 1)..] : ReadOnlySpan<char>.Empty;
             }
-            catch (IOException) { } // Untracked files can disappear during refresh.
-            catch (UnauthorizedAccessException) { }
-            catch (ArgumentException) { }
         }
         return (added, removed);
     }
@@ -558,7 +597,7 @@ internal static class GitRepositoryInspector
         catch (TimeoutException) { }
     }
 
-    private static (string Branch, string? Upstream, int Ahead, int Behind,
+    internal static (string Branch, string? Upstream, int Ahead, int Behind,
         IReadOnlyList<RepositoryFileStatus> Changes, bool HasHead) ParseStatus(string output)
     {
         var branch = "(detached)";
@@ -610,7 +649,7 @@ internal static class GitRepositoryInspector
             var xy = GetField(record, 1);
             if (xy.Length < 2) continue;
             var path = GetFieldAfter(record, pathField);
-            changes.Add(new RepositoryFileStatus(path, xy[0], xy[1], false));
+            changes.Add(new RepositoryFileStatus(path, xy[0], xy[1], false, type == 'u'));
             if (type == '2' && index + 1 < records.Length) index++;
         }
 
