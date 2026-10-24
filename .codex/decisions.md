@@ -81,7 +81,7 @@
 
 - Status: active.
 - Decision: use the user-supplied dashboard reference with a shared top bar, left file tree/map, center chat, right goal/context/tools cards, and a bottom composer. Move the former icon-rail tools to the composer's Tools menu; keep the existing four-column layout contract with a zero-width first column.
-- Reason: the user explicitly requested this layout and working controls in place of the earlier icon rail.
+- Reason: the user explicitly requested this layout and working controls in place of the earlier icon rail. WPF supports the required geometry, transparent surfaces, embedded terrain, and vector effects, so the existing engine and execution stack are retained.
 - Constraint: reuse existing App Server, Git, permission, queue, and state-writing paths. Local goal steps are manual and persisted in CodexGUI state; they are separate from the App Server goal and must not be represented as server-synchronized subtasks. Maps are bounded manifest/folder overviews, with their limits documented in README.
 - Source: `Views/WorkspaceView.xaml`, `UI/Windows/MainWindow.Workspace.cs`, and `README.md`.
 

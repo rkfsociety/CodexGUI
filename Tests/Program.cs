@@ -123,9 +123,34 @@ internal static class Program
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
+            App? application = null;
             try
             {
                 SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
+                // Load real resources without Application.Run/OnStartup: no account, state, workers or schedules.
+                application = new App { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+                application.InitializeComponent();
+                using var source = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.Views.WorkspaceView.xaml")!;
+                using var reader = new StreamReader(source);
+                var workspace = (System.Windows.Controls.Grid)System.Windows.Markup.XamlReader.Parse(reader.ReadToEnd());
+                workspace.ColumnDefinitions[0].Width = new System.Windows.GridLength(0);
+                workspace.ColumnDefinitions[1].Width = new System.Windows.GridLength(400);
+                workspace.ColumnDefinitions[3].Width = new System.Windows.GridLength(398);
+                workspace.Background = WorkspaceBackdrop.Create();
+                Require(workspace.Background.IsFrozen && ReferenceEquals(workspace.Background, WorkspaceBackdrop.Create()), "Background is not cached and frozen");
+                var tree = (System.Windows.Controls.TreeView)workspace.FindName("FileTree");
+                var folder = new System.Windows.Controls.TreeViewItem { Header = "src", IsExpanded = true };
+                var file = new System.Windows.Controls.TreeViewItem { Header = "sample.cs" };
+                folder.Items.Add(file); tree.Items.Add(folder);
+                workspace.Measure(new System.Windows.Size(1585, 992));
+                workspace.Arrange(new System.Windows.Rect(0, 0, 1585, 992)); workspace.UpdateLayout();
+                folder.IsExpanded = false; workspace.UpdateLayout();
+                var host = (System.Windows.Controls.ItemsPresenter)folder.Template.FindName("ItemsHost", folder);
+                Require(host.Visibility == System.Windows.Visibility.Collapsed, "Collapsed tree folder still displays children");
+                folder.IsExpanded = true; file.IsSelected = true; workspace.UpdateLayout();
+                Require(host.Visibility == System.Windows.Visibility.Visible, "Expanded tree folder lost children");
+                var selection = (System.Windows.Controls.Border)file.Template.FindName("Selection", file);
+                Require(((System.Windows.Media.SolidColorBrush)selection.Background).Color == System.Windows.Media.Color.FromRgb(26, 43, 52), "Selected tree row lost the reference highlight");
                 var canvas = new System.Windows.Controls.Canvas { Width = 300, Height = 230 };
                 string? selected = null;
                 var path = Path.Combine(root, "workspace-search", "src");
@@ -156,6 +181,7 @@ internal static class Program
                 completion.SetResult();
             }
             catch (Exception error) { completion.SetException(error); }
+            finally { application?.Shutdown(); }
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
@@ -165,10 +191,11 @@ internal static class Program
     private static Task WorkspaceGoalStateAsync()
     {
         var type = typeof(MainWindow).GetNestedType("StoredThread", System.Reflection.BindingFlags.NonPublic)!;
-        var stored = JsonSerializer.Deserialize("{\"Id\":\"example\",\"GoalSteps\":[{\"Text\":\"Implement chat\",\"IsComplete\":true}]}", type)!;
+        var stored = JsonSerializer.Deserialize("{\"Id\":\"example\",\"LastActivityAt\":\"2026-10-24T12:00:00Z\",\"GoalSteps\":[{\"Text\":\"Implement chat\",\"IsComplete\":true}]}", type)!;
         using var result = JsonDocument.Parse(JsonSerializer.Serialize(stored, type));
         var step = result.RootElement.GetProperty("GoalSteps")[0];
         Require(step.GetProperty("Text").GetString() == "Implement chat" && step.GetProperty("IsComplete").GetBoolean(), "Goal steps lost state");
+        Require(result.RootElement.GetProperty("LastActivityAt").GetDateTimeOffset() == DateTimeOffset.Parse("2026-10-24T12:00:00Z"), "Recent-chat timestamp lost state");
         var legacy = JsonSerializer.Deserialize("{\"Id\":\"legacy\"}", type)!;
         using var legacyResult = JsonDocument.Parse(JsonSerializer.Serialize(legacy, type));
         Require(legacyResult.RootElement.GetProperty("GoalSteps").GetArrayLength() == 0, "Legacy state needs a migration");

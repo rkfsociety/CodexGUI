@@ -22,6 +22,7 @@
     <EmbeddedResource Include="..\Scripts\Update-CodexGUI.ps1" LogicalName="CodexGUI.Update-CodexGUI.ps1" />
     <EmbeddedResource Include="..\Scripts\CodexCliWorker.ps1" LogicalName="CodexGUI.CodexCliWorker.ps1" />
     <Resource Include="..\Assets\codex-assistant.ico" Link="Assets\codex-assistant.ico" />
+    <EmbeddedResource Include="..\Assets\Workspace\terrain.png" LogicalName="CodexGUI.Workspace.Terrain.png" />
     <Content Include="..\Assets\codex-assistant.png" Link="Assets\codex-assistant.png" TargetPath="Assets\codex-assistant.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

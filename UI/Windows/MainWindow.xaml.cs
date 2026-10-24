@@ -35,7 +35,7 @@ namespace CodexGUI;
 
 public partial class MainWindow : Window
 {
-    private const string PromptPlaceholder = "Опишите задачу или изменение проекта…";
+    private const string PromptPlaceholder = "Опишите задачу, задайте вопрос или попросите что-то изменить...";
     private const string DefaultModel = "gpt-6-luna";
     private const string DefaultEffort = "high";
     private const string PromptQueueDragFormat = "CodexGUI.PromptQueueItem";
@@ -549,12 +549,7 @@ public partial class MainWindow : Window
         Click("ChatDiffButton", (_, _) => ShowWorkspaceGit());
         Click("CloseContextButton", (_, _) => ToggleContext(false));
         Click("TerminalButton", (_, _) => ShowTerminalWindow());
-        Click("RefreshRepositoryButton", (_, _) =>
-        {
-            RefreshFileTree();
-            UpdateChatInfoPanel();
-            _ = RefreshRepositoryInfoAsync();
-        });
+        Click("RefreshRepositoryButton", (_, _) => ShowWorkspaceProjectTools());
         Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
         Click("InsertGitContextButton", async (_, _) => await InsertRepositoryContextAsync());
         Click("ReviewChangesButton", async (_, _) => await ReviewUncommittedChangesAsync());
@@ -1495,7 +1490,8 @@ public partial class MainWindow : Window
         stack.Children.Clear();
         if (Control<Grid>("WorkspaceStage") is { } stage)
         {
-            stage.Background ??= WorkspaceBackdrop.Create();
+            if (_activeView is { } workspace) workspace.Background = WorkspaceBackdrop.Create();
+            stage.Background = Brushes.Transparent;
             stage.RowDefinitions[0].Height = new GridLength(_currentThread is null || _currentThread.Messages.Count == 0 ? 0 : 68);
         }
         UpdateChatQuickOverview();
@@ -2256,8 +2252,20 @@ public partial class MainWindow : Window
 
     private void SetThreadGoalButtonText(Button button, string text)
     {
-        if (Control<TextBlock>("ThreadGoalLabel") is { } label) label.Text = text;
+        var thread = _currentThread;
+        var objective = thread?.PendingGoal?.Objective;
+        var status = thread?.PendingGoal?.Status;
+        if (objective is null && thread?.CodexSessionId is { } threadId
+            && _threadGoalCache.TryGetValue(threadId, out var goal) && goal is not null)
+        {
+            objective = goal.Objective;
+            status = goal.Status;
+        }
+        var lines = objective?.Split('\n', 2, StringSplitOptions.TrimEntries);
+        if (Control<TextBlock>("ThreadGoalLabel") is { } label) label.Text = lines is { Length: > 0 } ? lines[0] : text;
         else button.Content = text;
+        if (Control<TextBlock>("WorkspaceGoalDetail") is { } detail)
+            detail.Text = lines is { Length: > 1 } ? lines[1] : status is not null ? ThreadGoalStatusLabel(status) : "Добавьте цель и шаги работы.";
         AutomationProperties.SetName(button, text);
     }
 
@@ -4076,6 +4084,7 @@ public partial class MainWindow : Window
                 thread.HasUnreadResponse = true;
                 ShowChatCompletionNotification(thread, failed);
             }
+            thread.LastActivityAt = DateTimeOffset.UtcNow;
             var completionSaved = await SaveStateAsync();
             if (reloadHistoryWhenFinished && thread.CodexSessionId is not null)
                 await RestoreThreadHistoryAsync(thread, force: true);
@@ -5339,24 +5348,32 @@ public partial class MainWindow : Window
         if (Control<TextBlock>("WorkspaceTagline") is { } tagline)
             tagline.Visibility = view.ActualWidth >= 1450 ? Visibility.Visible : Visibility.Collapsed;
         if (Control<Button>("WorkspaceSearchButton") is { } search)
-            search.Width = view.ActualWidth >= 1450 ? 280 : 160;
+            search.Width = view.ActualWidth >= 1450 ? 304 : 160;
+        if (Control<Button>("WorkspaceProjectButton") is { } projectButton) projectButton.Width = view.ActualWidth >= 1100 ? 196 : 150;
+        if (Control<Button>("WorkspaceBranchButton") is { } branchButton) branchButton.Width = view.ActualWidth >= 1100 ? 104 : 80;
+        if (Control<TextBlock>("WorkspaceProjectPrefix") is { } projectPrefix) projectPrefix.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
+        if (Control<StackPanel>("WorkspaceAgentStatus") is { } agentStatus) agentStatus.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var name in new[] { "WorkspaceChatsButton", "WorkspaceAgentButton", "WorkspaceToolsButton" })
+            if (Control<Button>(name) is { } tab) tab.Margin = new Thickness(view.ActualWidth >= 1100 ? 30 : 0, 0, 0, 0);
+        if (Control<Grid>("WorkspaceHeaderGrid") is { } headerGrid)
+            headerGrid.ColumnDefinitions[0].Width = view.ActualWidth >= 1450 ? new GridLength(425) : GridLength.Auto;
         if (Control<StackPanel>("WorkspaceHeaderControls") is { } headerControls)
             headerControls.Margin = new Thickness(view.ActualWidth >= 1450 ? 30 : 16, 0, 0, 0);
         if (Control<Border>("WorkspaceDock") is { } dock)
-            dock.Margin = new Thickness(view.ActualWidth >= 1400 ? 140 : 12, 0, view.ActualWidth >= 1400 ? 140 : 12, 8);
+            dock.Margin = new Thickness(view.ActualWidth >= 1400 ? 148 : 12, 0, view.ActualWidth >= 1400 ? 148 : 12, 4);
         if (Control<Grid>("WorkspaceDockGrid") is { } dockGrid)
-            dockGrid.ColumnDefinitions[0].Width = new GridLength(view.ActualWidth >= 1100 ? 140 : 130);
+            dockGrid.ColumnDefinitions[0].Width = new GridLength(view.ActualWidth >= 1100 ? 190 : 130);
         if (Control<StackPanel>("ComposerSettings") is { } settings)
         {
             Grid.SetColumn(settings, view.ActualWidth >= 1100 ? 1 : 0);
             Grid.SetRow(settings, view.ActualWidth >= 1100 ? 0 : 1);
         }
-        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 385 : 300));
+        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 400 : 300));
         if (Control<Border>("SidebarPanel") is { } sidebar)
             sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
         if (Control<Border>("ChatOverviewCard") is { } overview)
             overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 280 : 390;
-        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? (view.ActualWidth >= 1400 ? 350 : 310) : 0);
+        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? (view.ActualWidth >= 1400 ? 398 : 310) : 0);
     }
 
     private void ToggleSidebar()
@@ -6253,8 +6270,8 @@ public partial class MainWindow : Window
         if (_trayIcon is not null) _trayIcon.Text = title.Length > 63 ? title[..60] + "…" : title;
         if (Control<TextBlock>("ConnectionStatus") is { } connection) connection.Text = title;
         if (Control<TextBlock>("ConnectionDetail") is { } connectionDetail) connectionDetail.Text = detail;
-        if (Control<TextBlock>("HeaderStatus") is { } header) header.Text = title;
-        if (Control<Ellipse>("StatusDot") is { } dot) dot.Fill = Brush(isError ? "#E78C8C" : HasActiveRuns ? "#D7B66E" : "#77C99B");
+        if (Control<TextBlock>("HeaderStatus") is { } header) header.Text = title == "Готов" ? "Агент готов" : title;
+        if (Control<Ellipse>("StatusDot") is { } dot) dot.Fill = Brush(isError ? "#E78C8C" : HasActiveRuns ? "#D7B66E" : "#47EAB4");
     }
 
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));
@@ -6263,8 +6280,9 @@ public partial class MainWindow : Window
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
-        if (e.Key == Key.K) { NewChat(); e.Handled = true; }
+        if (e.Key == Key.K) { ShowWorkspaceSearch(); e.Handled = true; }
         else if (e.Key == Key.F) { ShowSearch(); e.Handled = true; }
+        else if (e.Key == Key.N) { NewChat(); e.Handled = true; }
     }
 
     private async void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -6309,6 +6327,7 @@ public partial class MainWindow : Window
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
+        public DateTimeOffset? LastActivityAt { get; set; }
         public bool WaitingForInput { get; set; }
         public bool IsForking { get; set; }
         public bool UseWorktree { get; set; }
@@ -6348,6 +6367,7 @@ public partial class MainWindow : Window
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
+        public DateTimeOffset? LastActivityAt { get; set; }
         public bool UseWorktree { get; set; }
         public bool WorktreeSessionStarted { get; set; }
         public bool WorktreeSetupComplete { get; set; }

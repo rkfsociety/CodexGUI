@@ -20,6 +20,9 @@ public partial class MainWindow
         Click("WindowMinimizeButton", (_, _) => WindowState = WindowState.Minimized);
         Click("WindowMaximizeButton", (_, _) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
         Click("WindowCloseButton", (_, _) => Close());
+        Click("WorkspaceMemoryButton", (_, _) => ShowWorkspaceMemoryMenu());
+        Click("WorkspaceGoalMenuButton", (_, _) => ShowWorkspaceGoalMenu());
+        Click("WorkspaceComposerSettings", (_, _) => ShowWorkspaceTools());
         Click("WorkspaceProjectButton", (_, _) => ShowProjectMenu());
         Click("WorkspaceFolderButton", (_, _) => OpenProjectFolder());
         Click("WorkspaceBranchButton", (_, _) => ShowWorkspaceGit());
@@ -48,6 +51,32 @@ public partial class MainWindow
         Click("MapZoomOutButton", (_, _) => { _workspaceMapZoom = Math.Max(0.6, _workspaceMapZoom - 0.2); RenderWorkspaceMap(); });
         Click("MapResetButton", (_, _) => { _workspaceMapZoom = 1; RenderWorkspaceMap(); });
         Click("MapFullButton", (_, _) => ShowFullWorkspaceMap());
+    }
+
+    private void ShowWorkspaceProjectTools()
+    {
+        if (Control<Button>("RefreshRepositoryButton") is not { } anchor) return;
+        var menu = new ContextMenu();
+        var refresh = new MenuItem { Header = "Обновить проект" };
+        refresh.Click += (_, _) => { RefreshFileTree(); UpdateChatInfoPanel(); _ = RefreshRepositoryInfoAsync(); };
+        var open = new MenuItem { Header = "Открыть папку" };
+        open.Click += (_, _) => OpenProjectFolder();
+        var history = new MenuItem { Header = "История чатов" };
+        history.Click += (_, _) => ShowSearch();
+        menu.Items.Add(refresh); menu.Items.Add(open); menu.Items.Add(history);
+        menu.PlacementTarget = anchor; menu.IsOpen = true;
+    }
+
+    private void ShowWorkspaceGoalMenu()
+    {
+        if (Control<Button>("WorkspaceGoalMenuButton") is not { } anchor) return;
+        var menu = new ContextMenu();
+        var edit = new MenuItem { Header = "Изменить цель" };
+        edit.Click += async (_, _) => { if (_currentThread is null) NewChat(); await ShowThreadGoalAsync(); };
+        var step = new MenuItem { Header = "Добавить шаг" };
+        step.Click += (_, _) => AddWorkspaceGoalStep();
+        menu.Items.Add(edit); menu.Items.Add(step);
+        menu.PlacementTarget = anchor; menu.IsOpen = true;
     }
 
     private void ShowWorkspaceGit()
@@ -130,20 +159,75 @@ public partial class MainWindow
         if (Control<StackPanel>("WorkspaceContextList") is { } context)
         {
             context.Children.Clear();
+            var recent = _threads.Where(thread => !thread.IsArchived
+                    && thread.ProjectId == _selectedProject?.Id
+                    && (thread.CodexSessionId is not null || thread.Messages.Any(message => message.IsUser)))
+                .OrderByDescending(thread => thread.LastActivityAt ?? DateTimeOffset.MinValue)
+                .ThenByDescending(thread => _threads.IndexOf(thread)).Take(4);
+            foreach (var thread in recent)
+                AddWorkspaceContextRow(context, thread.Title,
+                    thread.LastActivityAt is { } updated ? FormatWorkspaceAge(updated) : "Чат",
+                    "Продолжить чат: " + thread.Title, (_, _) => SelectThread(thread));
             foreach (var name in new[] { "AGENTS.md", ".codex/memory.md", ".codex/decisions.md", "README.md" })
             {
+                if (context.Children.Count >= 4) break;
                 var path = Path.Combine(WorkspaceDirectory, name);
                 if (!File.Exists(path)) continue;
-                var button = new Button { Content = "▤  " + name, FontSize = 11,
-                    HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(3, 7, 3, 7), ToolTip = path };
-                button.Click += async (_, _) => await PreviewWorkspaceFileAsync(path);
-                context.Children.Add(button);
+                var updated = File.GetLastWriteTime(path);
+                AddWorkspaceContextRow(context, name, FormatWorkspaceAge(updated),
+                    "Файл проекта · изменён " + updated.ToString("g"), async (_, _) => await PreviewWorkspaceFileAsync(path));
             }
             if (context.Children.Count == 0)
                 context.Children.Add(new TextBlock { Text = "В проекте пока нет файлов контекста.", FontSize = 11,
                     Foreground = Brush("#91A8B5"), TextWrapping = TextWrapping.Wrap });
         }
         RenderWorkspaceGoalSteps();
+    }
+
+    private static string FormatWorkspaceAge(DateTimeOffset updated)
+    {
+        var elapsed = DateTimeOffset.Now - updated;
+        return elapsed.TotalMinutes < 1 ? "Сейчас" : elapsed.TotalHours < 1 ? $"{(int)elapsed.TotalMinutes} мин назад"
+            : elapsed.TotalHours < 24 ? $"{(int)elapsed.TotalHours} ч назад" : elapsed.TotalDays < 2 ? "Вчера" : $"{(int)elapsed.TotalDays} д назад";
+    }
+
+    private static void AddWorkspaceContextRow(StackPanel context, string title, string modified, string tooltip, RoutedEventHandler select)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(23) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M4,2 H13 L19,8 V22 H4 Z M13,2 V8 H19 M8,13 H15"),
+            Width = 13, Height = 14, Stretch = Stretch.Uniform, Stroke = Brush("#8DA6B5"), StrokeThickness = 1.4,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center
+        });
+        var label = new TextBlock { Text = title, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(label, 1); row.Children.Add(label);
+        var date = new TextBlock { Text = modified, FontSize = 11, Foreground = Brush("#8198A7"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        Grid.SetColumn(date, 2); row.Children.Add(date);
+        var button = new Button { Content = row, Height = 33, FontSize = 12, Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, ToolTip = tooltip };
+        button.Click += select;
+        context.Children.Add(button);
+    }
+
+    private void ShowWorkspaceMemoryMenu()
+    {
+        if (Control<Button>("WorkspaceMemoryButton") is not { } anchor) return;
+        var menu = new ContextMenu();
+        var history = new MenuItem { Header = "История чатов" };
+        history.Click += (_, _) => ShowSearch();
+        var files = new MenuItem { Header = "Файлы контекста" };
+        files.Click += async (_, _) =>
+        {
+            var directory = Path.Combine(WorkspaceDirectory, ".codex");
+            var path = CodexFilePickerWindow.OpenFile(this, "Открыть контекст проекта", Directory.Exists(directory) ? directory : WorkspaceDirectory, []);
+            if (path is not null) await PreviewWorkspaceFileAsync(path);
+        };
+        menu.Items.Add(history); menu.Items.Add(files);
+        menu.PlacementTarget = anchor; menu.IsOpen = true;
     }
 
     private TreeViewItem CreateWorkspaceDirectory(string path)
@@ -333,7 +417,7 @@ public partial class MainWindow
         foreach (var step in thread.GoalSteps)
         {
             var row = new DockPanel();
-            var remove = new Button { Content = "×", Padding = new Thickness(4), ToolTip = "Удалить шаг" };
+            var remove = new Button { Content = "×", Padding = new Thickness(4), ToolTip = "Удалить шаг", Visibility = Visibility.Hidden };
             remove.Click += async (_, _) =>
             {
                 panel.IsEnabled = false;
@@ -345,9 +429,12 @@ public partial class MainWindow
                 }
                 finally { panel.IsEnabled = true; RenderWorkspaceGoalSteps(); }
             };
+            row.MouseEnter += (_, _) => remove.Visibility = Visibility.Visible;
+            row.MouseLeave += (_, _) => remove.Visibility = Visibility.Hidden;
             DockPanel.SetDock(remove, Dock.Right); row.Children.Add(remove);
-            var check = new CheckBox { Content = new TextBlock { Text = step.Text, TextWrapping = TextWrapping.Wrap, FontSize = 11 },
-                IsChecked = step.IsComplete, Margin = new Thickness(0, 5, 0, 5) };
+            var check = new CheckBox { Content = new TextBlock { Text = step.Text, TextWrapping = TextWrapping.Wrap, FontSize = 13 },
+                Style = _activeView?.TryFindResource("GoalStepCheckBox") as Style,
+                Foreground = Brush("#ADC0CD"), IsChecked = step.IsComplete, Margin = new Thickness(0, 5, 0, 6) };
             check.Click += async (_, _) =>
             {
                 panel.IsEnabled = false;

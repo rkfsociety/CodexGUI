@@ -76,9 +76,10 @@ pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View SavePicker
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Workspace', 'Welcome', 'Activity', 'Actions', 'ActionEditor', 'MarketplaceAdd', 'MarketplaceManager', 'McpServers', 'McpOAuthLogin', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
+    [ValidateSet('Workspace', 'Welcome', 'Reference', 'Activity', 'Actions', 'ActionEditor', 'MarketplaceAdd', 'MarketplaceManager', 'McpServers', 'McpOAuthLogin', 'Setup', 'PullRequest', 'AutomationEditor', 'Calendar', 'FilePicker', 'FolderPicker', 'SavePicker')]
     [string]$View = 'Workspace',
     [string]$OutputPath,
+    [switch]$VerifyLayout,
     [int]$Width = 0,
     [int]$Height = 0
 )
@@ -97,8 +98,8 @@ if (-not (Test-Path -LiteralPath $appXamlPath)) {
     throw 'Application/App.xaml was not found in the project.'
 }
 
-if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'ActionEditor') { 620 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'McpServers') { 840 } elseif ($View -eq 'McpOAuthLogin') { 520 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
-if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'ActionEditor') { 570 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'MarketplaceManager') { 520 } elseif ($View -eq 'McpServers') { 600 } elseif ($View -eq 'McpOAuthLogin') { 360 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
+if ($Width -eq 0) { $Width = if ($View -in @('Workspace', 'Welcome', 'Reference')) { 1440 } elseif ($View -eq 'Actions') { 760 } elseif ($View -eq 'ActionEditor') { 620 } elseif ($View -in @('MarketplaceAdd', 'MarketplaceManager')) { 680 } elseif ($View -eq 'McpServers') { 840 } elseif ($View -eq 'McpOAuthLogin') { 520 } elseif ($View -eq 'Calendar') { 420 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 760 } elseif ($View -in @('Setup', 'AutomationEditor')) { 700 } elseif ($View -eq 'PullRequest') { 680 } else { 580 } }
+if ($Height -eq 0) { $Height = if ($View -in @('Workspace', 'Welcome', 'Reference')) { 1000 } elseif ($View -eq 'Actions') { 560 } elseif ($View -eq 'ActionEditor') { 570 } elseif ($View -eq 'MarketplaceAdd') { 520 } elseif ($View -eq 'MarketplaceManager') { 520 } elseif ($View -eq 'McpServers') { 600 } elseif ($View -eq 'McpOAuthLogin') { 360 } elseif ($View -eq 'Calendar') { 360 } elseif ($View -eq 'Setup') { 470 } elseif ($View -eq 'PullRequest') { 560 } elseif ($View -eq 'AutomationEditor') { 780 } elseif ($View -in @('FilePicker', 'FolderPicker', 'SavePicker')) { 590 } else { 600 } }
 if ($Width -lt 400 -or $Width -gt 2560) { throw 'Width must be between 400 and 2560 pixels.' }
 if ($Height -lt 320 -or $Height -gt 1800) { throw 'Height must be between 320 and 1800 pixels.' }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -219,7 +220,7 @@ function New-PreviewMessage([bool]$IsUser, [string]$Text) {
 }
 
 $visual = $null
-if ($View -in @('Workspace', 'Welcome')) {
+if ($View -in @('Workspace', 'Welcome', 'Reference')) {
     if (-not (Test-Path -LiteralPath $workspaceXamlPath)) {
         throw 'Views/WorkspaceView.xaml was not found beside this script.'
     }
@@ -228,18 +229,24 @@ if ($View -in @('Workspace', 'Welcome')) {
         throw 'WorkspaceView.xaml must have a Grid root element.'
     }
     $workspace.ColumnDefinitions[0].Width = [System.Windows.GridLength]::new(0)
-    $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 385 } else { 300 }))
-    $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 350 } else { 310 }))
+    $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 400 } else { 300 }))
+    $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 398 } else { 310 }))
     if ($Width -lt 1260) { $workspace.FindName('SidebarPanel').Visibility = 'Collapsed' }
-    $dockMargin = if ($Width -ge 1400) { 140 } else { 12 }
-    $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new($dockMargin, 0, $dockMargin, 8)
-    $workspace.FindName('WorkspaceDockGrid').ColumnDefinitions[0].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1100) { 140 } else { 130 }))
+    $dockMargin = if ($Width -ge 1400) { 148 } else { 12 }
+    $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new($dockMargin, 0, $dockMargin, 4)
+    $workspace.FindName('WorkspaceDockGrid').ColumnDefinitions[0].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1100) { 190 } else { 130 }))
     if ($Width -lt 1100) {
+        $workspace.FindName('WorkspaceProjectButton').Width = 150
+        $workspace.FindName('WorkspaceBranchButton').Width = 80
+        $workspace.FindName('WorkspaceProjectPrefix').Visibility = 'Collapsed'
+        $workspace.FindName('WorkspaceAgentStatus').Visibility = 'Collapsed'
+        foreach ($name in @('WorkspaceChatsButton', 'WorkspaceAgentButton', 'WorkspaceToolsButton')) { $workspace.FindName($name).Margin = [System.Windows.Thickness]::new(0) }
         [System.Windows.Controls.Grid]::SetColumn($workspace.FindName('ComposerSettings'), 0)
         [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
     }
     $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
-    $workspace.FindName('WorkspaceSearchButton').Width = if ($Width -ge 1450) { 280 } else { 160 }
+    $workspace.FindName('WorkspaceSearchButton').Width = if ($Width -ge 1450) { 304 } else { 160 }
+    $workspace.FindName('WorkspaceHeaderGrid').ColumnDefinitions[0].Width = if ($Width -ge 1450) { [System.Windows.GridLength]::new(425) } else { [System.Windows.GridLength]::Auto }
     $workspace.FindName('WorkspaceHeaderControls').Margin = [System.Windows.Thickness]::new($(if ($Width -ge 1450) { 30 } else { 16 }), 0, 0, 0)
     $workspace.FindName('WorkspaceBranch').Text = '⑂  main'
     $treeRoot = [System.Windows.Controls.TreeViewItem]::new()
@@ -319,10 +326,15 @@ var ready = true;
         $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
         $flags = [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::NonPublic
         $backdrop = $assembly.GetType('CodexGUI.WorkspaceBackdrop', $true).GetMethod('Create', $flags).Invoke($null, @())
-        $workspace.FindName('WorkspaceStage').Background = $backdrop
+        $workspace.Background = $backdrop
+        $workspace.FindName('WorkspaceStage').Background = [System.Windows.Media.Brushes]::Transparent
         $nodes = $assembly.GetType('CodexGUI.WorkspaceProjectMap', $true).GetMethod('Read', $flags).Invoke($null, @([string]$projectRoot, 0))
         $selectNode = [System.Action[string]]{ param([string]$path) }
         [void]$assembly.GetType('CodexGUI.WorkspaceMapView', $true).GetMethod('Render', $flags).Invoke($null, @($workspace.FindName('ProjectMap'), $nodes, [string]$projectRoot, 1.0, $selectNode))
+    }
+    if ($View -eq 'Reference') {
+        . (Join-Path $PSScriptRoot 'WorkspaceReferenceFixture.ps1')
+        Set-WorkspaceReferenceFixture -Workspace $workspace -Assembly $assembly
     }
     $visual = $workspace
 }
@@ -966,6 +978,61 @@ $size = [System.Windows.Size]::new($Width, $Height)
 $visual.Measure($size)
 $visual.Arrange([System.Windows.Rect]::new(0, 0, $Width, $Height))
 $visual.UpdateLayout()
+
+if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
+    function Get-PreviewBounds([string]$Name) {
+        $element = $visual.FindName($Name)
+        if ($null -eq $element) { throw "Layout control not found: $Name" }
+        return $element.TransformToAncestor($visual).TransformBounds([System.Windows.Rect]::new(0, 0, $element.ActualWidth, $element.ActualHeight))
+    }
+    if ($Width -eq 1585 -and $Height -eq 992) {
+        $anchors = @{
+            ProjectStructureCard = @(16, 80, 384, 378)
+            ProjectMapCard = @(16, 468, 384, 390)
+            GoalCard = @(1187, 81, 386, 280)
+            ContextMemoryCard = @(1187, 373, 386, 214)
+            QuickToolsCard = @(1187, 598, 386, 226)
+            WorkspaceDock = @(148, 853, 1289, 135)
+        }
+        foreach ($entry in $anchors.GetEnumerator()) {
+            $actual = Get-PreviewBounds $entry.Key
+            $values = @($actual.X, $actual.Y, $actual.Width, $actual.Height)
+            for ($i = 0; $i -lt 4; $i++) {
+                if ([Math]::Abs($values[$i] - $entry.Value[$i]) -gt 2) {
+                    throw "Reference layout mismatch for $($entry.Key): $actual; expected $($entry.Value -join ', ')"
+                }
+            }
+        }
+    }
+    $composer = Get-PreviewBounds 'ComposerBorder'
+    $input = Get-PreviewBounds 'PromptInput'
+    $send = Get-PreviewBounds 'SendButton'
+    if (-not $composer.Contains($input) -or -not $composer.Contains($send)) {
+        throw "Composer controls overflow their panel: input=$input send=$send composer=$composer"
+    }
+    foreach ($name in @('WorkspaceSearchButton', 'WindowCloseButton')) {
+        if (-not [System.Windows.Rect]::new(0, 0, $Width, $Height).Contains((Get-PreviewBounds $name))) {
+            throw "Header control is outside the window: $name"
+        }
+    }
+    $searchBounds = Get-PreviewBounds 'WorkspaceSearchButton'
+    $controlsBounds = Get-PreviewBounds 'WorkspaceHeaderControls'
+    $searchContent = $visual.FindName('WorkspaceSearchButton').Content
+    $contentBounds = $searchContent.TransformToAncestor($visual).TransformBounds([System.Windows.Rect]::new(0, 0, $searchContent.ActualWidth, $searchContent.ActualHeight))
+    if ($controlsBounds.Right -gt $searchBounds.Left -or -not $searchBounds.Contains($contentBounds)) {
+        throw 'Header project controls or search contents overlap another panel.'
+    }
+    if ($View -in @('Welcome', 'Reference')) {
+        $scene = $welcome.Children[0].Child
+        foreach ($card in $scene.Children | Where-Object { $_ -is [System.Windows.Controls.Button] }) {
+            $text = $card.Content.Child.Children | Where-Object { $_ -is [System.Windows.Controls.StackPanel] }
+            $required = ($text.Children | Measure-Object -Property { $_.DesiredSize.Height } -Sum).Sum
+            if ($required -gt $text.ActualHeight + 1) {
+                throw "Welcome card text is clipped: $($card.ToolTip); needs $required px, has $($text.ActualHeight) px"
+            }
+        }
+    }
+}
 
 $bitmap = [System.Windows.Media.Imaging.RenderTargetBitmap]::new(
     $Width, $Height, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
