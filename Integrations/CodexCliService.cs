@@ -13,6 +13,8 @@ internal sealed record ModelOption(string Slug, string DisplayName, string Defau
 
 internal static class CodexCliService
 {
+    private const int MaximumCapturedCharactersPerStream = 8 * 1024 * 1024;
+
     public static string ResolveExecutable()
     {
         const string executableName = "codex.exe";
@@ -60,8 +62,8 @@ internal static class CodexCliService
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить менеджер плагинов Codex CLI.");
         process.StandardInput.Close();
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
+        var outputTask = ReadBoundedOutputAsync(process.StandardOutput, MaximumCapturedCharactersPerStream);
+        var errorTask = ReadBoundedOutputAsync(process.StandardError, MaximumCapturedCharactersPerStream);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         try
         {
@@ -86,9 +88,31 @@ internal static class CodexCliService
         }
         var output = await outputTask;
         var errors = await errorTask;
+        if (output.ExceededLimit || errors.ExceededLimit)
+            throw new InvalidDataException($"Codex CLI output exceeded {MaximumCapturedCharactersPerStream} characters per stream.");
         if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors) ? output.Trim() : errors.Trim());
-        return output;
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors.Text) ? output.Text.Trim() : errors.Text.Trim());
+        return output.Text;
+    }
+
+    internal static async Task<(string Text, bool ExceededLimit)> ReadBoundedOutputAsync(TextReader reader, int maximumCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        if (maximumCharacters <= 0) throw new ArgumentOutOfRangeException(nameof(maximumCharacters));
+
+        var output = new StringBuilder(Math.Min(maximumCharacters, 8192));
+        var buffer = new char[8192];
+        var exceededLimit = false;
+        int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory())) > 0)
+        {
+            var remaining = maximumCharacters - output.Length;
+            var kept = Math.Min(remaining, count);
+            if (kept > 0) output.Append(buffer, 0, kept);
+            if (kept < count) exceededLimit = true;
+        }
+
+        return (output.ToString(), exceededLimit);
     }
 
 }

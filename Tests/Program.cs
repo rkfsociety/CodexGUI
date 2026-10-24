@@ -79,6 +79,7 @@ internal static class Program
             await Check("Git porcelain v2 detects unmerged entries", GitConflictParsingAsync);
             await Check("NUL-delimited Git numstat handles renames and special filenames", GitNumstatAsync);
             await Check("Untracked text lines are counted without loading large files", () => TextLineCountingAsync(root));
+            await Check("Codex CLI output capture is bounded and drains excess output", CliOutputBoundAsync);
             Console.WriteLine($"PASS: {_passed} checks");
             return 0;
         }
@@ -1099,6 +1100,17 @@ internal static class Program
             oversized.SetLength(4L * 1024 * 1024 + 1);
         Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) is null,
             "Oversized file should be skipped");
+    }
+
+    private static async Task CliOutputBoundAsync()
+    {
+        using var reader = new StringReader("abcdefghij\nnext line");
+        var captured = await CodexCliService.ReadBoundedOutputAsync(reader, 8);
+        Require(captured.ExceededLimit && captured.Text == "abcdefgh", "CLI output capture did not cap stored characters");
+        Require(await reader.ReadToEndAsync() == "", "CLI output capture did not drain excess output");
+
+        var shortOutput = await CodexCliService.ReadBoundedOutputAsync(new StringReader("short output"), 32);
+        Require(!shortOutput.ExceededLimit && shortOutput.Text == "short output", "CLI output capture changed a short response");
     }
 
     private static Task GitHubRemotesAsync()
