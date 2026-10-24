@@ -42,6 +42,7 @@ internal static class Program
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Short RPC session reuses one process across pages", () => RpcSessionPaginationAsync(root));
             await Check("Thread history rejects repeated pagination cursors", () => ThreadHistoryPaginationAsync(root));
+            await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
@@ -1218,6 +1219,30 @@ internal static class Program
             Environment.SetEnvironmentVariable(modeKey, null);
             Environment.SetEnvironmentVariable(markerKey, null);
         }
+    }
+
+    private static Task ThreadHistoryBudgetAsync()
+    {
+        using var page = JsonDocument.Parse("[{\"text\":\"one\"},{\"text\":\"two\"}]");
+        var turns = new List<JsonElement>();
+        long bytes = 0;
+        var firstBytes = Encoding.UTF8.GetByteCount("{\"text\":\"one\"}");
+        var secondBytes = Encoding.UTF8.GetByteCount("{\"text\":\"two\"}");
+        CodexAppServerClient.AppendThreadHistoryPage(turns, page.RootElement, ref bytes, firstBytes + secondBytes);
+        Require(turns.Count == 2 && bytes == firstBytes + secondBytes,
+            "A page within the thread history budget was rejected");
+
+        var limitedTurns = new List<JsonElement>();
+        long limitedBytes = 0;
+        try
+        {
+            CodexAppServerClient.AppendThreadHistoryPage(limitedTurns, page.RootElement, ref limitedBytes, firstBytes + secondBytes - 1);
+            throw new InvalidOperationException("Thread history exceeded its byte budget without an error");
+        }
+        catch (InvalidDataException) { }
+        Require(limitedTurns.Count == 1 && limitedBytes == firstBytes,
+            "History budget accounting did not stop at the first oversized item");
+        return Task.CompletedTask;
     }
 
     private static async Task PreCancelledAsync()

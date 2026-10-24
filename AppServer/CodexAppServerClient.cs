@@ -12,6 +12,8 @@ namespace CodexGUI;
 
 internal sealed class CodexAppServerClient(string executablePath, CancellationToken lifetimeToken = default)
 {
+    private const long MaximumThreadHistoryBytes = 64L * 1024 * 1024;
+
     private string InitializeRequest => JsonSerializer.Serialize(new
     {
         id = 1,
@@ -119,6 +121,9 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             if (!metadata.TryGetProperty("thread", out var thread) || thread.ValueKind != JsonValueKind.Object)
                 throw new InvalidDataException("Codex App Server не вернул метаданные чата.");
 
+            long historyBytes = Encoding.UTF8.GetByteCount(thread.GetRawText());
+            if (historyBytes > MaximumThreadHistoryBytes)
+                throw new InvalidDataException("Метаданные чата превышают допустимый размер 64 МиБ.");
             var turns = new List<JsonElement>();
             var seenCursors = new HashSet<string>(StringComparer.Ordinal);
             string? cursor = null;
@@ -135,7 +140,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                 });
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
                     throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
-                turns.AddRange(data.EnumerateArray().Select(item => item.Clone()));
+                AppendThreadHistoryPage(turns, data, ref historyBytes, MaximumThreadHistoryBytes);
                 cursor = ReadCursor(response);
                 if (cursor is not null && !seenCursors.Add(cursor))
                     throw new InvalidDataException("Codex App Server повторил курсор истории чата.");
@@ -150,6 +155,21 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             threadFields["turns"] = JsonSerializer.SerializeToElement(turns);
             return JsonSerializer.SerializeToElement(new { thread = threadFields });
         }, cancellationToken);
+    }
+
+    internal static void AppendThreadHistoryPage(List<JsonElement> turns, JsonElement data,
+        ref long currentBytes, long maximumBytes)
+    {
+        if (data.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Страница истории чата должна быть JSON-массивом.");
+        foreach (var item in data.EnumerateArray())
+        {
+            var itemBytes = Encoding.UTF8.GetByteCount(item.GetRawText());
+            if (itemBytes > maximumBytes - currentBytes)
+                throw new InvalidDataException($"История чата превышает допустимый размер {maximumBytes / 1024 / 1024} МиБ.");
+            currentBytes += itemBytes;
+            turns.Add(item.Clone());
+        }
     }
 
     public Task<JsonElement> ForkThreadAsync(string sessionId, string? workingDirectory = null, CancellationToken cancellationToken = default)
