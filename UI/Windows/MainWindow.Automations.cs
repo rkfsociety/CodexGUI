@@ -420,21 +420,33 @@ public partial class MainWindow
     private static string? ReadAutomationThreadId(string outputPath)
     {
         if (!File.Exists(outputPath)) return null;
+        var malformedLines = 0;
+        string? threadId = null;
         try
         {
             foreach (var line in File.ReadLines(outputPath))
             {
-                using var document = JsonDocument.Parse(line);
-                if (GetString(document.RootElement, "type") == "thread.started"
-                    && GetString(document.RootElement, "thread_id") is { Length: > 0 } threadId)
-                    return threadId;
+                JsonDocument document;
+                try { document = JsonDocument.Parse(line); }
+                catch (JsonException) { malformedLines++; continue; }
+                using (document)
+                {
+                    if (GetString(document.RootElement, "type") == "thread.started"
+                        && GetString(document.RootElement, "thread_id") is { Length: > 0 } foundThreadId)
+                    {
+                        threadId = foundThreadId;
+                        break;
+                    }
+                }
             }
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             System.Diagnostics.Trace.TraceWarning("Не удалось прочитать id чата автоматизации: {0}", error.Message);
         }
-        return null;
+        if (malformedLines > 0)
+            System.Diagnostics.Trace.TraceWarning("Пропущено повреждённых строк в output автоматизации: {0}", malformedLines);
+        return threadId;
     }
 
     private static string ReadAutomationSummary(string outputPath)
@@ -445,6 +457,7 @@ public partial class MainWindow
         var finalMessage = new StringBuilder();
         var deltasTruncated = false;
         var finalMessageTruncated = false;
+        var malformedLines = 0;
 
         static void AppendBounded(StringBuilder target, string value, ref bool truncated)
         {
@@ -468,25 +481,32 @@ public partial class MainWindow
         {
             foreach (var line in File.ReadLines(outputPath))
             {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                var eventType = GetString(root, "type");
-                if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
-                    AppendBounded(deltas, delta, ref deltasTruncated);
-                else if (eventType == "item.completed" && root.TryGetProperty("item", out var item)
-                    && (GetString(item, "type") is "agent_message" or "agentMessage")
-                    && GetString(item, "text") is { } text)
+                JsonDocument document;
+                try { document = JsonDocument.Parse(line); }
+                catch (JsonException) { malformedLines++; continue; }
+                using (document)
                 {
-                    finalMessage.Clear();
-                    finalMessageTruncated = false;
-                    AppendBounded(finalMessage, text, ref finalMessageTruncated);
+                    var root = document.RootElement;
+                    var eventType = GetString(root, "type");
+                    if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
+                        AppendBounded(deltas, delta, ref deltasTruncated);
+                    else if (eventType == "item.completed" && root.TryGetProperty("item", out var item)
+                        && (GetString(item, "type") is "agent_message" or "agentMessage")
+                        && GetString(item, "text") is { } text)
+                    {
+                        finalMessage.Clear();
+                        finalMessageTruncated = false;
+                        AppendBounded(finalMessage, text, ref finalMessageTruncated);
+                    }
                 }
             }
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             System.Diagnostics.Trace.TraceWarning("Не удалось прочитать сводку автоматизации: {0}", error.Message);
         }
+        if (malformedLines > 0)
+            System.Diagnostics.Trace.TraceWarning("Пропущено повреждённых строк в output автоматизации: {0}", malformedLines);
         var useFinalMessage = finalMessage.Length > 0;
         var summary = useFinalMessage ? finalMessage.ToString() : deltas.ToString();
         summary = summary.Trim();

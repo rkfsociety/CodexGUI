@@ -47,6 +47,7 @@ internal static class Program
             await Check("Automation completion is bound to its worker run", AutomationCompletionIdentityAsync);
             await Check("Preparing automation recovery validates completion identity", () => PreparingAutomationRecoveryAsync(root));
             await Check("Automation summary bounds output while preserving final text", () => AutomationSummaryAsync(root));
+            await Check("Automation output readers skip malformed lines", () => AutomationOutputRecoveryAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -328,6 +329,30 @@ internal static class Program
         Require(finalSummary.Length == 1601 && finalSummary.EndsWith('…')
             && finalSummary[..1600] == new string('f', 1600),
             "Automation final message did not take precedence in the bounded summary");
+        return Task.CompletedTask;
+    }
+
+    private static Task AutomationOutputRecoveryAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var summaryReader = typeof(MainWindow).GetMethod("ReadAutomationSummary", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation summary reader was not found");
+        var threadReader = typeof(MainWindow).GetMethod("ReadAutomationThreadId", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation thread id reader was not found");
+        var outputPath = Path.Combine(root, "automation-output-recovery", "stdout.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        File.WriteAllLines(outputPath,
+        [
+            "{malformed json",
+            JsonSerializer.Serialize(new { type = "thread.started", thread_id = "recovered-thread" }),
+            "{still malformed",
+            JsonSerializer.Serialize(new { type = "item.completed", item = new { type = "agent_message", text = "recovered final" } })
+        ]);
+        var threadId = (string?)threadReader.Invoke(null, [outputPath]);
+        var summary = (string)summaryReader.Invoke(null, [outputPath])!;
+        Require(threadId == "recovered-thread", "A malformed line hid a later thread.started event");
+        Require(summary == "recovered final", "A malformed line hid a later assistant final message");
         return Task.CompletedTask;
     }
 
