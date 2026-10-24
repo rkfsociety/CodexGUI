@@ -320,6 +320,7 @@ public partial class MainWindow
         {
             completion = JsonSerializer.Deserialize<CodexAppServerWorkerCompletion>(await File.ReadAllTextAsync(completionPath))
                 ?? throw new InvalidDataException("Пустой результат фонового процесса.");
+            ValidateAutomationCompletionRunId(completion, workerRunId);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
         {
@@ -351,6 +352,13 @@ public partial class MainWindow
 
     private static bool IsAutomationWorkerRunning(CodexAutomationRun run)
         => IsProcessIdentityRunning(run.WorkerProcessId, run.WorkerStartTimeUtcTicks);
+
+    private static void ValidateAutomationCompletionRunId(CodexAppServerWorkerCompletion completion, string expectedRunId)
+    {
+        if (!string.IsNullOrWhiteSpace(completion.RunId)
+            && !string.Equals(completion.RunId, expectedRunId, StringComparison.Ordinal))
+            throw new InvalidDataException("Файл завершения принадлежит другой фоновой задаче.");
+    }
 
     private static bool TryRestoreAutomationWorkerIdentity(CodexAutomationRun run, string runDirectory)
     {

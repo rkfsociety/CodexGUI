@@ -44,6 +44,7 @@ internal static class Program
             await Check("Worker cleanup cannot delete outside its run directory", () => WorkerCleanupConfinementAsync(root));
             await Check("Restored worker paths are rebuilt from the run id", () => StoredWorkerPathsAsync(root));
             await Check("Automation recovery requires a matching worker marker", () => AutomationWorkerIdentityAsync(root));
+            await Check("Automation completion is bound to its worker run", AutomationCompletionIdentityAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -252,6 +253,24 @@ internal static class Program
         var invalidTimestamp = (bool)method.Invoke(null, [run, runDirectory])!;
         Require(!invalidTimestamp && run.WorkerProcessId == 0,
             "Automation recovery accepted an invalid worker timestamp");
+        return Task.CompletedTask;
+    }
+
+    private static Task AutomationCompletionIdentityAsync()
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var validate = typeof(MainWindow).GetMethod("ValidateAutomationCompletionRunId", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation completion validation method was not found");
+        var runId = Guid.NewGuid().ToString("N");
+        validate.Invoke(null, [new CodexAppServerWorkerCompletion { RunId = runId }, runId]);
+        validate.Invoke(null, [new CodexAppServerWorkerCompletion(), runId]);
+        try
+        {
+            validate.Invoke(null, [new CodexAppServerWorkerCompletion { RunId = Guid.NewGuid().ToString("N") }, runId]);
+            throw new InvalidOperationException("Completion for a different worker run was accepted");
+        }
+        catch (System.Reflection.TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
         return Task.CompletedTask;
     }
 

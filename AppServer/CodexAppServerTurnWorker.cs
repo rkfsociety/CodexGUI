@@ -41,6 +41,7 @@ internal sealed class CodexAppServerGoalDraft
 
 internal sealed class CodexAppServerWorkerCompletion
 {
+    public string? RunId { get; set; }
     public int ExitCode { get; set; }
     public string? Error { get; set; }
     public string? SessionId { get; set; }
@@ -61,7 +62,7 @@ internal static class CodexAppServerTurnWorker
         {
             request = JsonSerializer.Deserialize<CodexAppServerWorkerRequest>(await File.ReadAllTextAsync(requestPath))
                 ?? throw new InvalidDataException("Не удалось прочитать запрос фонового процесса Codex.");
-            completion = new CodexAppServerWorkerCompletion();
+            completion = new CodexAppServerWorkerCompletion { RunId = request.RunId };
             workerGate = new Semaphore(1, 1, $@"Local\CodexGUI.AppServerWorker.{request.RunId}");
             ownsGate = workerGate.WaitOne(0);
             if (!ownsGate) return;
