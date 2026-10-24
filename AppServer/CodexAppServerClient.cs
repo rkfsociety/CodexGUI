@@ -10,7 +10,10 @@ using System.Threading.Tasks;
 
 namespace CodexGUI;
 
-internal sealed class CodexAppServerClient(string executablePath, CancellationToken lifetimeToken = default)
+internal sealed class CodexAppServerClient(
+    string executablePath,
+    CancellationToken lifetimeToken = default,
+    int maximumResponseLineCharacters = BoundedTextLineReader.DefaultMaximumLineCharacters)
 {
     private const long MaximumThreadHistoryBytes = 64L * 1024 * 1024;
 
@@ -315,6 +318,8 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
         Func<Func<string, object, Task<JsonElement>>, Task<T>> operation,
         CancellationToken cancellationToken = default)
     {
+        if (maximumResponseLineCharacters <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumResponseLineCharacters));
         lifetimeToken.ThrowIfCancellationRequested();
         cancellationToken.ThrowIfCancellationRequested();
         using var sessionDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken, cancellationToken);
@@ -334,7 +339,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
         var errorsTask = DrainStandardErrorAsync(process.StandardError);
-        var standardOutput = new BoundedTextLineReader(process.StandardOutput);
+        var standardOutput = new BoundedTextLineReader(process.StandardOutput, maximumResponseLineCharacters);
         try
         {
             await WriteRpcLineAsync(process.StandardInput, InitializeRequest, sessionDeadline.Token);

@@ -55,6 +55,7 @@ internal static class Program
             await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
             await Check("Thread context usage reads the latest event and honors cancellation", () => ThreadContextUsageAsync(root));
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
+            await Check("Oversized RPC response closes its child process", () => RpcOversizedResponseAsync(root));
             await Check("RPC ignores unrelated response ids and closes on EOF", () => RpcUnexpectedResponseEofAsync(root));
             await Check("RPC shutdown does not wait for inherited stderr handles", () => RpcInheritedStderrAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
@@ -1611,6 +1612,29 @@ internal static class Program
         }
     }
 
+    private static async Task RpcOversizedResponseAsync(string root)
+    {
+        const string markerKey = "CODEXGUI_CHECK_RPC_OVERSIZED_MARKER";
+        const int maximumResponseCharacters = 128;
+        var marker = Path.Combine(root, "rpc-oversized-response-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable(markerKey, marker);
+        try
+        {
+            await ThrowsAsync<InvalidDataException>(() => new CodexAppServerClient(
+                Executable, maximumResponseLineCharacters: maximumResponseCharacters)
+                .ReadAccountAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+            await WaitForFileAsync(marker);
+            var processId = int.Parse(await File.ReadAllTextAsync(marker));
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                Require(process.HasExited, "An oversized RPC response left its child process running");
+            }
+            catch (ArgumentException) { }
+        }
+        finally { Environment.SetEnvironmentVariable(markerKey, null); }
+    }
+
     private static async Task ThreadHistoryPaginationAsync(string root)
     {
         var modeKey = "CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE";
@@ -1746,6 +1770,13 @@ internal static class Program
                 var marker = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_UNEXPECTED_RESPONSE_MARKER")!;
                 await File.WriteAllTextAsync(marker, Environment.ProcessId.ToString());
                 await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32() + 100, result = new { ok = true } }));
+                await Console.Out.FlushAsync();
+                return 0;
+            }
+            if (method == "account/read" && Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_OVERSIZED_MARKER") is { Length: > 0 } oversizedMarker)
+            {
+                await File.WriteAllTextAsync(oversizedMarker, Environment.ProcessId.ToString());
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { text = new string('x', 512) } }));
                 await Console.Out.FlushAsync();
                 return 0;
             }
