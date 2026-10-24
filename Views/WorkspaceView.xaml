@@ -251,7 +251,15 @@
     <ColumnDefinition Width="*" />
     <ColumnDefinition Width="0" />
   </Grid.ColumnDefinitions>
-  <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Background="#0A1318">
+  <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+    <Border.Background>
+      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#060B0E" Offset="0" />
+        <GradientStop Color="#060B0E" Offset="0.28" />
+        <GradientStop Color="#080E11" Offset="0.63" />
+        <GradientStop Color="#070B0F" Offset="1" />
+      </LinearGradientBrush>
+    </Border.Background>
     <Grid Margin="25,0,20,0" x:Name="WorkspaceHeaderGrid">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="425" />
@@ -649,7 +657,7 @@
                 </Grid>
               </Border>
               <UniformGrid Columns="2" Height="165" Margin="10,0,10,13">
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickFindButton" ToolTip="Найти в коде">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickFindButton" ToolTip="Найти в коде">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
@@ -659,7 +667,7 @@
                     <TextBlock Text="Найти в коде" FontSize="12" VerticalAlignment="Center" Grid.Column="1" TextTrimming="CharacterEllipsis" />
                   </Grid>
                 </Button>
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickFileButton" ToolTip="Открыть файл">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickFileButton" ToolTip="Открыть файл">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
@@ -669,7 +677,7 @@
                     <TextBlock Text="Открыть файл" FontSize="12" VerticalAlignment="Center" Grid.Column="1" TextTrimming="CharacterEllipsis" />
                   </Grid>
                 </Button>
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickTerminalButton" ToolTip="Запустить команду">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickTerminalButton" ToolTip="Запустить команду">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
@@ -679,7 +687,7 @@
                     <TextBlock Text="Запустить команду" FontSize="12" VerticalAlignment="Center" Grid.Column="1" TextTrimming="CharacterEllipsis" />
                   </Grid>
                 </Button>
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickDiffButton" ToolTip="Просмотр изменений">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickDiffButton" ToolTip="Просмотр изменений">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
@@ -689,7 +697,7 @@
                     <TextBlock Text="Просмотр изменений" FontSize="12" VerticalAlignment="Center" Grid.Column="1" TextTrimming="CharacterEllipsis" />
                   </Grid>
                 </Button>
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickCreateButton" ToolTip="Создать файл">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickCreateButton" ToolTip="Создать файл">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
@@ -699,7 +707,7 @@
                     <TextBlock Text="Создать файл" FontSize="12" VerticalAlignment="Center" Grid.Column="1" TextTrimming="CharacterEllipsis" />
                   </Grid>
                 </Button>
-                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#101D24" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickExplainButton" ToolTip="Объяснить код">
+                <Button Height="47" Margin="4" Padding="12,0" HorizontalContentAlignment="Stretch" Background="#121B20" BorderBrush="{StaticResource Line}" BorderThickness="1" FontSize="12" x:Name="QuickExplainButton" ToolTip="Объяснить код">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="30" />
