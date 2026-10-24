@@ -148,5 +148,6 @@
 
 - Анализ lifecycle обнаружил, что `DisposeAsync` ожидал дочерний процесс до закрытия incoming channel. Если reader блокировался на полном bounded channel, дочерний процесс мог ждать освобождения stdout, а reader оставался заблокированным после dispose.
 - Исправление: incoming channel завершается в начале `DisposeAsync`, разблокируя reader; добавлен fake-protocol regression, который заполняет очередь и проверяет завершение reader и peer.
-- Версия повышена с `0.0.119` до `0.0.120`. Проверки ожидают выполнения; локальное приложение/EXE не запускать.
+- Версия повышена с `0.0.119` до `0.0.120`. Локальная компиляция тестового проекта прошла без предупреждений/ошибок; regression runner и app/EXE локально не запускались.
+- Release workflow `40109654134` прошёл regression suite и fake-peer lifecycle check с заполненной очередью на GitHub runner; опубликован `v0.0.120` с EXE, ZIP, checksum и signature.
 - Следующий цикл: проверить таймауты завершения дочернего app-server при удерживаемых stdout/stderr handles.
