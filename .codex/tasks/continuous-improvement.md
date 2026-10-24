@@ -299,4 +299,5 @@
 - `CodexAppServerTerminalHost.DisposeAsync` ждал `_startLock` до отмены lifetime; если `EnsureConnectedAsync` был заблокирован на initialization, закрытие окна не могло отменить этот запрос.
 - Добавлен отдельный startup token: Dispose отменяет его до ожидания lock, initialization закрывает зависшее соединение; notification reader остаётся активен до завершения активных terminal sessions. Окно подавляет сообщение об ошибке старта при собственном закрытии.
 - Добавлен fake-peer regression, который блокирует initialize и проверяет отмену старта и завершение App Server child. Версия повышена с `0.0.137` до `0.0.138`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
+- Первый CI-run `40117549610` выявил ошибку тестового fake-peer запуска без stdio redirection; test-only коммит `05ddbed` настроил stdin/stdout/stderr. Run `40117729238` прошёл и опубликовал `v0.0.138` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит terminal session write/resize/terminate timeout и disposal failure.
