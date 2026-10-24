@@ -43,6 +43,7 @@ internal static class Program
             await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
             await Check("Worker cleanup cannot delete outside its run directory", () => WorkerCleanupConfinementAsync(root));
             await Check("Restored worker paths are rebuilt from the run id", () => StoredWorkerPathsAsync(root));
+            await Check("Automation recovery requires a matching worker marker", () => AutomationWorkerIdentityAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -211,6 +212,46 @@ internal static class Program
         Require(string.Equals((string?)runType.GetProperty("RequestPath")!.GetValue(recoveredRun),
                 Path.Combine(runDirectory, "request.json"), StringComparison.OrdinalIgnoreCase),
             "Invalid primary worker state did not recover from the backup");
+        return Task.CompletedTask;
+    }
+
+    private static Task AutomationWorkerIdentityAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var method = typeof(MainWindow).GetMethod("TryRestoreAutomationWorkerIdentity", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation worker recovery method was not found");
+        var runId = Guid.NewGuid().ToString("N");
+        var otherRunId = Guid.NewGuid().ToString("N");
+        var runDirectory = Path.Combine(root, "automation-worker-identity");
+        Directory.CreateDirectory(runDirectory);
+        var startedPath = Path.Combine(runDirectory, "started.json");
+        var startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        var run = new CodexAutomationRun { WorkerRunId = runId };
+
+        void WriteMarker(string markerRunId, long markerTicks = 0) => File.WriteAllText(startedPath,
+            JsonSerializer.Serialize(new
+            {
+                RunId = markerRunId,
+                ProcessId = Environment.ProcessId,
+                StartTimeUtcTicks = markerTicks == 0 ? startTicks : markerTicks
+            }));
+
+        WriteMarker(otherRunId);
+        var mismatched = (bool)method.Invoke(null, [run, runDirectory])!;
+        Require(!mismatched && run.WorkerProcessId == 0,
+            "Automation recovery accepted a marker for another worker run");
+
+        WriteMarker(runId);
+        var matching = (bool)method.Invoke(null, [run, runDirectory])!;
+        Require(matching && run.WorkerProcessId == Environment.ProcessId && run.WorkerStartTimeUtcTicks == startTicks,
+            "Automation recovery rejected a matching worker marker");
+
+        run.WorkerProcessId = 0;
+        WriteMarker(runId, long.MinValue);
+        var invalidTimestamp = (bool)method.Invoke(null, [run, runDirectory])!;
+        Require(!invalidTimestamp && run.WorkerProcessId == 0,
+            "Automation recovery accepted an invalid worker timestamp");
         return Task.CompletedTask;
     }
 

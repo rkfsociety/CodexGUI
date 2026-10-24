@@ -360,11 +360,14 @@ public partial class MainWindow
         {
             using var document = JsonDocument.Parse(File.ReadAllText(startedPath));
             var started = document.RootElement;
-            if (started.TryGetProperty("ProcessId", out var processId) && processId.TryGetInt32(out var id))
-                run.WorkerProcessId = id;
-            if (started.TryGetProperty("StartTimeUtcTicks", out var startTime) && startTime.TryGetInt64(out var ticks))
-                run.WorkerStartTimeUtcTicks = ticks;
-            return run.WorkerProcessId > 0;
+            if (GetString(started, "RunId") != run.WorkerRunId
+                || !started.TryGetProperty("ProcessId", out var processId) || !processId.TryGetInt32(out var id) || id <= 0
+                || !started.TryGetProperty("StartTimeUtcTicks", out var startTime)
+                || !startTime.TryGetInt64(out var ticks) || ticks <= 0 || ticks > DateTime.MaxValue.Ticks)
+                return false;
+            run.WorkerProcessId = id;
+            run.WorkerStartTimeUtcTicks = ticks;
+            return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
         {
