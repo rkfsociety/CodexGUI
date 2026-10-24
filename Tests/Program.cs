@@ -433,6 +433,15 @@ internal static class Program
             throw new InvalidOperationException("The protocol reader accepted a line over its limit");
         }
         catch (InvalidDataException) { }
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        try
+        {
+            await new BoundedTextLineReader(new StringReader("pending"), 32).ReadLineAsync(cancellation.Token);
+            throw new InvalidOperationException("The protocol reader ignored cancellation");
+        }
+        catch (OperationCanceledException) { }
     }
 
     private static async Task BoundedQueueShutdownAsync()

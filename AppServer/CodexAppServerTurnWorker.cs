@@ -511,27 +511,28 @@ internal sealed class CodexAppServerWorkerControl
 
 internal sealed class BoundedTextLineReader
 {
+    internal const int DefaultMaximumLineCharacters = 32 * 1024 * 1024;
     private readonly TextReader _reader;
     private readonly int _maximumLineCharacters;
     private readonly char[] _buffer = new char[8192];
     private int _position;
     private int _length;
 
-    public BoundedTextLineReader(TextReader reader, int maximumLineCharacters)
+    public BoundedTextLineReader(TextReader reader, int maximumLineCharacters = DefaultMaximumLineCharacters)
     {
         if (maximumLineCharacters <= 0) throw new ArgumentOutOfRangeException(nameof(maximumLineCharacters));
         _reader = reader;
         _maximumLineCharacters = maximumLineCharacters;
     }
 
-    public async Task<string?> ReadLineAsync()
+    public async Task<string?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
         var line = new StringBuilder(Math.Min(_maximumLineCharacters, _buffer.Length));
         while (true)
         {
             if (_position == _length)
             {
-                _length = await _reader.ReadAsync(_buffer.AsMemory());
+                _length = await _reader.ReadAsync(_buffer.AsMemory(), cancellationToken);
                 _position = 0;
                 if (_length == 0) return line.Length == 0 ? null : CompleteLine(line);
             }
@@ -561,7 +562,6 @@ internal sealed class BoundedTextLineReader
 internal sealed class CodexAppServerConnection : IAsyncDisposable
 {
     internal const int IncomingMessageQueueCapacity = 128;
-    private const int MaximumProtocolLineCharacters = 32 * 1024 * 1024;
     private readonly Process _process;
     private readonly StreamWriter _writer;
     private readonly Task _standardErrorTask;
@@ -582,7 +582,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         _process = process;
         _writer = process.StandardInput;
         _standardErrorTask = DrainStandardErrorAsync(process.StandardError);
-        _standardOutput = new BoundedTextLineReader(process.StandardOutput, MaximumProtocolLineCharacters);
+        _standardOutput = new BoundedTextLineReader(process.StandardOutput);
         ReaderTask = Task.Run(ReadMessagesAsync);
     }
 

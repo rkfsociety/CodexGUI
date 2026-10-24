@@ -167,3 +167,10 @@
 - Версия повышена с `0.0.121` до `0.0.122`. Локальная компиляция тестового проекта прошла без предупреждений/ошибок; runner/EXE локально не запускались.
 - Release workflow `40110207781` завершился успешно; regression suite подтвердил fake peer kill path, опубликован `v0.0.122` с EXE, ZIP, checksum и signature. Локальное приложение и EXE не запускались.
 - Следующий цикл: продолжить проверку kill failure и process exit state.
+
+## Цикл — ограничение коротких App Server RPC
+
+- Аудит обнаружил, что `CodexAppServerClient` всё ещё читал stdout через неограниченный `ReadLineAsync` и полностью накапливал stderr через `ReadToEndAsync`, хотя длительный worker уже использовал bounded reader и streaming drain.
+- Исправление: короткие RPC теперь используют тот же bounded/cancellable line reader и потоковый stderr drain.
+- Версия повышена с `0.0.122` до `0.0.123`. `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошёл без предупреждений/ошибок; test runner, App Server, приложение и EXE локально не запускались.
+- Следующий цикл: проверить ошибки reader и deadline cleanup коротких RPC при повреждённом/чрезмерно длинном ответе.

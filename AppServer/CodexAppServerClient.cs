@@ -271,11 +271,12 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
 
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Codex app-server.");
-        var errorsTask = process.StandardError.ReadToEndAsync();
+        var errorsTask = DrainStandardErrorAsync(process.StandardError);
+        var standardOutput = new BoundedTextLineReader(process.StandardOutput);
         try
         {
             await WriteRpcLineAsync(process.StandardInput, InitializeRequest, sessionDeadline.Token);
-            _ = await ReadRpcResultAsync(process.StandardOutput, 1, sessionDeadline.Token);
+            _ = await ReadRpcResultAsync(standardOutput, 1, sessionDeadline.Token);
             await WriteRpcLineAsync(process.StandardInput, "{\"method\":\"initialized\",\"params\":{}}", sessionDeadline.Token);
 
             var nextRequestId = 1;
@@ -284,7 +285,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                 var id = ++nextRequestId;
                 var request = JsonSerializer.Serialize(new { id, method = requestMethod, @params = requestParameters });
                 await WriteRpcLineAsync(process.StandardInput, request, sessionDeadline.Token);
-                return await ReadRpcResultAsync(process.StandardOutput, id, sessionDeadline.Token);
+                return await ReadRpcResultAsync(standardOutput, id, sessionDeadline.Token);
             }
 
             return await operation(SendAsync);
@@ -314,6 +315,19 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
         }
     }
 
+    private static async Task DrainStandardErrorAsync(StreamReader reader)
+    {
+        var buffer = new char[8192];
+        try
+        {
+            while (await reader.ReadAsync(buffer.AsMemory()) != 0) { }
+        }
+        catch (Exception error) when (error is IOException or ObjectDisposedException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Ошибка при чтении stderr Codex app-server: {0}", error.Message);
+        }
+    }
+
     private static async Task WriteRpcLineAsync(StreamWriter writer, string line, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -329,7 +343,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
         }
     }
 
-    private static async Task<JsonElement> ReadRpcResultAsync(StreamReader reader, int requestId,
+    private static async Task<JsonElement> ReadRpcResultAsync(BoundedTextLineReader reader, int requestId,
         CancellationToken cancellationToken)
     {
         // A single deadline prevents unrelated notifications from keeping an RPC alive forever.
