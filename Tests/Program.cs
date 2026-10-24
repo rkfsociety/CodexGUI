@@ -105,6 +105,12 @@ internal static class Program
             Require(corrupt is null, "A negative process start timestamp was accepted");
         using (var outOfRange = InvokeRecovery(long.MaxValue))
             Require(outOfRange is null, "An out-of-range process start timestamp was accepted");
+
+        File.Delete(startedPath);
+        runType.GetProperty("WorkerProcessId")!.SetValue(run, Environment.ProcessId);
+        runType.GetProperty("WorkerStartTimeUtcTicks")!.SetValue(run, long.MinValue);
+        using (var corruptState = (Process?)method.Invoke(null, [run]))
+            Require(corruptState is null, "A corrupt persisted process timestamp was accepted without a marker");
         return Task.CompletedTask;
     }
 

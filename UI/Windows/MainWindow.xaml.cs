@@ -5056,7 +5056,8 @@ public partial class MainWindow : Window
             catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException) { }
         }
 
-        if (run.WorkerProcessId <= 0) return null;
+        if (run.WorkerProcessId <= 0 || run.WorkerStartTimeUtcTicks < 0
+            || run.WorkerStartTimeUtcTicks > DateTime.MaxValue.Ticks) return null;
         try
         {
             var process = Process.GetProcessById(run.WorkerProcessId);
