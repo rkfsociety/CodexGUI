@@ -504,6 +504,9 @@ internal static class Program
             "A CRLF split across read buffers counted its carriage return against the limit");
         Require(await splitCrlfReader.ReadLineAsync() == "next",
             "The protocol reader lost the line following a split CRLF");
+        var exactUnterminatedReader = new BoundedTextLineReader(new StringReader(maximumLengthLine), 8);
+        Require(await exactUnterminatedReader.ReadLineAsync() == maximumLengthLine,
+            "An unterminated final line at the character limit was rejected or altered");
         var repeatedCarriageReader = new BoundedTextLineReader(new StringReader("x\r\r\n"), 2);
         Require(await repeatedCarriageReader.ReadLineAsync() == "x\r",
             "The protocol reader removed a carriage return that was part of the line");
@@ -518,6 +521,17 @@ internal static class Program
             throw new InvalidOperationException("The protocol reader accepted a line over its limit");
         }
         catch (InvalidDataException) { }
+
+        var oversizedSource = new RepeatingTextReader(totalCharacters: 1_000_000, maximumChunkSize: 4);
+        var streamingOversizedReader = new BoundedTextLineReader(oversizedSource, 8);
+        try
+        {
+            await streamingOversizedReader.ReadLineAsync();
+            throw new InvalidOperationException("The streaming protocol reader accepted an oversized line");
+        }
+        catch (InvalidDataException) { }
+        Require(oversizedSource.CharactersRead == 12,
+            "The protocol reader accumulated an oversized line instead of stopping at the first excess block");
 
         var truncatedReader = new BoundedTextLineReader(new StringReader("123456789\r\nnext\r\n"), 8, truncateLongLines: true);
         Require(await truncatedReader.ReadLineAsync() == "1234567…", "The output reader did not bound and mark a long line");
@@ -1876,6 +1890,20 @@ internal static class Program
             var count = Math.Min(Math.Min(buffer.Length, maximumChunkSize), text.Length - _position);
             text.AsMemory(_position, count).CopyTo(buffer);
             _position += count;
+            return ValueTask.FromResult(count);
+        }
+    }
+
+    private sealed class RepeatingTextReader(int totalCharacters, int maximumChunkSize) : TextReader
+    {
+        public int CharactersRead { get; private set; }
+
+        public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(Math.Min(buffer.Length, maximumChunkSize), totalCharacters - CharactersRead);
+            buffer.Span[..count].Fill('x');
+            CharactersRead += count;
             return ValueTask.FromResult(count);
         }
     }
