@@ -41,6 +41,7 @@ internal static class Program
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
+            await Check("Worker cleanup cannot delete outside its run directory", () => WorkerCleanupConfinementAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -111,6 +112,37 @@ internal static class Program
         runType.GetProperty("WorkerStartTimeUtcTicks")!.SetValue(run, long.MinValue);
         using (var corruptState = (Process?)method.Invoke(null, [run]))
             Require(corruptState is null, "A corrupt persisted process timestamp was accepted without a marker");
+        return Task.CompletedTask;
+    }
+
+    private static Task WorkerCleanupConfinementAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var runType = typeof(MainWindow).GetNestedType("ActiveCliRun", System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ActiveCliRun type was not found");
+        var cleanup = typeof(MainWindow).GetMethod("CleanupCliRun", nonPublicStatic)
+            ?? throw new InvalidOperationException("Worker cleanup method was not found");
+        var untrustedDirectory = Path.Combine(root, "worker-cleanup-sentinel");
+        Directory.CreateDirectory(untrustedDirectory);
+        var sentinel = Path.Combine(untrustedDirectory, "keep.txt");
+        File.WriteAllText(sentinel, "preserve");
+        var run = Activator.CreateInstance(runType)
+            ?? throw new InvalidOperationException("ActiveCliRun could not be created");
+        runType.GetProperty("RunId")!.SetValue(run, Guid.NewGuid().ToString("N"));
+        runType.GetProperty("RequestPath")!.SetValue(run, Path.Combine(untrustedDirectory, "request.json"));
+
+        cleanup.Invoke(null, [run]);
+        Require(File.Exists(sentinel), "Worker cleanup deleted data outside the local workers directory");
+
+        runType.GetProperty("RunId")!.SetValue(run, "..");
+        cleanup.Invoke(null, [run]);
+        Require(File.Exists(sentinel), "Worker cleanup accepted an invalid run id");
+
+        runType.GetProperty("RunId")!.SetValue(run, Guid.NewGuid().ToString("N"));
+        runType.GetProperty("RequestPath")!.SetValue(run, "invalid\0path");
+        cleanup.Invoke(null, [run]);
+        Require(File.Exists(sentinel), "Worker cleanup did not tolerate a malformed saved path");
         return Task.CompletedTask;
     }
 

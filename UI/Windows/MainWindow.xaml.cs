@@ -5114,10 +5114,27 @@ public partial class MainWindow : Window
 
     private static void CleanupCliRun(ActiveCliRun run)
     {
-        try { Directory.Delete(Path.GetDirectoryName(run.RequestPath)!, recursive: true); }
-        catch (DirectoryNotFoundException) { }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        if (!Guid.TryParseExact(run.RunId, "N", out _)
+            || string.IsNullOrWhiteSpace(run.RequestPath)) return;
+        string expectedRunDirectory;
+        string? requestDirectory;
+        try
+        {
+            var workersRoot = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers"));
+            expectedRunDirectory = Path.GetFullPath(Path.Combine(workersRoot, run.RunId));
+            requestDirectory = Path.GetDirectoryName(Path.GetFullPath(run.RequestPath));
+            if (requestDirectory is null
+                || !string.Equals(requestDirectory, expectedRunDirectory, StringComparison.OrdinalIgnoreCase)
+                || !Directory.Exists(expectedRunDirectory)
+                || (new DirectoryInfo(expectedRunDirectory).Attributes & FileAttributes.ReparsePoint) != 0) return;
+            Directory.Delete(expectedRunDirectory, recursive: true);
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException
+            or NotSupportedException or System.Security.SecurityException)
+        {
+            return;
+        }
     }
 
     private static string? GetString(JsonElement element, string property) =>
