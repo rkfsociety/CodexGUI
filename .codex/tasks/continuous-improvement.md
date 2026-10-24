@@ -334,6 +334,13 @@
 - Release workflow `40121424123` прошёл connection-loss regression и опубликовал `v0.0.143` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит terminal output recovery и других App Server connection-loss сценариев.
 
+## Цикл — пакетная доставка terminal output в UI
+
+- Каждый `outputDelta` создавал отдельный `Dispatcher.BeginInvoke` и отдельное изменение `TextBox`; при интенсивном выводе могла расти очередь UI callbacks, хотя сам текст окна ограничен.
+- Добавлен общий bounded buffer на 256 Ки символов/2048 chunks; UI получает не больше одного flush в очереди, чанки агрегируются по терминалам, при отбрасывании старого текста показывается маркер.
+- Добавлена unit/regression проверка порядка, coalescing, лимита и сохранения последнего вывода. Версия повышена с `0.0.143` до `0.0.144`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
+- Следующий цикл: продолжить аудит App Server connection-loss и terminal output recovery.
+
 ## Цикл — учитывать taskbar при максимизации окна
 
 - Главное окно borderless с `WindowChrome`, а кнопка максимизации задаёт `WindowState.Maximized`; явной обработки `WM_GETMINMAXINFO` не было, поэтому maximize bounds могли не совпадать с рабочей областью выбранного монитора.

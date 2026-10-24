@@ -67,6 +67,7 @@ internal static class Program
             await Check("Closing terminal host cancels pending app-server initialization", () => TerminalHostStartupCancellationAsync(root));
             await Check("Terminal host reconnects after app-server disconnect", () => TerminalHostReconnectAsync(root));
             await Check("Terminal terminate RPC times out and remains retryable", () => TerminalTerminateTimeoutAsync(root));
+            await Check("Terminal output batches preserve recent text within a bound", TerminalOutputBatchBufferAsync);
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
@@ -767,6 +768,26 @@ internal static class Program
         {
             await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
         }
+    }
+
+    private static Task TerminalOutputBatchBufferAsync()
+    {
+        var buffer = new TerminalOutputBatchBuffer(maximumCharacters: 8, maximumChunks: 4);
+        Require(buffer.Enqueue(new CodexTerminalOutput("shell", "1234")), "The first terminal chunk did not schedule a flush");
+        Require(!buffer.Enqueue(new CodexTerminalOutput("shell", "5678")), "Terminal chunks did not coalesce into one pending flush");
+        Require(!buffer.Enqueue(new CodexTerminalOutput("shell", "90")), "An overflowing terminal chunk scheduled a duplicate flush");
+        var batch = buffer.Drain();
+        Require(batch.TruncatedProcessId == "shell", "Overflow was not associated with its terminal session");
+        Require(string.Concat(batch.Items.Select(item => item.Text)) == "567890", "The output buffer did not preserve the newest terminal text");
+        Require(buffer.Enqueue(new CodexTerminalOutput("shell", "new")), "Draining did not reset flush scheduling");
+
+        var oversizedBuffer = new TerminalOutputBatchBuffer(maximumCharacters: 4, maximumChunks: 2);
+        Require(oversizedBuffer.Enqueue(new CodexTerminalOutput("shell", "abcdef")), "An oversized first chunk did not schedule a flush");
+        var oversizedBatch = oversizedBuffer.Drain();
+        Require(oversizedBatch.TruncatedProcessId == "shell"
+            && string.Concat(oversizedBatch.Items.Select(item => item.Text)) == "cdef",
+            "A single oversized chunk was not clipped to the configured limit");
+        return Task.CompletedTask;
     }
 
     private static async Task<int> FakeAppServerFloodAsync()

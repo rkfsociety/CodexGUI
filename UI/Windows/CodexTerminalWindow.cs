@@ -19,6 +19,7 @@ internal sealed class CodexTerminalWindow : Window
     private readonly CodexAppServerTerminalHost _host = new();
     private readonly Dictionary<string, TerminalTab> _sessions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _closingSessions = new(StringComparer.Ordinal);
+    private readonly TerminalOutputBatchBuffer _terminalOutputBuffer = new();
     private readonly TabControl _tabs = new();
     private readonly TextBlock _status = new();
     private int _terminalNumber;
@@ -44,6 +45,7 @@ internal sealed class CodexTerminalWindow : Window
         Closed += (_, _) =>
         {
             _isClosing = true;
+            _terminalOutputBuffer.Clear();
             _ = _host.DisposeAsync();
         };
     }
@@ -277,10 +279,36 @@ internal sealed class CodexTerminalWindow : Window
     private void OnOutputReceived(CodexTerminalOutput output)
     {
         if (_isClosing || Dispatcher.HasShutdownStarted) return;
-        _ = Dispatcher.BeginInvoke(() =>
+        var truncated = output.Text.Length > TerminalOutputBatchBuffer.DefaultMaximumCharacters;
+        var boundedText = truncated
+            ? output.Text[^TerminalOutputBatchBuffer.DefaultMaximumCharacters..]
+            : output.Text;
+        var sanitizedText = StripTerminalSequences(boundedText);
+        if (!_terminalOutputBuffer.Enqueue(new CodexTerminalOutput(output.ProcessId, sanitizedText), truncated)) return;
+
+        try { _ = Dispatcher.BeginInvoke((Action)FlushPendingTerminalOutput); }
+        catch (InvalidOperationException) { _terminalOutputBuffer.Clear(); }
+    }
+
+    private void FlushPendingTerminalOutput()
+    {
+        var batch = _terminalOutputBuffer.Drain();
+        if (_isClosing || Dispatcher.HasShutdownStarted) return;
+
+        var outputByProcess = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
+        void Append(string processId, string text)
         {
-            if (_sessions.TryGetValue(output.ProcessId, out var tab)) AppendOutput(tab, StripTerminalSequences(output.Text));
-        });
+            if (!outputByProcess.TryGetValue(processId, out var builder))
+                outputByProcess[processId] = builder = new StringBuilder();
+            builder.Append(text);
+        }
+
+        if (batch.TruncatedProcessId is { } truncatedProcessId)
+            Append(truncatedProcessId, "\r\n[часть terminal output пропущена из-за переполнения буфера]\r\n");
+        foreach (var output in batch.Items) Append(output.ProcessId, output.Text);
+
+        foreach (var (processId, text) in outputByProcess)
+            if (_sessions.TryGetValue(processId, out var tab)) AppendOutput(tab, text.ToString());
     }
 
     private void OnSessionExited(CodexTerminalExit exit)
