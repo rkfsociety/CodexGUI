@@ -14,6 +14,11 @@ internal static class Program
     {
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
+        if (args.FirstOrDefault() == "--hold-inherited-stderr")
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15));
+            return 0;
+        }
         if (args.FirstOrDefault() == "--fake-appserver-drop-after-initialize") return await FakeAppServerDropAfterInitializeAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-block-initialize") return await FakeAppServerBlockInitializeAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-terminal-control") return await FakeAppServerTerminalControlAsync(args);
@@ -50,6 +55,7 @@ internal static class Program
             await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
             await Check("Thread context usage reads the latest event and honors cancellation", () => ThreadContextUsageAsync(root));
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
+            await Check("RPC shutdown does not wait for inherited stderr handles", () => RpcInheritedStderrAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
@@ -1516,6 +1522,37 @@ internal static class Program
         finally { Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_MALFORMED_MARKER", null); }
     }
 
+    private static async Task RpcInheritedStderrAsync(string root)
+    {
+        var marker = Path.Combine(root, "rpc-inherited-stderr-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_INHERITED_STDERR_MARKER", marker);
+        int? childProcessId = null;
+        try
+        {
+            var response = await new CodexAppServerClient(Executable).ReadAccountAsync()
+                .WaitAsync(TimeSpan.FromSeconds(3));
+            Require(response.GetProperty("ok").GetBoolean(), "RPC response was lost while draining stderr");
+            await WaitForFileAsync(marker);
+            childProcessId = int.Parse(await File.ReadAllTextAsync(marker));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_INHERITED_STDERR_MARKER", null);
+            if (childProcessId is null && File.Exists(marker))
+                childProcessId = int.Parse(await File.ReadAllTextAsync(marker));
+            if (childProcessId is { } processId)
+            {
+                try
+                {
+                    using var child = Process.GetProcessById(processId);
+                    if (!child.HasExited) child.Kill(entireProcessTree: true);
+                    await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+                }
+                catch (ArgumentException) { }
+            }
+        }
+    }
+
     private static async Task ThreadHistoryPaginationAsync(string root)
     {
         var modeKey = "CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE";
@@ -1631,6 +1668,18 @@ internal static class Program
             {
                 File.WriteAllText(malformedMarker, Environment.ProcessId.ToString());
                 await Console.Out.WriteLineAsync("{invalid json");
+                await Console.Out.FlushAsync();
+                return 0;
+            }
+            if (method == "account/read" && Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_INHERITED_STDERR_MARKER") is { Length: > 0 } inheritedStderrMarker)
+            {
+                var childStart = new ProcessStartInfo(Executable) { UseShellExecute = false, CreateNoWindow = true };
+                childStart.ArgumentList.Add("--hold-inherited-stderr");
+                childStart.ArgumentList.Add(inheritedStderrMarker);
+                using var child = Process.Start(childStart)
+                    ?? throw new InvalidOperationException("Could not start inherited-stderr fake child");
+                await File.WriteAllTextAsync(inheritedStderrMarker, child.Id.ToString());
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { ok = true } }));
                 await Console.Out.FlushAsync();
                 return 0;
             }
