@@ -41,6 +41,7 @@ internal static class Program
             await Check("Operation cancellation closes the RPC child process", () => RpcAsync(root, cancel: true));
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Short RPC session reuses one process across pages", () => RpcSessionPaginationAsync(root));
+            await Check("Thread history rejects repeated pagination cursors", () => ThreadHistoryPaginationAsync(root));
             await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
@@ -1197,6 +1198,28 @@ internal static class Program
         finally { Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_MALFORMED_MARKER", null); }
     }
 
+    private static async Task ThreadHistoryPaginationAsync(string root)
+    {
+        var modeKey = "CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE";
+        var markerKey = "CODEXGUI_CHECK_RPC_THREAD_MARKER";
+        var marker = Path.Combine(root, "rpc-thread-pages-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable(modeKey, "repeat");
+        Environment.SetEnvironmentVariable(markerKey, marker);
+        try
+        {
+            var client = new CodexAppServerClient(Executable);
+            await ThrowsAsync<InvalidDataException>(() => client.ReadThreadAsync("thread-id"));
+            var requests = File.ReadAllLines(marker);
+            Require(requests.Length == 2 && requests.All(line => line == "repeated-cursor"),
+                "Repeated thread history cursor was not rejected immediately");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(modeKey, null);
+            Environment.SetEnvironmentVariable(markerKey, null);
+        }
+    }
+
     private static async Task PreCancelledAsync()
     {
         using var cancellation = new CancellationTokenSource();
@@ -1241,6 +1264,32 @@ internal static class Program
                 {
                     data = new[] { new { id = $"server-{page}" } },
                     nextCursor = page == 1 ? "page-two" : null
+                };
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result }));
+                await Console.Out.FlushAsync();
+                continue;
+            }
+            if (method == "thread/read")
+            {
+                var result = new { thread = new { id = "thread-id", title = "Fake thread" } };
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result }));
+                await Console.Out.FlushAsync();
+                continue;
+            }
+            if (method == "thread/turns/list")
+            {
+                var parameters = root.GetProperty("params");
+                var cursor = parameters.TryGetProperty("cursor", out var cursorValue)
+                    && cursorValue.ValueKind == JsonValueKind.String ? cursorValue.GetString() : null;
+                var repeated = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE") == "repeat";
+                var marker = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_THREAD_MARKER");
+                if (marker is { Length: > 0 })
+                    await File.AppendAllTextAsync(marker, repeated ? $"repeated-cursor{Environment.NewLine}" : $"{cursor ?? "none"}{Environment.NewLine}");
+                var page = cursor is null ? 1 : 2;
+                var result = new
+                {
+                    data = new[] { new { id = $"turn-{page}", items = Array.Empty<object>() } },
+                    nextCursor = repeated ? "repeated-cursor" : page == 1 ? "page-two" : null
                 };
                 await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result }));
                 await Console.Out.FlushAsync();

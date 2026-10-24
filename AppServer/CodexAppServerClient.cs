@@ -120,6 +120,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                 throw new InvalidDataException("Codex App Server не вернул метаданные чата.");
 
             var turns = new List<JsonElement>();
+            var seenCursors = new HashSet<string>(StringComparer.Ordinal);
             string? cursor = null;
             var page = 0;
             do
@@ -136,6 +137,8 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                     throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
                 turns.AddRange(data.EnumerateArray().Select(item => item.Clone()));
                 cursor = ReadCursor(response);
+                if (cursor is not null && !seenCursors.Add(cursor))
+                    throw new InvalidDataException("Codex App Server повторил курсор истории чата.");
                 if (++page >= 200 && !string.IsNullOrEmpty(cursor))
                     throw new InvalidDataException("История чата слишком велика для восстановления в одном окне.");
             }
