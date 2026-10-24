@@ -514,47 +514,67 @@ internal sealed class BoundedTextLineReader
     internal const int DefaultMaximumLineCharacters = 32 * 1024 * 1024;
     private readonly TextReader _reader;
     private readonly int _maximumLineCharacters;
+    private readonly bool _truncateLongLines;
     private readonly char[] _buffer = new char[8192];
     private int _position;
     private int _length;
 
-    public BoundedTextLineReader(TextReader reader, int maximumLineCharacters = DefaultMaximumLineCharacters)
+    public BoundedTextLineReader(
+        TextReader reader,
+        int maximumLineCharacters = DefaultMaximumLineCharacters,
+        bool truncateLongLines = false)
     {
         if (maximumLineCharacters <= 0) throw new ArgumentOutOfRangeException(nameof(maximumLineCharacters));
         _reader = reader;
         _maximumLineCharacters = maximumLineCharacters;
+        _truncateLongLines = truncateLongLines;
     }
 
     public async Task<string?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
         var line = new StringBuilder(Math.Min(_maximumLineCharacters, _buffer.Length));
+        var truncated = false;
         while (true)
         {
             if (_position == _length)
             {
                 _length = await _reader.ReadAsync(_buffer.AsMemory(), cancellationToken);
                 _position = 0;
-                if (_length == 0) return line.Length == 0 ? null : CompleteLine(line);
+                if (_length == 0) return line.Length == 0 && !truncated ? null : CompleteLine(line, truncated);
             }
 
             var available = _buffer.AsSpan(_position, _length - _position);
             var newlineIndex = available.IndexOf('\n');
             var segmentLength = newlineIndex >= 0 ? newlineIndex : available.Length;
-            if (segmentLength > _maximumLineCharacters - line.Length)
+            var remainingCharacters = _maximumLineCharacters - line.Length;
+            if (segmentLength > remainingCharacters && !_truncateLongLines)
                 throw new InvalidDataException($"Codex app-server JSONL message exceeds {_maximumLineCharacters} characters.");
-            line.Append(available[..segmentLength]);
+            if (segmentLength > remainingCharacters)
+            {
+                line.Append(available[..remainingCharacters]);
+                truncated = true;
+            }
+            else
+            {
+                line.Append(available[..segmentLength]);
+            }
             _position += segmentLength;
             if (newlineIndex >= 0)
             {
                 _position++;
-                return CompleteLine(line);
+                return CompleteLine(line, truncated);
             }
         }
     }
 
-    private static string CompleteLine(StringBuilder line)
+    private string CompleteLine(StringBuilder line, bool truncated)
     {
         if (line.Length > 0 && line[^1] == '\r') line.Length--;
+        if (truncated)
+        {
+            if (line.Length >= _maximumLineCharacters) line.Length = Math.Max(0, _maximumLineCharacters - 1);
+            line.Append('…');
+        }
         return line.ToString();
     }
 }

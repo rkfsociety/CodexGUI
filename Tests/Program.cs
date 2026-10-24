@@ -486,6 +486,10 @@ internal static class Program
         }
         catch (InvalidDataException) { }
 
+        var truncatedReader = new BoundedTextLineReader(new StringReader("123456789\r\nnext\r\n"), 8, truncateLongLines: true);
+        Require(await truncatedReader.ReadLineAsync() == "1234567…", "The output reader did not bound and mark a long line");
+        Require(await truncatedReader.ReadLineAsync() == "next", "The output reader did not drain the truncated line");
+
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         try

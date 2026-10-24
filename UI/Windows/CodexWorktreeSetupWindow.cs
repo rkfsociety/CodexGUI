@@ -13,6 +13,7 @@ namespace CodexGUI;
 internal sealed class CodexWorktreeSetupWindow : Window
 {
     private const int MaximumOutputCharacters = 120_000;
+    private const int MaximumOutputLineCharacters = 16_384;
     private readonly string _worktreePath;
     private readonly string _scriptPath;
     private readonly TextBlock _status = new();
@@ -203,7 +204,8 @@ internal sealed class CodexWorktreeSetupWindow : Window
 
     private async Task ReadOutputAsync(StreamReader reader, string prefix)
     {
-        while (await reader.ReadLineAsync() is { } line)
+        var boundedReader = new BoundedTextLineReader(reader, MaximumOutputLineCharacters, truncateLongLines: true);
+        while (await boundedReader.ReadLineAsync() is { } line)
         {
             await Dispatcher.InvokeAsync(() =>
             {
