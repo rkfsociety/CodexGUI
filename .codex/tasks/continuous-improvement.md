@@ -173,4 +173,5 @@
 - Аудит обнаружил, что `CodexAppServerClient` всё ещё читал stdout через неограниченный `ReadLineAsync` и полностью накапливал stderr через `ReadToEndAsync`, хотя длительный worker уже использовал bounded reader и streaming drain.
 - Исправление: короткие RPC теперь используют тот же bounded/cancellable line reader и потоковый stderr drain.
 - Версия повышена с `0.0.122` до `0.0.123`. `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошёл без предупреждений/ошибок; test runner, App Server, приложение и EXE локально не запускались.
+- Release workflow `40110674616` завершился успешно; опубликован `v0.0.123` с EXE, ZIP, checksum и signature assets.
 - Следующий цикл: проверить ошибки reader и deadline cleanup коротких RPC при повреждённом/чрезмерно длинном ответе.
