@@ -314,18 +314,18 @@ public partial class MainWindow : Window
         var ready = _preparedUpdate is not null && !_isInstallingUpdate;
         button.IsEnabled = ready;
         button.Cursor = ready ? Cursors.Hand : Cursors.Arrow;
+        var progressText = _updateDownloadPercent is { } downloadedPercent ? $" Загружено: {downloadedPercent}%." : string.Empty;
         button.ToolTip = ready
             ? $"Обновление v{_availableUpdateVersion} скачано и проверено. Нажмите, чтобы установить и перезапустить Codex."
             : _updateDownloadError is not null
                 ? $"Ошибка загрузки v{_availableUpdateVersion}: {_updateDownloadError}"
-                : $"Обновление v{_availableUpdateVersion}: {_updateDownloadStage}. Установка доступна только после проверки.";
+                : $"Обновление v{_availableUpdateVersion}: {_updateDownloadStage}.{progressText} Установка доступна после проверки.";
 
         AutomationProperties.SetName(button, button.ToolTip.ToString());
 
         if (Control<TextBlock>("UpdateProgressLabel") is { } label)
         {
-            label.Text = _isInstallingUpdate ? "…" : _updateDownloadError is not null ? "!" :
-                ready ? "✓" : _updateDownloadPercent is { } value ? $"{value}%" : "…";
+            label.Text = _isInstallingUpdate ? "…" : _updateDownloadError is not null ? "!" : ready ? "✓" : "↓";
             label.Foreground = Brush(_updateDownloadError is not null ? "#F0A5A5" : "#D1F9E8");
         }
 
@@ -335,8 +335,8 @@ public partial class MainWindow : Window
             // The final full ring and install action are reserved for a verified download.
             var percent = ready || _isInstallingUpdate ? 100 : _updateDownloadError is not null ? 0
                 : Math.Clamp(_updateDownloadPercent ?? 0, 0, 99);
-            const double center = 23;
-            const double radius = 19.5;
+            const double center = 18;
+            const double radius = 15;
             if (percent == 0)
             {
                 arc.Data = Geometry.Empty;

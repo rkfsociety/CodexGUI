@@ -264,6 +264,7 @@
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="425" />
         <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="48" />
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
@@ -290,16 +291,17 @@
           <Ellipse Width="7" Height="7" Fill="{Binding Fill, ElementName=StatusDot}" Margin="0,0,8,0" />
           <TextBlock Text="{Binding Text, ElementName=HeaderStatus}" Foreground="{StaticResource Accent}" FontSize="11" />
         </StackPanel>
-        <Border Grid.Column="1" x:Name="UpdateStatusPanel" Visibility="Collapsed">
-          <Button x:Name="UpdateButton" IsEnabled="False">
-            <Grid>
-              <Path x:Name="UpdateProgressArc" />
-              <TextBlock x:Name="UpdateProgressLabel" Text="0%" />
-            </Grid>
-          </Button>
-        </Border>
       </StackPanel>
-      <Button WindowChrome.IsHitTestVisibleInChrome="True" Margin="0,0,49,0" Grid.Column="2" x:Name="WorkspaceSearchButton" Width="304" Foreground="{StaticResource TextMuted}" BorderBrush="{StaticResource Line}" BorderThickness="1" VerticalAlignment="Center" Height="38" HorizontalContentAlignment="Stretch" ToolTip="Поиск по проекту (Ctrl+K)">
+      <Border x:Name="UpdateStatusPanel" Grid.Column="2" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+        <Button x:Name="UpdateButton" Width="40" Height="40" Padding="0" IsEnabled="False" Opacity="1" ToolTip="Загрузка обновления">
+          <Grid Width="36" Height="36">
+            <Ellipse Width="30" Height="30" Stroke="#29443D" StrokeThickness="2" />
+            <Path x:Name="UpdateProgressArc" Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center" Stroke="#92E5C7" StrokeThickness="2" />
+            <TextBlock x:Name="UpdateProgressLabel" Text="↓" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#D1F9E8" />
+          </Grid>
+        </Button>
+      </Border>
+      <Button WindowChrome.IsHitTestVisibleInChrome="True" Margin="0,0,49,0" Grid.Column="3" x:Name="WorkspaceSearchButton" Width="304" Foreground="{StaticResource TextMuted}" BorderBrush="{StaticResource Line}" BorderThickness="1" VerticalAlignment="Center" Height="38" HorizontalContentAlignment="Stretch" ToolTip="Поиск по проекту (Ctrl+K)">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="24" />
@@ -313,7 +315,7 @@
           </Border>
         </Grid>
       </Button>
-      <UniformGrid WindowChrome.IsHitTestVisibleInChrome="True" Grid.Column="3" Columns="3" VerticalAlignment="Center" Margin="0,0,-12,0">
+      <UniformGrid WindowChrome.IsHitTestVisibleInChrome="True" Grid.Column="4" Columns="3" VerticalAlignment="Center" Margin="0,0,-12,0">
         <Button x:Name="WindowMinimizeButton" Content="—" Width="46" ToolTip="Свернуть" />
         <Button x:Name="WindowMaximizeButton" Content="□" Width="46" ToolTip="Развернуть / восстановить" FontSize="18" />
         <Button x:Name="WindowCloseButton" Content="×" Width="46" FontSize="18" ToolTip="Закрыть" />

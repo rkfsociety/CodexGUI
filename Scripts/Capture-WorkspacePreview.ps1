@@ -80,6 +80,7 @@ param(
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [switch]$VerifyLayout,
+    [switch]$ShowUpdateProgress,
     [ValidateSet('Empty', 'Draft', 'Attachments', 'Queued', 'Running')]
     [string]$ComposerState = 'Empty',
     [int]$Width = 0,
@@ -230,6 +231,25 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
     $workspace = [System.Windows.Markup.XamlReader]::Parse([System.IO.File]::ReadAllText($workspaceXamlPath))
     if ($workspace -isnot [System.Windows.Controls.Grid]) {
         throw 'WorkspaceView.xaml must have a Grid root element.'
+    }
+    if ($ShowUpdateProgress) {
+        $workspace.FindName('UpdateStatusPanel').Visibility = 'Visible'
+        $workspace.FindName('UpdateProgressLabel').Text = '↓'
+        $progress = 0.68
+        $angle = $progress * [Math]::PI * 2
+        $figure = [System.Windows.Media.PathFigure]::new()
+        $figure.StartPoint = [System.Windows.Point]::new(18, 3)
+        $figure.IsClosed = $false
+        $figure.IsFilled = $false
+        $segment = [System.Windows.Media.ArcSegment]::new()
+        $segment.Point = [System.Windows.Point]::new(18 + 15 * [Math]::Sin($angle), 18 - 15 * [Math]::Cos($angle))
+        $segment.Size = [System.Windows.Size]::new(15, 15)
+        $segment.IsLargeArc = $progress -gt 0.5
+        $segment.SweepDirection = [System.Windows.Media.SweepDirection]::Clockwise
+        $figure.Segments.Add($segment)
+        $geometry = [System.Windows.Media.PathGeometry]::new()
+        $geometry.Figures.Add($figure)
+        $workspace.FindName('UpdateProgressArc').Data = $geometry
     }
     $workspace.ColumnDefinitions[0].Width = [System.Windows.GridLength]::new(0)
     $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 400 } else { 300 }))
@@ -1059,6 +1079,16 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     $searchBounds = Get-PreviewBounds 'WorkspaceSearchButton'
     $controlsBounds = Get-PreviewBounds 'WorkspaceHeaderControls'
+    $updatePanel = $visual.FindName('UpdateStatusPanel')
+    if ($visual.FindName('WorkspaceHeaderGrid').ColumnDefinitions[2].Width.Value -ne 48) {
+        throw 'The updater must keep its reserved 48-pixel header column in every state.'
+    }
+    if ($updatePanel.Visibility -eq 'Visible') {
+        $updateBounds = Get-PreviewBounds 'UpdateStatusPanel'
+        if ($controlsBounds.Right -gt $updateBounds.Left -or $updateBounds.Right -gt $searchBounds.Left) {
+            throw 'The updater overlaps project controls or search while downloading.'
+        }
+    }
     $searchContent = $visual.FindName('WorkspaceSearchButton').Content
     $contentBounds = $searchContent.TransformToAncestor($visual).TransformBounds([System.Windows.Rect]::new(0, 0, $searchContent.ActualWidth, $searchContent.ActualHeight))
     if ($controlsBounds.Right -gt $searchBounds.Left -or -not $searchBounds.Contains($contentBounds)) {
