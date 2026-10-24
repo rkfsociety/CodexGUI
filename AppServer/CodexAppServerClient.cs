@@ -304,14 +304,26 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                 catch (TimeoutException)
                 {
                     try { process.Kill(entireProcessTree: true); }
-                    catch (InvalidOperationException) { }
+                    catch (InvalidOperationException) when (process.HasExited) { }
                     try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-                    catch (TimeoutException) { }
+                    catch (TimeoutException error)
+                    {
+                        throw new TimeoutException("Codex app-server did not exit after termination was requested.", error);
+                    }
                 }
             }
             // Ignore lingering inherited stderr handles during shutdown.
             try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (TimeoutException) { }
+            catch (TimeoutException)
+            {
+                try { process.StandardError.Dispose(); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+                try { await errorsTask.WaitAsync(TimeSpan.FromSeconds(1)); }
+                catch (TimeoutException error)
+                {
+                    throw new TimeoutException("Codex app-server stderr reader remained blocked after closing its stream.", error);
+                }
+            }
         }
     }
 

@@ -175,3 +175,10 @@
 - Версия повышена с `0.0.122` до `0.0.123`. `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошёл без предупреждений/ошибок; test runner, App Server, приложение и EXE локально не запускались.
 - Release workflow `40110674616` завершился успешно; опубликован `v0.0.123` с EXE, ZIP, checksum и signature assets.
 - Следующий цикл: проверить ошибки reader и deadline cleanup коротких RPC при повреждённом/чрезмерно длинном ответе.
+
+## Цикл — timeout cleanup короткого RPC
+
+- Аудит `CodexAppServerClient.RunWithSessionAsync` выявил, что он молча игнорировал неудачу kill и второй exit timeout, а stderr reader timeout оставлял без закрытия потока.
+- Исправление: cleanup короткого RPC теперь сигнализирует неудачный kill/wait и закрывает stderr stream перед финальным ограниченным ожиданием. Существующий cancellation regression подтверждает, что fake child завершается после отмены запроса.
+- Версия повышена с `0.0.123` до `0.0.124`. `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошёл без предупреждений и ошибок; runner/App Server/EXE локально не запускались.
+- Следующий цикл: аудит повторного использования соединения, pending requests и process fault propagation.
