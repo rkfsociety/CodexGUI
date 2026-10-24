@@ -976,8 +976,15 @@ internal static class Program
                     && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(newChatButton),
                     "New chat button is not visible and interactive in the workspace header");
                 var updateButton = (System.Windows.Controls.Button)workspace.FindName("UpdateButton");
-                Require(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(updateButton),
-                    "Update button is not interactive in the custom title bar");
+                var updatePanel = (System.Windows.Controls.Border)workspace.FindName("UpdateStatusPanel");
+                var updateSurface = (System.Windows.Controls.Grid)updateButton.Content;
+                Require(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(updatePanel)
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(updateButton)
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(updateSurface)
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome((System.Windows.Shapes.Ellipse)workspace.FindName("UpdateProgressTrack"))
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome((System.Windows.Shapes.Path)workspace.FindName("UpdateProgressArc"))
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome((System.Windows.Controls.TextBlock)workspace.FindName("UpdateProgressLabel")),
+                    "Update button visuals are not interactive throughout the custom title bar hit-test path");
                 var updateFrames = MainWindow.LoadUpdateReadyAnimationFrames();
                 Require(updateFrames.Length == 8 && updateFrames.All(frame => frame.IsFrozen
                     && frame.PixelWidth == frame.PixelHeight && frame.PixelWidth > 0),

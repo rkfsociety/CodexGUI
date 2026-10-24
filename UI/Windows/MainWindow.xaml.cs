@@ -672,7 +672,14 @@ public partial class MainWindow : Window
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("ThreadGoalButton", async (_, _) => { if (_currentThread is null) NewChat(); await ShowThreadGoalAsync(); });
         Click("ActionsButton", (_, _) => ShowActionsWindow());
-        Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
+        if (Control<Button>("UpdateButton") is { } updateButton)
+        {
+            // WindowChrome may receive the pointer-up over a child visual such as the
+            // progress glyph instead of the Button itself. Handle it at the Button's
+            // tunneling stage; Click remains for keyboard activation.
+            updateButton.PreviewMouseLeftButtonUp += async (_, _) => await HandleUpdateButtonClickAsync();
+            updateButton.Click += async (_, _) => await HandleUpdateButtonClickAsync();
+        }
 
         if (Control<TextBox>("PromptInput") is { } prompt)
         {
