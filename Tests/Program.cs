@@ -48,6 +48,7 @@ internal static class Program
             await Check("Preparing automation recovery validates completion identity", () => PreparingAutomationRecoveryAsync(root));
             await Check("Automation summary bounds output while preserving final text", () => AutomationSummaryAsync(root));
             await Check("Automation output readers skip malformed lines", () => AutomationOutputRecoveryAsync(root));
+            await Check("Malformed worker controls are reported and removed", () => MalformedControlFileAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -354,6 +355,28 @@ internal static class Program
         Require(threadId == "recovered-thread", "A malformed line hid a later thread.started event");
         Require(summary == "recovered final", "A malformed line hid a later assistant final message");
         return Task.CompletedTask;
+    }
+
+    private static async Task MalformedControlFileAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var method = typeof(CodexAppServerTurnWorker).GetMethod("ReadControlFileAsync", nonPublicStatic)
+            ?? throw new InvalidOperationException("Worker control reader was not found");
+        var directory = Path.Combine(root, "malformed-worker-control");
+        Directory.CreateDirectory(directory);
+        var controlPath = Path.Combine(directory, "control.json");
+        var outputPath = Path.Combine(directory, "stdout.jsonl");
+        File.WriteAllText(controlPath, "{invalid json");
+
+        var read = (Task<CodexAppServerWorkerControl?>)method.Invoke(null, [controlPath, outputPath])!;
+        var control = await read;
+        Require(control is null && !File.Exists(controlPath),
+            "Malformed worker control was not removed after handling");
+        var output = File.ReadAllText(outputPath);
+        Require(output.Contains("\"type\":\"control.error\"", StringComparison.Ordinal)
+            && output.Contains("\"action\":\"invalid\"", StringComparison.Ordinal),
+            "Malformed worker control was not reported to the output log");
     }
 
     private static Task WorkspaceSearchAsync(string root)

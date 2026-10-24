@@ -318,9 +318,7 @@ internal static class CodexAppServerTurnWorker
 
         foreach (var path in Directory.EnumerateFiles(controlDirectory, "*.json").OrderBy(Path.GetFileName, StringComparer.Ordinal))
         {
-            CodexAppServerWorkerControl? control;
-            try { control = JsonSerializer.Deserialize<CodexAppServerWorkerControl>(await File.ReadAllTextAsync(path)); }
-            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException) { continue; }
+            var control = await ReadControlFileAsync(path, request.OutputPath);
             if (control is null) continue;
 
             try
@@ -365,6 +363,57 @@ internal static class CodexAppServerTurnWorker
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
+        }
+    }
+
+    private static async Task<CodexAppServerWorkerControl?> ReadControlFileAsync(string path, string outputPath)
+    {
+        string json;
+        try { json = await File.ReadAllTextAsync(path); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        CodexAppServerWorkerControl? control;
+        try { control = JsonSerializer.Deserialize<CodexAppServerWorkerControl>(json); }
+        catch (JsonException error)
+        {
+            System.Diagnostics.Trace.TraceWarning("Пропущен повреждённый управляющий файл {0}: {1}", path, error.Message);
+            await WriteInvalidControlEventAsync(outputPath);
+            TryDeleteControlFile(path);
+            return null;
+        }
+        if (control is not null) return control;
+
+        System.Diagnostics.Trace.TraceWarning("Управляющий файл {0} не содержит команды.", path);
+        await WriteInvalidControlEventAsync(outputPath);
+        TryDeleteControlFile(path);
+        return null;
+    }
+
+    private static async Task WriteInvalidControlEventAsync(string outputPath)
+    {
+        try
+        {
+            await WriteOutputEventAsync(outputPath, "control.error", new
+            {
+                action = "invalid",
+                message = "Повреждённый управляющий файл был пропущен."
+            });
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Не удалось записать диагностику управляющего файла: {0}", error.Message);
+        }
+    }
+
+    private static void TryDeleteControlFile(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Не удалось удалить повреждённый управляющий файл {0}: {1}", path, error.Message);
         }
     }
 
