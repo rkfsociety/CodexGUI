@@ -326,6 +326,13 @@
 - Release workflow `40120664820` прошёл успешно и опубликовал `v0.0.142` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит таймаутов App Server и поведения terminal host при потере соединения.
 
+## Цикл — переподключение terminal host после потери App Server
+
+- После EOF/error notification reader завершался, но `_connection` оставался задан; `EnsureConnectedAsync` возвращал уже мёртвое соединение, поэтому новые terminal sessions повторно не подключались.
+- Terminal host теперь проверяет состояние reader/notification task, атомарно очищает потерянное соединение и восстанавливает его перед следующей сессией. Cleanup notification reader защищён lifetime token и identity check от гонки с Dispose или новым подключением.
+- Добавлена fake-peer regression: первое соединение завершается сразу после initialize, следующий запуск сессии должен создать второе соединение. Версия повышена с `0.0.142` до `0.0.143`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
+- Следующий цикл: продолжить аудит terminal output recovery и других App Server connection-loss сценариев.
+
 ## Цикл — учитывать taskbar при максимизации окна
 
 - Главное окно borderless с `WindowChrome`, а кнопка максимизации задаёт `WindowState.Maximized`; явной обработки `WM_GETMINMAXINFO` не было, поэтому maximize bounds могли не совпадать с рабочей областью выбранного монитора.

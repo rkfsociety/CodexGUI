@@ -14,6 +14,7 @@ internal static class Program
     {
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
+        if (args.FirstOrDefault() == "--fake-appserver-drop-after-initialize") return await FakeAppServerDropAfterInitializeAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-block-initialize") return await FakeAppServerBlockInitializeAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-terminal-control") return await FakeAppServerTerminalControlAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-flood") return await FakeAppServerFloodAsync();
@@ -64,6 +65,7 @@ internal static class Program
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
             await Check("App-server initialization forwards cancellation and closes its child", AppServerConnectionCancellationAsync);
             await Check("Closing terminal host cancels pending app-server initialization", () => TerminalHostStartupCancellationAsync(root));
+            await Check("Terminal host reconnects after app-server disconnect", () => TerminalHostReconnectAsync(root));
             await Check("Terminal terminate RPC times out and remains retryable", () => TerminalTerminateTimeoutAsync(root));
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
@@ -683,6 +685,83 @@ internal static class Program
             Require(!terminated, "A blocked terminal terminate RPC reported success");
             Require(File.Exists(terminateMarker), "The fake server did not receive the terminal terminate request");
             Require(await host.TerminateSessionAsync(processId), "A terminal terminate retry did not recover");
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static async Task TerminalHostReconnectAsync(string root)
+    {
+        var disconnectedMarker = Path.Combine(root, "terminal-disconnected.pid");
+        var reconnectedMarker = Path.Combine(root, "terminal-reconnected.pid");
+        var terminateMarker = Path.Combine(root, "terminal-reconnected-terminate.pid");
+        var connectionCount = 0;
+        var host = new CodexAppServerTerminalHost(() =>
+        {
+            var startInfo = new ProcessStartInfo(Executable)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            if (Interlocked.Increment(ref connectionCount) == 1)
+            {
+                startInfo.ArgumentList.Add("--fake-appserver-drop-after-initialize");
+                startInfo.ArgumentList.Add(disconnectedMarker);
+            }
+            else
+            {
+                startInfo.ArgumentList.Add("--fake-appserver-terminal-control");
+                startInfo.ArgumentList.Add(reconnectedMarker);
+                startInfo.ArgumentList.Add(terminateMarker);
+            }
+
+            var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Could not start a fake terminal app-server peer");
+            try { return Task.FromResult(new CodexAppServerConnection(process)); }
+            catch
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                process.Dispose();
+                throw;
+            }
+        }, TimeSpan.FromMilliseconds(150));
+
+        try
+        {
+            try { await host.StartSessionAsync("terminal-before-disconnect", root, fullAccess: false).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (IOException) { }
+            catch (InvalidOperationException) { }
+            await WaitForFileAsync(disconnectedMarker);
+            var disconnectedProcessId = int.Parse(await File.ReadAllTextAsync(disconnectedMarker));
+            try
+            {
+                using var disconnectedProcess = Process.GetProcessById(disconnectedProcessId);
+                await disconnectedProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (ArgumentException) { }
+
+            using var retryDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var retry = 0;
+            while (!File.Exists(reconnectedMarker))
+            {
+                retryDeadline.Token.ThrowIfCancellationRequested();
+                try
+                {
+                    await host.StartSessionAsync($"terminal-after-disconnect-{++retry}", root, fullAccess: false)
+                        .WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch (IOException) { }
+                catch (InvalidOperationException) { }
+                if (!File.Exists(reconnectedMarker)) await Task.Delay(25, retryDeadline.Token);
+            }
+
+            Require(Volatile.Read(ref connectionCount) >= 2, "Terminal host reused the lost App Server connection");
         }
         finally
         {
@@ -1603,6 +1682,28 @@ internal static class Program
                 await Console.In.ReadToEndAsync();
                 return 0;
             }
+        }
+        return 0;
+    }
+
+    private static async Task<int> FakeAppServerDropAfterInitializeAsync(string[] args)
+    {
+        var marker = args.ElementAtOrDefault(1)
+            ?? throw new InvalidOperationException("The disconnect marker path is required");
+        while (await Console.In.ReadLineAsync() is { } line)
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            var method = root.TryGetProperty("method", out var methodValue) ? methodValue.GetString() : null;
+            if (method == "initialized")
+            {
+                await File.WriteAllTextAsync(marker + ".tmp", Environment.ProcessId.ToString());
+                File.Move(marker + ".tmp", marker, overwrite: true);
+                return 0;
+            }
+            if (!root.TryGetProperty("id", out var id)) continue;
+            await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { ok = true } }));
+            await Console.Out.FlushAsync();
         }
         return 0;
     }

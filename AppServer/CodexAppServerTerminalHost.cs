@@ -152,13 +152,22 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     private async Task EnsureConnectedAsync()
     {
         if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
-        if (_connection is not null) return;
         var cancellationToken = _startupToken;
         await _startLock.WaitAsync(cancellationToken);
         try
         {
             if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
-            if (_connection is not null) return;
+            if (_connection is not null
+                && !_connection.ReaderTask.IsCompleted
+                && _notificationTask is { IsCompleted: false }) return;
+
+            if (_connection is { } disconnectedConnection)
+            {
+                _connection = null;
+                _notificationTask = null;
+                await disconnectedConnection.DisposeAsync();
+            }
+
             var connection = await _connect();
             try { await connection.InitializeAsync(cancellationToken); }
             catch
@@ -168,6 +177,29 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
             }
             _connection = connection;
             _notificationTask = Task.Run(() => ReadNotificationsAsync(connection, _lifetimeToken));
+        }
+        finally { _startLock.Release(); }
+    }
+
+    private async Task ResetDisconnectedConnectionAsync(
+        CodexAppServerConnection connection,
+        CancellationToken cancellationToken)
+    {
+        try { await _startLock.WaitAsync(cancellationToken); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+
+        try
+        {
+            if (Volatile.Read(ref _disposed) != 0 || cancellationToken.IsCancellationRequested
+                || !ReferenceEquals(_connection, connection)) return;
+
+            _connection = null;
+            _notificationTask = null;
+            try { await connection.DisposeAsync(); }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.TraceWarning("Не удалось очистить потерянное соединение терминала: {0}", error.Message);
+            }
         }
         finally { _startLock.Release(); }
     }
@@ -204,6 +236,11 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         catch (Exception error)
         {
             System.Diagnostics.Trace.TraceWarning("Поток терминалов App Server завершился: {0}", error.Message);
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+                await ResetDisconnectedConnectionAsync(connection, cancellationToken);
         }
     }
 
