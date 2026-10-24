@@ -40,6 +40,8 @@ internal static class Program
             await Check("RPC returns a normal result", () => RpcAsync(root, cancel: false));
             await Check("Operation cancellation closes the RPC child process", () => RpcAsync(root, cancel: true));
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
+            await Check("Short RPC session reuses one process across pages", () => RpcSessionPaginationAsync(root));
+            await Check("Malformed RPC response faults the request and closes its process", () => RpcMalformedResponseAsync(root));
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
@@ -1153,6 +1155,48 @@ internal static class Program
         }
     }
 
+    private static async Task RpcSessionPaginationAsync(string root)
+    {
+        var marker = Path.Combine(root, "rpc-pages-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_PAGES_MARKER", marker);
+        try
+        {
+            var client = new CodexAppServerClient(Executable);
+            var statuses = await client.ListMcpServerStatusesAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Require(statuses.Count == 2 && statuses[0].GetProperty("id").GetString() == "server-1"
+                && statuses[1].GetProperty("id").GetString() == "server-2",
+                "Paged session did not return both response pages");
+            var requests = File.ReadAllLines(marker);
+            Require(requests.Length == 2, "Paged session did not send exactly two list requests");
+            var first = requests[0].Split('|');
+            var second = requests[1].Split('|');
+            Require(first.Length == 3 && second.Length == 3 && first[0] == second[0]
+                && first[1] == "2" && second[1] == "3" && first[2] == "1" && second[2] == "2",
+                "Page requests did not reuse one process and increasing request ids");
+        }
+        finally { Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_PAGES_MARKER", null); }
+    }
+
+    private static async Task RpcMalformedResponseAsync(string root)
+    {
+        var marker = Path.Combine(root, "rpc-malformed-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_MALFORMED_MARKER", marker);
+        try
+        {
+            var client = new CodexAppServerClient(Executable);
+            await ThrowsAsync<JsonException>(() => client.ReadAccountAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+            await WaitForFileAsync(marker);
+            var processId = int.Parse(await File.ReadAllTextAsync(marker));
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                Require(process.HasExited, "Malformed RPC response left its child process running");
+            }
+            catch (ArgumentException) { }
+        }
+        finally { Environment.SetEnvironmentVariable("CODEXGUI_CHECK_RPC_MALFORMED_MARKER", null); }
+    }
+
     private static async Task PreCancelledAsync()
     {
         using var cancellation = new CancellationTokenSource();
@@ -1170,12 +1214,37 @@ internal static class Program
             using var document = JsonDocument.Parse(line);
             var root = document.RootElement;
             if (!root.TryGetProperty("id", out var id)) continue;
-            if (root.GetProperty("method").GetString() == "account/rateLimits/read")
+            var method = root.GetProperty("method").GetString();
+            if (method == "account/rateLimits/read")
             {
                 var marker = Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_MARKER")!;
                 File.WriteAllText(marker + ".tmp", Environment.ProcessId.ToString());
                 File.Move(marker + ".tmp", marker);
                 continue; // Remain blocked reading stdin until the cancelled client closes it.
+            }
+            if (method == "account/read" && Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_MALFORMED_MARKER") is { Length: > 0 } malformedMarker)
+            {
+                File.WriteAllText(malformedMarker, Environment.ProcessId.ToString());
+                await Console.Out.WriteLineAsync("{invalid json");
+                await Console.Out.FlushAsync();
+                return 0;
+            }
+            if (method == "mcpServerStatus/list")
+            {
+                var parameters = root.GetProperty("params");
+                var cursor = parameters.TryGetProperty("cursor", out var cursorValue)
+                    && cursorValue.ValueKind == JsonValueKind.String ? cursorValue.GetString() : null;
+                var page = cursor is null ? 1 : 2;
+                if (Environment.GetEnvironmentVariable("CODEXGUI_CHECK_RPC_PAGES_MARKER") is { Length: > 0 } pagesMarker)
+                    await File.AppendAllTextAsync(pagesMarker, $"{Environment.ProcessId}|{id.GetInt32()}|{page}{Environment.NewLine}");
+                var result = new
+                {
+                    data = new[] { new { id = $"server-{page}" } },
+                    nextCursor = page == 1 ? "page-two" : null
+                };
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result }));
+                await Console.Out.FlushAsync();
+                continue;
             }
             await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { ok = true } }));
             await Console.Out.FlushAsync();
