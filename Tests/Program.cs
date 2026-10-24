@@ -1204,14 +1204,25 @@ internal static class Program
         var modeKey = "CODEXGUI_CHECK_RPC_THREAD_CURSOR_MODE";
         var markerKey = "CODEXGUI_CHECK_RPC_THREAD_MARKER";
         var marker = Path.Combine(root, "rpc-thread-pages-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable(modeKey, "repeat");
+        Environment.SetEnvironmentVariable(modeKey, "pages");
         Environment.SetEnvironmentVariable(markerKey, marker);
         try
         {
             var client = new CodexAppServerClient(Executable);
+            var thread = await client.ReadThreadAsync("thread-id").WaitAsync(TimeSpan.FromSeconds(10));
+            var turns = thread.GetProperty("thread").GetProperty("turns").EnumerateArray().ToArray();
+            Require(turns.Length == 2 && turns[0].GetProperty("id").GetString() == "turn-2"
+                && turns[1].GetProperty("id").GetString() == "turn-1",
+                "Thread history did not merge and reverse two valid pages");
+            var pageRequests = File.ReadAllLines(marker);
+            Require(pageRequests.Length == 2 && pageRequests[0] == "none" && pageRequests[1] == "page-two",
+                "Thread history did not request the second page with its cursor");
+
+            File.Delete(marker);
+            Environment.SetEnvironmentVariable(modeKey, "repeat");
             await ThrowsAsync<InvalidDataException>(() => client.ReadThreadAsync("thread-id"));
-            var requests = File.ReadAllLines(marker);
-            Require(requests.Length == 2 && requests.All(line => line == "repeated-cursor"),
+            var repeatedRequests = File.ReadAllLines(marker);
+            Require(repeatedRequests.Length == 2 && repeatedRequests.All(line => line == "repeated-cursor"),
                 "Repeated thread history cursor was not rejected immediately");
         }
         finally
