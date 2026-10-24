@@ -8,13 +8,29 @@ namespace CodexGUI;
 
 internal static class CodexWindowTheme
 {
+    private const int DwmWindowCornerPreferenceAttribute = 33;
+    private const int DwmWindowCornerRound = 2;
+
     public static void Apply(Window window)
     {
         window.SetResourceReference(Control.BackgroundProperty, "Canvas");
         window.SetResourceReference(Control.ForegroundProperty, "TextMain");
         window.FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         window.FontSize = 13;
-        window.SourceInitialized += (_, _) => ApplyDarkTitleBar(window);
+        window.SourceInitialized += (_, _) =>
+        {
+            ApplyDarkTitleBar(window);
+            ApplyRoundedCorners(window);
+        };
+    }
+
+    private static void ApplyRoundedCorners(Window window)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+
+        var handle = new WindowInteropHelper(window).Handle;
+        var preference = DwmWindowCornerRound;
+        _ = DwmSetWindowAttribute(handle, DwmWindowCornerPreferenceAttribute, ref preference, sizeof(int));
     }
 
     public static void ApplyDarkTitleBar(Window window)
