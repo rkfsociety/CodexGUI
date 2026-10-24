@@ -440,8 +440,30 @@ public partial class MainWindow
     private static string ReadAutomationSummary(string outputPath)
     {
         if (!File.Exists(outputPath)) return "";
+        const int maximumSummaryLength = 1600;
         var deltas = new StringBuilder();
         var finalMessage = new StringBuilder();
+        var deltasTruncated = false;
+        var finalMessageTruncated = false;
+
+        static void AppendBounded(StringBuilder target, string value, ref bool truncated)
+        {
+            const int bufferLimit = 1601;
+            var available = bufferLimit - target.Length;
+            if (available <= 0)
+            {
+                truncated = true;
+                return;
+            }
+            if (value.Length > available)
+            {
+                target.Append(value.AsSpan(0, available));
+                truncated = true;
+                return;
+            }
+            target.Append(value);
+        }
+
         try
         {
             foreach (var line in File.ReadLines(outputPath))
@@ -450,13 +472,14 @@ public partial class MainWindow
                 var root = document.RootElement;
                 var eventType = GetString(root, "type");
                 if (eventType == "response.output_text.delta" && GetString(root, "delta") is { } delta)
-                    deltas.Append(delta);
+                    AppendBounded(deltas, delta, ref deltasTruncated);
                 else if (eventType == "item.completed" && root.TryGetProperty("item", out var item)
                     && (GetString(item, "type") is "agent_message" or "agentMessage")
                     && GetString(item, "text") is { } text)
                 {
                     finalMessage.Clear();
-                    finalMessage.Append(text);
+                    finalMessageTruncated = false;
+                    AppendBounded(finalMessage, text, ref finalMessageTruncated);
                 }
             }
         }
@@ -464,9 +487,13 @@ public partial class MainWindow
         {
             System.Diagnostics.Trace.TraceWarning("Не удалось прочитать сводку автоматизации: {0}", error.Message);
         }
-        var summary = finalMessage.Length > 0 ? finalMessage.ToString() : deltas.ToString();
+        var useFinalMessage = finalMessage.Length > 0;
+        var summary = useFinalMessage ? finalMessage.ToString() : deltas.ToString();
         summary = summary.Trim();
-        return summary.Length <= 1600 ? summary : summary[..1600] + "…";
+        var truncated = useFinalMessage ? finalMessageTruncated : deltasTruncated;
+        return !truncated && summary.Length <= maximumSummaryLength
+            ? summary
+            : summary[..Math.Min(summary.Length, maximumSummaryLength)] + "…";
     }
 
 }

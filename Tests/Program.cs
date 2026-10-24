@@ -46,6 +46,7 @@ internal static class Program
             await Check("Automation recovery requires a matching worker marker", () => AutomationWorkerIdentityAsync(root));
             await Check("Automation completion is bound to its worker run", AutomationCompletionIdentityAsync);
             await Check("Preparing automation recovery validates completion identity", () => PreparingAutomationRecoveryAsync(root));
+            await Check("Automation summary bounds output while preserving final text", () => AutomationSummaryAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -295,6 +296,38 @@ internal static class Program
         Require(!CanResume(markerMatches: false), "A completion for another run recovered the preparing automation");
         File.WriteAllText(completionPath, JsonSerializer.Serialize(new CodexAppServerWorkerCompletion { RunId = runId }));
         Require(CanResume(markerMatches: false), "A completion bound to the expected run was rejected");
+        return Task.CompletedTask;
+    }
+
+    private static Task AutomationSummaryAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var method = typeof(MainWindow).GetMethod("ReadAutomationSummary", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation summary reader was not found");
+        var outputPath = Path.Combine(root, "automation-summary", "stdout.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        var delta = new string('d', 2000);
+        File.WriteAllLines(outputPath,
+        [
+            JsonSerializer.Serialize(new { type = "response.output_text.delta", delta }),
+            JsonSerializer.Serialize(new { type = "response.output_text.delta", delta })
+        ]);
+        var deltaSummary = (string)method.Invoke(null, [outputPath])!;
+        Require(deltaSummary.Length == 1601 && deltaSummary.EndsWith('…')
+            && deltaSummary[..1600] == new string('d', 1600),
+            "Automation delta summary grew beyond its limit or was not marked as truncated");
+
+        var finalText = new string('f', 2000);
+        File.WriteAllLines(outputPath,
+        [
+            JsonSerializer.Serialize(new { type = "response.output_text.delta", delta = "intermediate" }),
+            JsonSerializer.Serialize(new { type = "item.completed", item = new { type = "agent_message", text = finalText } })
+        ]);
+        var finalSummary = (string)method.Invoke(null, [outputPath])!;
+        Require(finalSummary.Length == 1601 && finalSummary.EndsWith('…')
+            && finalSummary[..1600] == new string('f', 1600),
+            "Automation final message did not take precedence in the bounded summary");
         return Task.CompletedTask;
     }
 
