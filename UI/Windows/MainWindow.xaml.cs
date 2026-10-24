@@ -538,6 +538,7 @@ public partial class MainWindow : Window
         BindWorkspaceEvents();
         Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
         Click("RailNewChatButton", (_, _) => NewChat());
+        Click("NewChatButton", (_, _) => NewChat());
         Click("RailSearchButton", (_, _) => ShowSearch());
         Click("RailActivityButton", (_, _) => ShowActivityWindow());
         Click("RailAutomationsButton", async (_, _) => await ShowAutomationsAsync());

@@ -472,6 +472,9 @@
             <TextBlock x:Name="HeaderStatus" Text="Готов" FontSize="11" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis" />
           </StackPanel>
         </StackPanel>
+        <Button x:Name="NewChatButton" Grid.Column="1" Content="＋  Новый чат" ToolTip="Создать новый чат (Ctrl+N)"
+                WindowChrome.IsHitTestVisibleInChrome="True" Background="{StaticResource Accent}" Foreground="#10201D"
+                Padding="14,7" Height="38" VerticalAlignment="Center" />
       </Grid>
     </Border>
     <Grid Grid.Row="1">

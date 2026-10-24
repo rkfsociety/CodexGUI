@@ -686,6 +686,11 @@ internal static class Program
                 workspace.ColumnDefinitions[0].Width = new System.Windows.GridLength(0);
                 workspace.ColumnDefinitions[1].Width = new System.Windows.GridLength(400);
                 workspace.ColumnDefinitions[3].Width = new System.Windows.GridLength(398);
+                var newChatButton = (System.Windows.Controls.Button)workspace.FindName("NewChatButton");
+                Require(newChatButton.Content?.ToString()?.Contains("Новый чат", StringComparison.Ordinal) == true
+                    && System.Windows.Controls.Grid.GetColumn(newChatButton) == 1
+                    && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(newChatButton),
+                    "New chat button is not visible and interactive in the workspace header");
                 workspace.Background = WorkspaceBackdrop.Create();
                 Require(workspace.Background.IsFrozen && ReferenceEquals(workspace.Background, WorkspaceBackdrop.Create()), "Background is not cached and frozen");
                 var tree = (System.Windows.Controls.TreeView)workspace.FindName("FileTree");
