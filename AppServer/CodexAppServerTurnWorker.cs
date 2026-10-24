@@ -321,6 +321,12 @@ internal static class CodexAppServerTurnWorker
             var control = await ReadControlFileAsync(path, request.OutputPath);
             if (control is null) continue;
 
+            if (GetControlValidationError(control, threadId is { Length: > 0 }) is { } validationError)
+            {
+                await RejectControlFileAsync(path, request.OutputPath, control, validationError);
+                continue;
+            }
+
             try
             {
                 switch (control.Action)
@@ -353,16 +359,75 @@ internal static class CodexAppServerTurnWorker
             }
             catch (Exception error)
             {
-                await WriteOutputEventAsync(request.OutputPath, "control.error", new
-                {
-                    action = control.Action,
-                    prompt = control.Prompt,
-                    message = error.Message
-                });
-                try { File.Delete(path); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                await RejectControlFileAsync(path, request.OutputPath, control, error.Message);
             }
+        }
+    }
+
+    private static string? GetControlValidationError(CodexAppServerWorkerControl control, bool hasActiveThread)
+    {
+        switch (control.Action)
+        {
+            case "approval":
+                if (string.IsNullOrWhiteSpace(control.RequestId)) return "У управляющего ответа отсутствует RequestId.";
+                if (!IsValidRequestId(control.RequestId)) return "RequestId управляющего ответа должен быть строкой, числом или null.";
+                if (string.IsNullOrWhiteSpace(control.Decision)) return "У управляющего ответа отсутствует Decision.";
+                return null;
+            case "response":
+                if (string.IsNullOrWhiteSpace(control.RequestId)) return "У управляющего ответа отсутствует RequestId.";
+                if (!IsValidRequestId(control.RequestId)) return "RequestId управляющего ответа должен быть строкой, числом или null.";
+                if (string.IsNullOrWhiteSpace(control.ResponseJson)) return "У управляющего ответа отсутствует ResponseJson.";
+                if (!IsValidControlJson(control.ResponseJson)) return "ResponseJson управляющего ответа содержит некорректный JSON.";
+                return null;
+            case "interrupt":
+                return hasActiveThread ? null : "Для interrupt отсутствует активный thread.";
+            case "steer":
+                if (!hasActiveThread) return "Для steer отсутствует активный thread.";
+                return string.IsNullOrWhiteSpace(control.Prompt) ? "У steer отсутствует Prompt." : null;
+            default:
+                return $"Неизвестная команда worker: {control.Action}";
+        }
+    }
+
+    private static bool IsValidControlJson(string value)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return true;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static bool IsValidRequestId(string value)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return document.RootElement.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static async Task RejectControlFileAsync(string path, string outputPath,
+        CodexAppServerWorkerControl control, string message)
+    {
+        try
+        {
+            await WriteOutputEventAsync(outputPath, "control.error", new
+            {
+                action = control.Action,
+                prompt = control.Prompt,
+                message
+            });
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Не удалось записать ошибку управляющего файла: {0}", error.Message);
+        }
+        finally
+        {
+            TryDeleteControlFile(path);
         }
     }
 

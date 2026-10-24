@@ -49,6 +49,7 @@ internal static class Program
             await Check("Automation summary bounds output while preserving final text", () => AutomationSummaryAsync(root));
             await Check("Automation output readers skip malformed lines", () => AutomationOutputRecoveryAsync(root));
             await Check("Malformed worker controls are reported and removed", () => MalformedControlFileAsync(root));
+            await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -377,6 +378,39 @@ internal static class Program
         Require(output.Contains("\"type\":\"control.error\"", StringComparison.Ordinal)
             && output.Contains("\"action\":\"invalid\"", StringComparison.Ordinal),
             "Malformed worker control was not reported to the output log");
+    }
+
+    private static async Task WorkerControlValidationAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var validate = typeof(CodexAppServerTurnWorker).GetMethod("GetControlValidationError", nonPublicStatic)
+            ?? throw new InvalidOperationException("Worker control validator was not found");
+        var reject = typeof(CodexAppServerTurnWorker).GetMethod("RejectControlFileAsync", nonPublicStatic)
+            ?? throw new InvalidOperationException("Worker control rejection handler was not found");
+        string? Error(CodexAppServerWorkerControl control) => (string?)validate.Invoke(null, [control, true]);
+
+        var missingRequestId = new CodexAppServerWorkerControl { Action = "response", ResponseJson = "{}" };
+        Require(Error(missingRequestId) is not null, "A response without RequestId was accepted");
+        var malformedRequestId = new CodexAppServerWorkerControl { Action = "response", RequestId = "{bad", ResponseJson = "{}" };
+        Require(Error(malformedRequestId) is not null, "A malformed RequestId was accepted");
+        var objectRequestId = new CodexAppServerWorkerControl { Action = "response", RequestId = "{}", ResponseJson = "{}" };
+        Require(Error(objectRequestId) is not null, "An object RequestId was accepted");
+        var malformedResponse = new CodexAppServerWorkerControl { Action = "response", RequestId = "1", ResponseJson = "{bad" };
+        Require(Error(malformedResponse) is not null, "A malformed ResponseJson was accepted");
+        var validResponse = new CodexAppServerWorkerControl { Action = "response", RequestId = "1", ResponseJson = "{\"ok\":true}" };
+        Require(Error(validResponse) is null, "A valid JSON-RPC response was rejected");
+
+        var directory = Path.Combine(root, "invalid-worker-control");
+        Directory.CreateDirectory(directory);
+        var controlPath = Path.Combine(directory, "response.json");
+        var outputPath = Path.Combine(directory, "stdout.jsonl");
+        File.WriteAllText(controlPath, JsonSerializer.Serialize(malformedResponse));
+        var rejection = (Task)reject.Invoke(null, [controlPath, outputPath, malformedResponse, Error(malformedResponse)!])!;
+        await rejection;
+        Require(!File.Exists(controlPath), "An invalid ResponseJson control was not removed");
+        Require(File.ReadAllText(outputPath).Contains("\"type\":\"control.error\"", StringComparison.Ordinal),
+            "An invalid ResponseJson control was not logged");
     }
 
     private static Task WorkspaceSearchAsync(string root)
