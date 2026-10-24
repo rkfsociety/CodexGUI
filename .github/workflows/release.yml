@@ -171,9 +171,21 @@ jobs:
             if ($subject -match '^Bump version to [0-9]+\.[0-9]+\.[0-9]+$') { continue }
             $changedPaths = @(git diff-tree --no-commit-id --name-only -r $commit)
             if ($LASTEXITCODE -ne 0) { throw "Could not inspect files changed by commit '$subject'." }
-            $hasProductChanges = @($changedPaths | Where-Object {
+            $productPaths = @($changedPaths | Where-Object {
               $_ -notmatch '^(?:\.github/|\.codex/|Tests/|AGENTS\.md$|README\.md$)'
-            }).Count -gt 0
+            })
+            $hasProductChanges = $productPaths.Count -gt 0
+            if ($productPaths.Count -eq 1 -and $productPaths[0] -eq 'Build/CodexGUI.csproj') {
+              $projectDiff = @(git diff --unified=0 "$commit^" $commit -- Build/CodexGUI.csproj)
+              if ($LASTEXITCODE -ne 0) { throw "Could not inspect project version changes in commit '$subject'." }
+              $projectChanges = @($projectDiff | Where-Object {
+                $_ -match '^[+-]' -and $_ -notmatch '^(?:\+\+\+|---)'
+              })
+              $isVersionOnly = $projectChanges.Count -gt 0 -and @($projectChanges | Where-Object {
+                $_ -notmatch '^[+-]\s*<Version>[0-9]+\.[0-9]+\.[0-9]+</Version>\s*$'
+              }).Count -eq 0
+              if ($isVersionOnly) { $hasProductChanges = $false }
+            }
             if (-not $hasProductChanges) { continue }
             $noteCount = 0
             foreach ($line in ($body -split '\r?\n')) {
