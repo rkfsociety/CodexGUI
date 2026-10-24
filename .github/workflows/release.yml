@@ -164,11 +164,12 @@ jobs:
             $noteCount = 0
             foreach ($line in ($body -split '\r?\n')) {
               if ($line -match '^Release-Note-(Added|Changed|Fixed):\s*(.+)$') {
+                $category = $Matches[1]
                 $note = $Matches[2].Trim()
                 if ($note -notmatch '\p{IsCyrillic}') {
                   throw "Release note in commit '$subject' must be written in Russian."
                 }
-                $notes[$Matches[1]].Add($note)
+                $notes[$category].Add($note)
                 $noteCount++
               }
             }
