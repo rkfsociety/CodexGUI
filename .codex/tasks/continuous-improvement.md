@@ -307,4 +307,5 @@
 - `UpdateButton` находится внутри `WindowChrome.CaptionHeight`, но не имел `IsHitTestVisibleInChrome`; кнопка могла выглядеть готовой к установке, но hit-test попадал в область заголовка.
 - Включён hit-testing кнопки. Через built-in imagegen создан прозрачный 8-кадровый sprite sheet с анимированным glint для проверенного обновления; кадры переключаются WPF timer, сам рисунок не создаётся кодом. UI-check проверяет hit-test и загрузку всех кадров.
 - Версия повышена с `0.0.138` до `0.0.139`. Сборки приложения и Checks проекта прошли без предупреждений/ошибок; локально UI и test runner не запускались.
+- Release workflow `40118608408` прошёл UI-check и опубликовал `v0.0.139` с EXE, ZIP, checksum и signature. Сгенерированный asset хранится в `Assets/UpdateReadySpriteSheet.png`.
 - Следующий цикл: продолжить аудит terminal session write/resize/terminate timeout и disposal failure.
