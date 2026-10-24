@@ -59,6 +59,7 @@ internal static class Program
             await Check("Malformed worker controls are reported and removed", () => MalformedControlFileAsync(root));
             await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
+            await Check("App-server initialization forwards cancellation and closes its child", AppServerConnectionCancellationAsync);
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
@@ -558,6 +559,36 @@ internal static class Program
             catch (ArgumentException) { return false; }
             catch (InvalidOperationException) { return false; }
         }
+    }
+
+    private static async Task AppServerConnectionCancellationAsync()
+    {
+        var startInfo = new ProcessStartInfo(Executable)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("--listen");
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the fake app-server peer");
+        var processId = process.Id;
+
+        await using (var connection = new CodexAppServerConnection(process))
+        using (var cancellation = new CancellationTokenSource())
+        {
+            cancellation.Cancel();
+            await ThrowsAsync<OperationCanceledException>(() => connection.InitializeAsync(cancellation.Token));
+        }
+
+        try
+        {
+            using var leftover = Process.GetProcessById(processId);
+            Require(leftover.HasExited, "Cancelled app-server initialization left its child running");
+        }
+        catch (ArgumentException) { }
     }
 
     private static async Task<int> FakeAppServerFloodAsync()

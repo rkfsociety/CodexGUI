@@ -2969,7 +2969,7 @@ public partial class MainWindow : Window
         string? status = null;
         try
         {
-            await connection.InitializeAsync();
+            await connection.InitializeAsync(cancellationToken);
             var threadResult = await connection.SendRequestAsync("thread/start", new
             {
                 cwd = repositoryPath,
@@ -2977,7 +2977,7 @@ public partial class MainWindow : Window
                 approvalPolicy = "on-request",
                 sandbox = "read-only",
                 config = new { model_reasoning_effort = _selectedEffort }
-            });
+            }, cancellationToken);
             threadId = threadResult.TryGetProperty("thread", out var thread) ? GetString(thread, "id") : null;
             if (string.IsNullOrWhiteSpace(threadId))
                 throw new InvalidDataException("Codex App Server не создал временный чат для review.");
@@ -2987,7 +2987,7 @@ public partial class MainWindow : Window
                 threadId,
                 delivery = "inline",
                 target = new { type = "uncommittedChanges" }
-            });
+            }, cancellationToken);
             turnId = reviewResult.TryGetProperty("turn", out var turn) ? GetString(turn, "id") : null;
             if (string.IsNullOrWhiteSpace(turnId))
                 throw new InvalidDataException("Codex App Server не вернул идентификатор review-хода.");
@@ -3007,7 +3007,7 @@ public partial class MainWindow : Window
                         {
                             ShowFromTray();
                             var decision = ShowAppServerApprovalDialog(method, approvalParameters);
-                            await connection.SendResponseAsync(requestId, new { decision });
+                            await connection.SendResponseAsync(requestId, new { decision }, cancellationToken);
                         }
                         else if ((method is "item/tool/requestUserInput" or "mcpServer/elicitation/request" or "item/permissions/requestApproval")
                             && message.TryGetProperty("params", out var requestParameters))
@@ -3025,10 +3025,10 @@ public partial class MainWindow : Window
                                 responseJson = CodexAppServerRequestDialog.BuildSafeCancellationResponse(method, requestParameters);
                             }
                             using var responseDocument = JsonDocument.Parse(responseJson);
-                            await connection.SendResponseAsync(requestId, responseDocument.RootElement);
+                            await connection.SendResponseAsync(requestId, responseDocument.RootElement, cancellationToken);
                         }
                         else
-                            await connection.SendErrorAsync(requestId, -32601, "CodexGUI does not support this review request yet.");
+                            await connection.SendErrorAsync(requestId, -32601, "CodexGUI does not support this review request yet.", cancellationToken);
                         continue;
                     }
 

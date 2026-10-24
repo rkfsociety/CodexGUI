@@ -649,14 +649,14 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         }
     }
 
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _ = await SendRequestAsync("initialize", new
         {
             clientInfo = new { name = "codexgui", title = "CodexGUI", version = AppUpdater.CurrentVersion },
             capabilities = new { experimentalApi = true, mcpServerOpenaiFormElicitation = true }
-        });
-        await SendNotificationAsync("initialized", new { });
+        }, cancellationToken);
+        await SendNotificationAsync("initialized", new { }, cancellationToken);
     }
 
     public bool TryReadIncoming(out JsonElement message) => _incoming.Reader.TryRead(out message);
@@ -689,14 +689,14 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         }
     }
 
-    public Task SendNotificationAsync(string method, object parameters) =>
-        WriteMessageAsync(new { method, @params = parameters });
+    public Task SendNotificationAsync(string method, object parameters, CancellationToken cancellationToken = default) =>
+        WriteMessageAsync(new { method, @params = parameters }, cancellationToken);
 
-    public Task SendResponseAsync(JsonElement requestId, object result) =>
-        WriteMessageAsync(new { id = requestId, result });
+    public Task SendResponseAsync(JsonElement requestId, object result, CancellationToken cancellationToken = default) =>
+        WriteMessageAsync(new { id = requestId, result }, cancellationToken);
 
-    public Task SendErrorAsync(JsonElement requestId, int code, string message) =>
-        WriteMessageAsync(new { id = requestId, error = new { code, message } });
+    public Task SendErrorAsync(JsonElement requestId, int code, string message, CancellationToken cancellationToken = default) =>
+        WriteMessageAsync(new { id = requestId, error = new { code, message } }, cancellationToken);
 
     private async Task WriteMessageAsync(object message, CancellationToken cancellationToken = default)
     {

@@ -202,6 +202,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
     private async Task LoginSelectedAsync()
     {
         if (_busy || SelectedServer() is not { } server || !RequiresLogin(server)) return;
+        var cancellationToken = _rpcCancellation.Token;
         _busy = true;
         UpdateButtons();
         _status.Text = $"Подготовка входа в «{server.Name}»…";
@@ -211,18 +212,19 @@ internal sealed class CodexMcpServerStatusWindow : Window
             (bool Success, string? Error) outcome;
             await using (var connection = await CodexAppServerConnection.StartAsync(_appServerExecutablePath))
             {
-                await connection.InitializeAsync();
+                await connection.InitializeAsync(cancellationToken);
                 var response = await connection.SendRequestAsync("mcpServer/oauth/login", new
                 {
                     name = server.Name,
                     timeoutSecs = 300
-                });
+                }, cancellationToken);
                 var authorizationUrl = ReadRequiredString(response, "authorizationUrl");
                 var loginId = ReadOptionalString(response, "loginId");
                 loginWindow = new CodexMcpServerOAuthLoginWindow(server.Name, authorizationUrl) { Owner = this };
                 loginWindow.Show();
 
-                using var waitTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+                using var waitTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                waitTimeout.CancelAfter(TimeSpan.FromMinutes(6));
                 var completionTask = WaitForOAuthCompletionAsync(connection, server.Name, loginId, waitTimeout.Token);
                 var completed = await Task.WhenAny(completionTask, loginWindow.Cancelled);
                 if (completed != completionTask)
@@ -248,6 +250,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
             _status.Text = "Вход завершён. Обновляю состояние MCP-серверов…";
             await ReloadAsync(keepBusy: true);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (OperationCanceledException)
         {
             _status.Text = "Время ожидания входа истекло.";
@@ -260,7 +263,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         {
             if (loginWindow?.IsVisible == true) loginWindow.Close();
             _busy = false;
-            UpdateButtons();
+            if (!cancellationToken.IsCancellationRequested) UpdateButtons();
         }
     }
 

@@ -285,3 +285,10 @@
 - Версия повышена с `0.0.135` до `0.0.136`; обе сборки прошли без предупреждений/ошибок, test runner локально не запускался.
 - Release workflow `40116515019` прошёл успешно и опубликовал `v0.0.136` с EXE, ZIP, checksum и signature.
 - Следующий цикл: продолжить аудит передачи отмены другим длительным UI RPC и ограничений времени ожидания.
+
+## Цикл — отмена RPC при закрытии окна и отмене code review
+
+- MCP OAuth использовал отдельное `CodexAppServerConnection`, но не передавал cancellation token закрываемого окна в initialization, OAuth RPC и шестиминутное ожидание. Code review имел operation token только в цикле уведомлений; initialization, `thread/start`, `review/start` и ответы на запросы его игнорировали.
+- `CodexAppServerConnection.InitializeAsync` и отправка notification/response/error теперь принимают token. MCP OAuth связывает RPC и ожидание с lifetime окна; code review передаёт свой token всем RPC до cleanup.
+- Добавлена fake-peer regression для отмены initialization и завершения дочернего процесса. Версия повышена с `0.0.136` до `0.0.137`; сборки приложения и Checks проекта прошли без предупреждений/ошибок, runner локально не запускался.
+- Следующий цикл: продолжить аудит других долгих UI RPC, включая terminal host startup/disposal.
