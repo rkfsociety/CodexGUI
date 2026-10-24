@@ -139,5 +139,6 @@
 - Повторная проверка ошибки Windows показала, что даже после исправления `Run-CodexGUI.cmd` проектный `dotnet build` всё ещё создавал framework-dependent apphost. Запуск такого EXE без Desktop Runtime по-прежнему показывает установочный диалог.
 - Исправление: `RuntimeIdentifier=win-x64` и `SelfContained=true` заданы в проекте по умолчанию; README больше не помечает Debug/Release apphost как runtime-dependent. CI собирает обычный apphost и проверяет его multi-file output, multi-file publish и single-file EXE при пустом `DOTNET_ROOT`.
 - Локально выполнен restore из-за нового RID и `dotnet build --no-restore`: успешно, 0 предупреждений и ошибок. Ни приложение, ни EXE, ни UI локально не запускались.
-- Версия повышена с `0.0.118` до `0.0.119`. Проверки публикации ожидают CI.
+- Первый release workflow `40109154793` остановился на regression setup: framework-dependent test runner не мог ссылаться на self-contained приложение (NETSDK1151). Тестовый проект переведён на тот же self-contained `win-x64` target; локальные `dotnet restore Tests/CodexGUI.Checks.csproj` и `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошли без предупреждений и ошибок.
+- Версия повышена с `0.0.118` до `0.0.119`. Повторные CI проверки публикации ожидают выполнения; локальный test runner и EXE не запускались.
 - Следующий цикл: проверить завершение дочернего процесса и освобождение ресурсов при ошибке/таймауте.
