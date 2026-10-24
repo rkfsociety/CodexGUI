@@ -260,8 +260,8 @@
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <Border Width="32" Height="32" CornerRadius="6" BorderBrush="#63D5BC" BorderThickness="1" Background="#122B29" VerticalAlignment="Center">
-          <Path Data="M12,2 V22 M2,12 H22 M5,5 L19,19 M5,19 L19,5" Width="24" Height="24" Stretch="Uniform" Stroke="{StaticResource Accent}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" />
+        <Border Width="32" Height="34" CornerRadius="6" BorderBrush="#63D5BC" BorderThickness="1.2" Background="#122B29" VerticalAlignment="Center">
+          <Path Data="M12,2 V22 M2,12 H22 M5,5 L19,19 M5,19 L19,5" Width="27" Height="27" Stretch="Uniform" Stroke="{StaticResource Accent}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" />
         </Border>
         <TextBlock Text="Codex" FontWeight="SemiBold" FontSize="26" Margin="14,0,0,0" VerticalAlignment="Center" />
         <TextBlock x:Name="WorkspaceTagline" Text="Локальный ИИ-ассистент для разработчиков" Foreground="{StaticResource TextFaint}" FontSize="12" Margin="17,0,0,0" VerticalAlignment="Center" />
@@ -305,7 +305,7 @@
           </Border>
         </Grid>
       </Button>
-      <UniformGrid WindowChrome.IsHitTestVisibleInChrome="True" Grid.Column="3" Columns="3" VerticalAlignment="Center">
+      <UniformGrid WindowChrome.IsHitTestVisibleInChrome="True" Grid.Column="3" Columns="3" VerticalAlignment="Center" Margin="12,0,0,0">
         <Button x:Name="WindowMinimizeButton" Content="—" Width="46" ToolTip="Свернуть" />
         <Button x:Name="WindowMaximizeButton" Content="□" Width="46" ToolTip="Развернуть / восстановить" FontSize="18" />
         <Button x:Name="WindowCloseButton" Content="×" Width="46" FontSize="18" ToolTip="Закрыть" />
@@ -317,7 +317,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="48.6*" />
         <RowDefinition Height="Auto" />
-        <RowDefinition Height="51.4*" />
+        <RowDefinition Height="50*" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <Border CornerRadius="13" BorderBrush="{StaticResource Line}" BorderThickness="1" Background="{StaticResource Surface}" Padding="0" x:Name="ProjectStructureCard">
@@ -481,7 +481,7 @@
         <RowDefinition Height="*" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
-      <Border x:Name="ChatOverviewCard" Grid.Row="0" Width="390" Height="62" HorizontalAlignment="Right" CornerRadius="14" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="18,12,28,7" Padding="12,8">
+      <Border x:Name="ChatOverviewCard" Grid.Row="0" Width="390" Height="62" HorizontalAlignment="Right" CornerRadius="14" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" Margin="18,12,28,7" Padding="12,8" Visibility="Collapsed">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -720,7 +720,7 @@
       </Grid>
     </ScrollViewer>
   </Border>
-  <Border x:Name="WorkspaceDock" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" BorderBrush="#326C70" BorderThickness="0" Background="Transparent" Margin="148,0,148,4" Padding="18,12,30,12" MinHeight="135" TextOptions.TextRenderingMode="Grayscale">
+  <Border x:Name="WorkspaceDock" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" BorderBrush="#326C70" BorderThickness="0" Background="Transparent" Margin="148,0,148,4" Padding="18,12,30,12" MinHeight="139" TextOptions.TextRenderingMode="Grayscale">
     <Grid x:Name="WorkspaceDockGrid">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="190" />
@@ -823,7 +823,7 @@
             </ScrollViewer>
           </StackPanel>
         </Border>
-        <Border x:Name="ComposerBorder" Background="Transparent" BorderThickness="1" Padding="24,4,18,5" MinHeight="106">
+        <Border x:Name="ComposerBorder" Background="Transparent" BorderThickness="1" Padding="24,8,18,5" MinHeight="114">
           <Border.Style>
             <Style TargetType="Border">
               <Setter Property="BorderBrush" Value="Transparent" />
