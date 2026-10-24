@@ -141,13 +141,10 @@ jobs:
             $range = "$previousTag..HEAD"
           }
 
-          # Prefer explicit Release-Note-* commit trailers. Other commits fall back to
-          # their conventional-commit subject, including direct pushes without PRs.
           $notes = @{
             Added   = [System.Collections.Generic.List[string]]::new()
             Changed = [System.Collections.Generic.List[string]]::new()
             Fixed   = [System.Collections.Generic.List[string]]::new()
-            Other   = [System.Collections.Generic.List[string]]::new()
           }
           $history = git log --no-merges '--format=%s%x1f%b%x1e' $range | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'Could not read the release commit history.' }
@@ -155,45 +152,41 @@ jobs:
             $fields = $record.Trim() -split ([char]0x1f), 2
             if ($fields.Count -ne 2) { continue }
             $subject = $fields[0].Trim()
-            $explicitNotes = $false
+            if ($subject -match '^Bump version to [0-9]+\.[0-9]+\.[0-9]+$') { continue }
+            $noteCount = 0
             foreach ($line in ($fields[1] -split '\r?\n')) {
               if ($line -match '^Release-Note-(Added|Changed|Fixed):\s*(.+)$') {
                 $notes[$Matches[1]].Add($Matches[2].Trim())
-                $explicitNotes = $true
+                $noteCount++
               }
             }
-            if ($explicitNotes) { continue }
-            if ($subject -match '^feat(?:\([^)]*\))?!?:\s*(.+)$') {
-              $notes.Added.Add($Matches[1])
-            } elseif ($subject -match '^fix(?:\([^)]*\))?!?:\s*(.+)$') {
-              $notes.Fixed.Add($Matches[1])
-            } elseif ($subject -match '^(?:perf|refactor|build|ci)(?:\([^)]*\))?!?:\s*(.+)$') {
-              $notes.Changed.Add($Matches[1])
-            } elseif ($subject) {
-              $notes.Other.Add($subject)
+            if ($noteCount -eq 0) {
+              throw "Commit '$subject' has no Release-Note-Added, Release-Note-Changed, or Release-Note-Fixed trailer. Add a concise user-facing release note or use a version-bump commit."
             }
           }
 
           $sections = [ordered]@{
-            Added = '✨ Добавлено'
-            Changed = '⚡ Улучшено'
-            Fixed = '🛠 Исправлено'
-            Other = 'Другие изменения'
+            Added = '✨ Новое'
+            Changed = '🎨 Улучшения'
+            Fixed = '🛠 Исправления'
           }
           $lines = [System.Collections.Generic.List[string]]::new()
           $lines.Add("# CodexGUI v$env:RELEASE_VERSION")
           $lines.Add('')
-          if ($previousTag) { $lines.Add("Изменения после $previousTag.") }
-          else { $lines.Add('Изменения с начала истории проекта.') }
+          $lines.Add('Главное в этом обновлении:')
           foreach ($category in $sections.Keys) {
             if ($notes[$category].Count -eq 0) { continue }
             $lines.Add('')
             $lines.Add("## $($sections[$category])")
             foreach ($item in $notes[$category]) { $lines.Add("- $item") }
           }
-          if (($notes.Added.Count + $notes.Changed.Count + $notes.Fixed.Count + $notes.Other.Count) -eq 0) {
+          if (($notes.Added.Count + $notes.Changed.Count + $notes.Fixed.Count) -eq 0) {
             $lines.Add('')
-            $lines.Add('В этом диапазоне нет коммитов с описанием изменений.')
+            $lines.Add('В этом выпуске нет пользовательских изменений.')
+          }
+          if ($previousTag) {
+            $lines.Add('')
+            $lines.Add("_Список изменений: $previousTag → v$env:RELEASE_VERSION._")
           }
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           [System.IO.File]::WriteAllLines('artifacts/release-notes.md', $lines, [System.Text.UTF8Encoding]::new($false))
