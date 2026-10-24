@@ -17,6 +17,8 @@ public partial class MainWindow
             || state.Actions.Any(action => action is null)
             || state.QueuedPrompts.Any(prompt => prompt is null))
             throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
+        foreach (var thread in state.Threads)
+            thread.ActiveRun = NormalizeStoredActiveRun(thread.ActiveRun);
     }
 
     private static ActiveCliRun? NormalizeStoredActiveRun(ActiveCliRun? run)
@@ -80,7 +82,7 @@ public partial class MainWindow
                             ContextWindowTokens = stored.ContextWindowTokens,
                             PendingGoal = stored.PendingGoal,
                             GoalSteps = stored.GoalSteps ?? [],
-                            ActiveRun = NormalizeStoredActiveRun(stored.ActiveRun)
+                            ActiveRun = stored.ActiveRun
                         });
                     }
                     var knownThreadIds = _threads.Select(thread => thread.Id).ToHashSet(StringComparer.Ordinal);

@@ -153,10 +153,18 @@ internal static class Program
             | System.Reflection.BindingFlags.Static;
         var runType = typeof(MainWindow).GetNestedType("ActiveCliRun", System.Reflection.BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("ActiveCliRun type was not found");
-        var normalize = typeof(MainWindow).GetMethod("NormalizeStoredActiveRun", nonPublicStatic)
-            ?? throw new InvalidOperationException("Stored worker normalization method was not found");
+        var stateType = typeof(MainWindow).GetNestedType("StoredState", System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("StoredState type was not found");
+        var threadType = typeof(MainWindow).GetNestedType("StoredThread", System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("StoredThread type was not found");
+        var validate = typeof(MainWindow).GetMethod("ValidateStoredState", nonPublicStatic)
+            ?? throw new InvalidOperationException("Stored state validator was not found");
         var run = Activator.CreateInstance(runType)
             ?? throw new InvalidOperationException("ActiveCliRun could not be created");
+        var state = Activator.CreateInstance(stateType)
+            ?? throw new InvalidOperationException("StoredState could not be created");
+        var thread = Activator.CreateInstance(threadType)
+            ?? throw new InvalidOperationException("StoredThread could not be created");
         var runId = Guid.NewGuid().ToString("N");
         runType.GetProperty("RunId")!.SetValue(run, runId);
         runType.GetProperty("RequestPath")!.SetValue(run, Path.Combine(root, "outside", "request.json"));
@@ -166,7 +174,9 @@ internal static class Program
         runType.GetProperty("ErrorPath")!.SetValue(run, Path.Combine(root, "outside", "error.txt"));
         runType.GetProperty("CompletionPath")!.SetValue(run, Path.Combine(root, "outside", "completed.json"));
 
-        var normalized = normalize.Invoke(null, [run])!;
+        threadType.GetProperty("ActiveRun")!.SetValue(thread, run);
+        ((System.Collections.IList)stateType.GetProperty("Threads")!.GetValue(state)!).Add(thread);
+        validate.Invoke(null, [state]);
         var runDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", runId);
         foreach (var (property, filename) in new[]
@@ -179,18 +189,28 @@ internal static class Program
             ("CompletionPath", "completed.json")
         })
         {
-            var actualPath = (string?)runType.GetProperty(property)!.GetValue(normalized);
+            var actualPath = (string?)runType.GetProperty(property)!.GetValue(run);
             Require(string.Equals(actualPath, Path.Combine(runDirectory, filename), StringComparison.OrdinalIgnoreCase),
                 $"Stored {property} was not rebuilt under the worker run directory");
         }
 
+        var statePath = Path.Combine(root, "worker-state", "state.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
         runType.GetProperty("RunId")!.SetValue(run, "..");
-        try
-        {
-            normalize.Invoke(null, [run]);
-            throw new InvalidOperationException("Invalid stored worker run id was accepted");
-        }
-        catch (System.Reflection.TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
+        File.WriteAllText(statePath, JsonSerializer.Serialize(state, stateType));
+        runType.GetProperty("RunId")!.SetValue(run, runId);
+        File.WriteAllText(statePath + ".bak", JsonSerializer.Serialize(state, stateType));
+        var backupReader = typeof(AtomicJsonFile).GetMethod("ReadWithBackup", System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
+            .MakeGenericMethod(stateType);
+        var stateValidator = validate.CreateDelegate(typeof(Action<>).MakeGenericType(stateType));
+        var recoveredState = backupReader.Invoke(null, [statePath, stateValidator])!;
+        var recoveredThreads = (System.Collections.IList)stateType.GetProperty("Threads")!.GetValue(recoveredState)!;
+        var recoveredThread = recoveredThreads[0]!;
+        var recoveredRun = threadType.GetProperty("ActiveRun")!.GetValue(recoveredThread)!;
+        Require(string.Equals((string?)runType.GetProperty("RequestPath")!.GetValue(recoveredRun),
+                Path.Combine(runDirectory, "request.json"), StringComparison.OrdinalIgnoreCase),
+            "Invalid primary worker state did not recover from the backup");
         return Task.CompletedTask;
     }
 
