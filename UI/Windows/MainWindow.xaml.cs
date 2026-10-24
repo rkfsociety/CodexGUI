@@ -4945,12 +4945,6 @@ public partial class MainWindow : Window
             run.WorkerStartTimeUtcTicks = serverProcess.StartTime.ToUniversalTime().Ticks;
             RequestStateSave();
             return serverProcess;
-            serverProcess.EnableRaisingEvents = true;
-            serverProcess.Exited += (sender, args) =>
-            {
-                try { serverProcess.Dispose(); }
-                catch (Exception ex) { System.Diagnostics.Trace.TraceError("Error disposing server process: {0}", ex); }
-            };
         }
 
         using var workerResource = typeof(MainWindow).Assembly.GetManifestResourceStream("CodexGUI.CodexCliWorker.ps1")
@@ -4990,12 +4984,6 @@ public partial class MainWindow : Window
         run.WorkerStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
         RequestStateSave();
         return process;
-        process.EnableRaisingEvents = true;
-        process.Exited += (sender, args) =>
-        {
-            try { process.Dispose(); }
-            catch (Exception ex) { System.Diagnostics.Trace.TraceError("Error disposing CLI process: {0}", ex); }
-        };
     }
 
     private static List<string> BuildCodexArguments(ChatThread thread, ActiveCliRun run)
