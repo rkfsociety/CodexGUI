@@ -92,3 +92,12 @@
 - Reason: disk flushes must not stall normal UI interaction, and an older snapshot must never overwrite a newer one.
 - Constraint: snapshot capture remains on the UI thread to avoid concurrent access to mutable collections. Failed writes remain visible and do not poison later retries. Keep completed worker files when saving completion fails.
 - Source: `UI/Windows/MainWindow.State.cs`, `Infrastructure/SerializedJsonWriter.cs`, and `Tests/Program.cs`.
+
+
+## Give local agents read-only project hints and pre-commit secret warnings
+
+- Status: active.
+- Decision: when the user explicitly inserts Git context, append a bounded inventory of project instruction and build/test manifest filenames from the active worktree. Do not read file contents, follow linked directories, execute suggested checks, or automatically send the draft. Before committing staged changes through the GUI, check the live Git index for filenames that suggest secrets, request explicit confirmation, and recheck the sensitive file list before commit.
+- Reason: an agent needs local verification entry points without leaking contents; user-confirmed filename-only preflight mitigates accidental staging of credentials.
+- Constraint: this is a heuristic based on names, not a content scanner or protection for previous commits/pushes. Keep Git operations argument-list based and preserve the existing no-force push policy.
+- Source: \`Infrastructure/LocalProjectInventory.cs\`, \`Git/GitRepositoryInspector.cs\`, \`UI/Windows/MainWindow.xaml.cs\`, and \`Tests/Program.cs\`.

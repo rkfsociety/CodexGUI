@@ -2682,12 +2682,21 @@ public partial class MainWindow : Window
             branchLabel += $" · ↑{snapshot.Ahead} ↓{snapshot.Behind}";
         branch.Text = branchLabel;
 
-        var staged = snapshot.Changes.Where(file => !file.IsUntracked && file.IndexStatus != '.').ToArray();
-        var modified = snapshot.Changes.Where(file => !file.IsUntracked && file.WorktreeStatus != '.').ToArray();
-        var untracked = snapshot.Changes.Where(file => file.IsUntracked).ToArray();
+        var staged = new List<RepositoryFileStatus>();
+        var modified = new List<RepositoryFileStatus>();
+        var untracked = new List<RepositoryFileStatus>();
+        foreach (var file in snapshot.Changes)
+        {
+            if (file.IsUntracked) untracked.Add(file);
+            else
+            {
+                if (file.IndexStatus != '.') staged.Add(file);
+                if (file.WorktreeStatus != '.') modified.Add(file);
+            }
+        }
         summary.Text = snapshot.Changes.Count == 0
             ? "Нет незакоммиченных изменений"
-            : $"Файлов: {snapshot.Changes.Count} · В индексе: {staged.Length} · Изменены: {modified.Length} · Новые: {untracked.Length}";
+            : $"Файлов: {snapshot.Changes.Count} · В индексе: {staged.Count} · Изменены: {modified.Count} · Новые: {untracked.Count}";
 
         AddRepositoryFileGroup(changesPanel, "В ИНДЕКСЕ", staged, snapshot.Root, RepositoryDiffScope.Staged);
         AddRepositoryFileGroup(changesPanel, "ИЗМЕНЕНЫ", modified, snapshot.Root, RepositoryDiffScope.Unstaged);
@@ -2799,9 +2808,50 @@ public partial class MainWindow : Window
     {
         var input = Control<TextBox>("CommitMessageInput");
         var message = input?.Text.Trim();
-        if (string.IsNullOrWhiteSpace(message)) return;
+        if (string.IsNullOrWhiteSpace(message) || _isGitCommandRunning || _isReviewingChanges || HasActiveRuns
+            || _repositorySnapshot is not { IsRepository: true } snapshot) return;
+
+        IReadOnlyList<string> flaggedFiles;
+        try
+        {
+            // Inspect the actual index, not the potentially stale UI status.
+            flaggedFiles = await GitRepositoryInspector.ReadStagedPotentialSecretsAsync(
+                snapshot.Root, _repositoryRefreshCancellation.Token);
+        }
+        catch (OperationCanceledException) when (_isClosing) { return; }
+        catch (Exception error)
+        {
+            SetStatus("Не удалось проверить индекс Git", error.Message, isError: true);
+            return;
+        }
+
+        if (_isClosing || HasActiveRuns || _isGitCommandRunning || _isReviewingChanges
+            || _repositorySnapshot is not { IsRepository: true } currentSnapshot
+            || !string.Equals(currentSnapshot.Root, snapshot.Root, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (flaggedFiles.Count > 0)
+        {
+            var preview = string.Join("\n", flaggedFiles.Take(6)
+                .Select(path => "• " + GitRepositoryInspector.EscapeAgentField(path)));
+            if (flaggedFiles.Count > 6) preview += $"\n… ещё {flaggedFiles.Count - 6}.";
+            var decision = CodexMessageDialog.Show(this,
+                "В индексе обнаружены потенциально чувствительные файлы:\n\n" + preview
+                + "\n\nПроверены только имена, содержимое не анализировалось. Продолжить коммит?",
+                "Проверка перед коммитом", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (decision != MessageBoxResult.Yes) return;
+        }
+
         var committed = await RunRepositoryGitCommandAsync("Создаю коммит…", "Коммит создан.",
-            async (root, token) => { _ = await GitRepositoryInspector.CommitStagedAsync(root, message, token); });
+            async (root, token) =>
+            {
+                if (!string.Equals(root, snapshot.Root, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Рабочий репозиторий изменился.");
+                var latestFiles = await GitRepositoryInspector.ReadStagedPotentialSecretsAsync(root, token);
+                if (!latestFiles.SequenceEqual(flaggedFiles, StringComparer.Ordinal))
+                    throw new InvalidOperationException("Чувствительные файлы в индексе изменились; повторите проверку.");
+                _ = await GitRepositoryInspector.CommitStagedAsync(root, message, token);
+            });
         if (committed && input is not null) input.Clear();
     }
 
@@ -3288,8 +3338,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            InsertActionPrompt(GitRepositoryInspector.FormatAgentContext(snapshot));
-            SetStatus("Git-контекст добавлен", "Сводка вставлена в черновик; отправьте её при необходимости.");
+            var context = GitRepositoryInspector.FormatAgentContext(snapshot)
+                + LocalProjectInventory.FormatAgentHints(workingDirectory);
+            InsertActionPrompt(context);
+            SetStatus("Git-контекст добавлен", "Сводка и ориентиры проекта вставлены в черновик; отправьте их при необходимости.");
         }
         catch (OperationCanceledException) when (_repositoryRefreshCancellation.IsCancellationRequested) { }
         finally

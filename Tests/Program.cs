@@ -40,6 +40,8 @@ internal static class Program
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
             await Check("Git context records a validated HEAD baseline", GitHeadBaselineAsync);
             await Check("Agent Git context detects potentially sensitive files", GitSecretsAsync);
+            await Check("Staged secret preflight preserves NUL-delimited filenames", StagedSecretsAsync);
+            await Check("Local agent discovers project verification entry points without reading files", () => ProjectInventoryAsync(root));
             await Check("Agent Git context escapes terminal and Unicode formatting characters", GitContextEscapingAsync);
             await Check("Git status parsing handles large repositories and renamed paths", GitStatusScaleAsync);
             await Check("Git porcelain v2 detects unmerged entries", GitConflictParsingAsync);
@@ -135,6 +137,47 @@ internal static class Program
         Require(GitRepositoryInspector.IsPotentialSecretFile(@"config\.npmrc"), "Windows separator not recognized");
         Require(!GitRepositoryInspector.IsPotentialSecretFile(".env.sample"), "Safe sample flagged");
         Require(!GitRepositoryInspector.IsPotentialSecretFile("src/config.json"), "Ordinary config flagged");
+        return Task.CompletedTask;
+    }
+
+    private static Task StagedSecretsAsync()
+    {
+        var output = ".env.local\0docs/notes.txt\0secrets/private\nkey.pem\0.env.example\0"
+            + ".aws/credentials\0.docker/config.json\0";
+        var found = GitRepositoryInspector.FindPotentialSecretsInNullDelimitedPaths(output);
+        Require(found.Count == 4, "Unexpected sensitive file matches");
+        Require(found[0] == ".env.local" && found[1] == "secrets/private\nkey.pem"
+            && found[2] == ".aws/credentials" && found[3] == ".docker/config.json",
+            "NUL-delimited sensitive file names were corrupted");
+        Require(GitRepositoryInspector.IsPotentialSecretFile(".git-credentials"),
+            "Git credentials were not recognized");
+        return Task.CompletedTask;
+    }
+
+    private static Task ProjectInventoryAsync(string root)
+    {
+        var project = Path.Combine(root, "inventory");
+        Directory.CreateDirectory(Path.Combine(project, "Build"));
+        Directory.CreateDirectory(Path.Combine(project, "Tests"));
+        File.WriteAllText(Path.Combine(project, "AGENTS.md"), "never expose this secret marker");
+        File.WriteAllText(Path.Combine(project, "Build", "App.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(project, "Tests", "App.Tests.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(project, ".env"), "SECRET=never");
+        var hints = LocalProjectInventory.FormatAgentHints(project);
+        Require(hints.Contains("AGENTS.md", StringComparison.Ordinal)
+            && hints.Contains("Build/App.csproj", StringComparison.Ordinal)
+            && hints.Contains("Tests/App.Tests.csproj", StringComparison.Ordinal),
+            "Project instructions or .NET entry points were omitted");
+        Require(!hints.Contains("SECRET=", StringComparison.Ordinal)
+            && !hints.Contains(".env", StringComparison.Ordinal)
+            && !hints.Contains("never expose", StringComparison.Ordinal),
+            "Project inventory exposed sensitive content or unrelated filenames");
+        var limited = LocalProjectInventory.FormatAgentHints(project, maximumFiles: 1);
+        Require(limited.Contains("список сокращён", StringComparison.Ordinal)
+            && !limited.Contains("Build/App.csproj", StringComparison.Ordinal),
+            "Project inventory size limit was not enforced");
+        Require(LocalProjectInventory.FormatAgentHints(Path.Combine(root, "missing")) == "",
+            "Nonexistent projects should not produce hints");
         return Task.CompletedTask;
     }
 

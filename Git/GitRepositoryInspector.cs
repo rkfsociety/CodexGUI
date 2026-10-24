@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -157,7 +158,15 @@ internal static class GitRepositoryInspector
             return true;
         }
 
-        return name.Equals(".npmrc", StringComparison.OrdinalIgnoreCase)
+        var normalized = path.Replace('\\', '/');
+        return (normalized.Equals(".aws/credentials", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith("/.aws/credentials", StringComparison.OrdinalIgnoreCase))
+            || (normalized.Equals(".docker/config.json", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith("/.docker/config.json", StringComparison.OrdinalIgnoreCase))
+            || (normalized.Equals(".kube/config", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith("/.kube/config", StringComparison.OrdinalIgnoreCase))
+            || name.Equals(".git-credentials", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".npmrc", StringComparison.OrdinalIgnoreCase)
             || name.Equals(".pypirc", StringComparison.OrdinalIgnoreCase)
             || name.Equals("credentials.json", StringComparison.OrdinalIgnoreCase)
             || name.Equals("secrets.json", StringComparison.OrdinalIgnoreCase)
@@ -172,6 +181,32 @@ internal static class GitRepositoryInspector
             || name.EndsWith(".key", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".tfvars", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".tfvars.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Git -z output is parsed without Split so filenames containing line breaks remain intact.
+    internal static IReadOnlyList<string> FindPotentialSecretsInNullDelimitedPaths(string output)
+    {
+        var matches = new List<string>();
+        var remaining = output.AsSpan();
+        while (!remaining.IsEmpty)
+        {
+            var end = remaining.IndexOf('\0');
+            var path = end < 0 ? remaining : remaining[..end];
+            if (!path.IsEmpty && IsPotentialSecretFile(path.ToString()))
+                matches.Add(path.ToString());
+            remaining = end < 0 ? ReadOnlySpan<char>.Empty : remaining[(end + 1)..];
+        }
+        return matches;
+    }
+
+    public static async Task<IReadOnlyList<string>> ReadStagedPotentialSecretsAsync(
+        string repositoryRoot, CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var result = await RunGitAsync(root, cancellationToken,
+            "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMRT", "--");
+        EnsureGitCommandSucceeded(result, "Не удалось проверить подготовленные к коммиту файлы.");
+        return FindPotentialSecretsInNullDelimitedPaths(result.Output);
     }
 
     public static async Task<GitRepositorySnapshot> ReadAsync(string directory, CancellationToken cancellationToken)
@@ -326,23 +361,31 @@ internal static class GitRepositoryInspector
         if (!info.Exists || info.Length > maximumBytes || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
             return null;
 
-        var buffer = new byte[16 * 1024];
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            buffer.Length, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        long lines = 0;
-        long bytesRead = 0;
-        byte lastByte = 0;
-        int count;
-        while ((count = await stream.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+        const int bufferSize = 16 * 1024;
+        var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+        try
         {
-            bytesRead += count;
-            if (bytesRead > maximumBytes || buffer.AsSpan(0, count).Contains((byte)0)) return null;
-            for (var index = 0; index < count; index++)
-                if (buffer[index] == (byte)'\n') lines++;
-            lastByte = buffer[count - 1];
-        }
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            long lines = 0;
+            long bytesRead = 0;
+            byte lastByte = 0;
+            int count;
+            while ((count = await stream.ReadAsync(buffer.AsMemory(0, bufferSize), cancellationToken)) > 0)
+            {
+                bytesRead += count;
+                if (bytesRead > maximumBytes || buffer.AsSpan(0, count).Contains((byte)0)) return null;
+                for (var index = 0; index < count; index++)
+                    if (buffer[index] == (byte)'\n') lines++;
+                lastByte = buffer[count - 1];
+            }
 
-        return lines + (bytesRead > 0 && lastByte != (byte)'\n' ? 1 : 0);
+            return lines + (bytesRead > 0 && lastByte != (byte)'\n' ? 1 : 0);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        }
     }
 
     public static async Task<string> ReadFileDiffAsync(string repositoryRoot, RepositoryFileStatus file,
