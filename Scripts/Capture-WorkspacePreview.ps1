@@ -227,6 +227,37 @@ if ($View -in @('Workspace', 'Welcome')) {
     if ($workspace -isnot [System.Windows.Controls.Grid]) {
         throw 'WorkspaceView.xaml must have a Grid root element.'
     }
+    $workspace.ColumnDefinitions[0].Width = [System.Windows.GridLength]::new(0)
+    $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 385 } else { 300 }))
+    $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 350 } else { 310 }))
+    if ($Width -lt 1260) { $workspace.FindName('SidebarPanel').Visibility = 'Collapsed' }
+    $dockMargin = if ($Width -ge 1400) { 140 } else { 12 }
+    $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new($dockMargin, 0, $dockMargin, 8)
+    $workspace.FindName('WorkspaceDockGrid').ColumnDefinitions[0].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1100) { 140 } else { 130 }))
+    if ($Width -lt 1100) {
+        [System.Windows.Controls.Grid]::SetColumn($workspace.FindName('ComposerSettings'), 0)
+        [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
+    }
+    $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
+    $workspace.FindName('WorkspaceSearchButton').Width = if ($Width -ge 1450) { 280 } else { 160 }
+    $workspace.FindName('WorkspaceHeaderControls').Margin = [System.Windows.Thickness]::new($(if ($Width -ge 1450) { 30 } else { 16 }), 0, 0, 0)
+    $workspace.FindName('WorkspaceBranch').Text = '⑂  main'
+    $treeRoot = [System.Windows.Controls.TreeViewItem]::new()
+    $treeRoot.Header = '▱  CodexGUI'
+    $treeRoot.IsExpanded = $true
+    foreach ($directory in @('Application', 'AppServer', 'Infrastructure', 'UI', 'Views', 'Tests')) {
+        $item = [System.Windows.Controls.TreeViewItem]::new()
+        $item.Header = "▱  $directory"
+        [void]$treeRoot.Items.Add($item)
+    }
+    [void]$workspace.FindName('FileTree').Items.Add($treeRoot)
+    foreach ($name in @('AGENTS.md', '.codex/memory.md', '.codex/decisions.md', 'README.md')) {
+        $label = [System.Windows.Controls.TextBlock]::new()
+        $label.Text = "▤  $name"
+        $label.FontSize = 11
+        $label.Margin = [System.Windows.Thickness]::new(3, 7, 3, 7)
+        [void]$workspace.FindName('WorkspaceContextList').Children.Add($label)
+    }
     $conversation = $workspace.FindName('Conversation')
     if ($conversation -isnot [System.Windows.Controls.StackPanel]) {
         throw 'The Conversation panel could not be found in WorkspaceView.xaml.'
@@ -277,11 +308,21 @@ var ready = true;
         }
         $noSuggestionAction = [System.Action[string]]{ param([string]$prompt) }
         $welcome = $createMethod.Invoke($null, [object[]]@(
-            'С чего начнём?',
-            'Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.',
-            [string[]]@('Покажи структуру проекта', 'Найди и исправь ошибку', 'Предложи улучшения кода'),
+            'Привет! Я Codex.',
+            'Ваш локальный ИИ-ассистент для разработки.',
+            [string[]]@('Объясни архитектуру проекта', 'Найди и исправь ошибку', 'Добавь новую функциональность', 'Предложи улучшения'),
             $noSuggestionAction))
         [void]$conversation.Children.Add($welcome)
+        $workspace.FindName('WorkspaceStage').RowDefinitions[0].Height = [System.Windows.GridLength]::new(0)
+    }
+    if ($rendererAssembly) {
+        $assembly = [System.Reflection.Assembly]::LoadFrom($rendererAssembly.FullName)
+        $flags = [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::NonPublic
+        $backdrop = $assembly.GetType('CodexGUI.WorkspaceBackdrop', $true).GetMethod('Create', $flags).Invoke($null, @())
+        $workspace.FindName('WorkspaceStage').Background = $backdrop
+        $nodes = $assembly.GetType('CodexGUI.WorkspaceProjectMap', $true).GetMethod('Read', $flags).Invoke($null, @([string]$projectRoot, 0))
+        $selectNode = [System.Action[string]]{ param([string]$path) }
+        [void]$assembly.GetType('CodexGUI.WorkspaceMapView', $true).GetMethod('Render', $flags).Invoke($null, @($workspace.FindName('ProjectMap'), $nodes, [string]$projectRoot, 1.0, $selectNode))
     }
     $visual = $workspace
 }

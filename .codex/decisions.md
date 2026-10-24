@@ -77,13 +77,13 @@
 - Constraint: show and edit a pending local draft before the chat has a persisted App Server thread ID. For synchronized goals, keep the button label as an ephemeral cache and re-read canonical state when opening the editor.
 - Source: pinned `rust-v0.163.0` `ThreadGoal*` schemas and official App Server and slash-command docs; implementation is in `AppServer/CodexAppServerClient.cs`, `UI/Windows/CodexThreadGoalWindow.cs`, and `UI/Windows/MainWindow.xaml.cs`.
 
-## Keep the navigation icon rail visible
+## Use the reference workspace dashboard
 
 - Status: active.
-- Decision: keep a fixed 42-pixel icon rail at the left edge while the project and chat list panel expands or collapses beside it.
-- Reason: the user wants one-click navigation to remain available when the sidebar list is collapsed.
-- Constraint: the rail has no hide control; its buttons must reuse existing feature handlers, and responsive auto-hide may collapse only the neighboring list panel.
-- Source: `Views/WorkspaceView.xaml` and `MainWindow.UpdatePanelLayout`.
+- Decision: use the user-supplied dashboard reference with a shared top bar, left file tree/map, center chat, right goal/context/tools cards, and a bottom composer. Move the former icon-rail tools to the composer's Tools menu; keep the existing four-column layout contract with a zero-width first column.
+- Reason: the user explicitly requested this layout and working controls in place of the earlier icon rail.
+- Constraint: reuse existing App Server, Git, permission, queue, and state-writing paths. Local goal steps are manual and persisted in CodexGUI state; they are separate from the App Server goal and must not be represented as server-synchronized subtasks. Maps are bounded manifest/folder overviews, with their limits documented in README.
+- Source: `Views/WorkspaceView.xaml`, `UI/Windows/MainWindow.Workspace.cs`, and `README.md`.
 
 ## Serialize local state writes outside the UI thread
 

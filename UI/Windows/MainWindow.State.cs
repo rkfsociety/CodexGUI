@@ -61,6 +61,7 @@ public partial class MainWindow
                             ContextTokens = stored.ContextTokens,
                             ContextWindowTokens = stored.ContextWindowTokens,
                             PendingGoal = stored.PendingGoal,
+                            GoalSteps = stored.GoalSteps ?? [],
                             ActiveRun = stored.ActiveRun
                         });
                     }
@@ -141,6 +142,7 @@ public partial class MainWindow
                     CodexSessionId = thread.CodexSessionId,
                     ForkFromSessionId = thread.ForkFromSessionId,
                     PendingGoal = thread.PendingGoal,
+                    GoalSteps = thread.GoalSteps.Select(step => new WorkspaceGoalStep { Text = step.Text, IsComplete = step.IsComplete }).ToList(),
                     IsArchived = thread.IsArchived,
                     IsPinned = thread.IsPinned,
                     HasUnreadResponse = thread.HasUnreadResponse,

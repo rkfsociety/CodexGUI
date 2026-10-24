@@ -100,7 +100,7 @@ public partial class MainWindow : Window
     private bool _isSavingPrompt;
     private bool _sidebarCollapsed;
     private bool _sidebarAutoHideOverridden;
-    private bool _contextOpen;
+    private bool _contextOpen = true;
     private bool _showArchivedChats;
     private string _projectPath = FindProjectRoot();
     private ProjectEntry? _selectedProject;
@@ -534,6 +534,7 @@ public partial class MainWindow : Window
 
     private void BindEvents()
     {
+        BindWorkspaceEvents();
         Click("ExpandSidebarButton", (_, _) => ToggleSidebar());
         Click("RailNewChatButton", (_, _) => NewChat());
         Click("RailSearchButton", (_, _) => ShowSearch());
@@ -545,7 +546,7 @@ public partial class MainWindow : Window
         Click("RailContextButton", (_, _) => ToggleContext());
         Click("RailActionsButton", (_, _) => ShowActionsWindow());
         Click("ChatAttachmentsButton", (_, _) => ShowChatAttachments());
-        Click("ChatDiffButton", (_, _) => ToggleContext(true));
+        Click("ChatDiffButton", (_, _) => ShowWorkspaceGit());
         Click("CloseContextButton", (_, _) => ToggleContext(false));
         Click("TerminalButton", (_, _) => ShowTerminalWindow());
         Click("RefreshRepositoryButton", (_, _) =>
@@ -583,7 +584,7 @@ public partial class MainWindow : Window
         Click("AddContextButton", (_, _) => AddFileContext());
         Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
-        Click("ThreadGoalButton", async (_, _) => await ShowThreadGoalAsync());
+        Click("ThreadGoalButton", async (_, _) => { if (_currentThread is null) NewChat(); await ShowThreadGoalAsync(); });
         Click("ActionsButton", (_, _) => ShowActionsWindow());
         Click("UpdateButton", async (_, _) => await HandleUpdateButtonClickAsync());
 
@@ -694,7 +695,7 @@ public partial class MainWindow : Window
         RenderThreads();
         RenderProjects();
         RenderConversation();
-        if (_contextOpen) RefreshFileTree();
+        RefreshFileTree();
         _ = RefreshRepositoryInfoAsync();
         SetStatus(HasActiveRuns ? "В работе" : "Готов",
             _startupIssue ?? "Запросы выполняются в выбранной папке.",
@@ -1492,20 +1493,25 @@ public partial class MainWindow : Window
         _renderedConversationThreadId = _currentThread?.Id;
         _streamingAssistantTextBlock = null;
         stack.Children.Clear();
+        if (Control<Grid>("WorkspaceStage") is { } stage)
+        {
+            stage.Background ??= WorkspaceBackdrop.Create();
+            stage.RowDefinitions[0].Height = new GridLength(_currentThread is null || _currentThread.Messages.Count == 0 ? 0 : 68);
+        }
         UpdateChatQuickOverview();
         if (_currentThread is null || _currentThread.Messages.Count == 0)
         {
             var isNewChat = _currentThread?.CodexSessionId is null;
-            var title = isNewChat ? "С чего начнём?" : _currentThread?.Title ?? "С чего начнём?";
+            var title = isNewChat ? "Привет! Я Codex." : _currentThread?.Title ?? "С чего начнём?";
             var detail = _currentThread?.HistoryLoading == true
                 ? "Загружаю историю из Codex…"
                 : _currentThread?.HistoryError is { } historyError
                     ? $"Не удалось восстановить историю: {historyError}"
                     : _currentThread?.CodexSessionId is not null
                 ? "Этот чат сохранён в Codex. Отправьте сообщение, чтобы продолжить разговор."
-                    : "Опишите задачу простыми словами. Codex изучит проект, объяснит код или поможет внести изменения.";
+                    : "Ваш локальный ИИ-ассистент для разработки.";
             var suggestions = isNewChat
-                ? new[] { "Покажи структуру проекта", "Найди и исправь ошибку", "Предложи улучшения кода" }
+                ? new[] { "Объясни архитектуру проекта", "Найди и исправь ошибку", "Добавь новую функциональность", "Предложи улучшения" }
                 : Array.Empty<string>();
             stack.Children.Add(ChatWelcomeView.Create(title, detail, suggestions, SendWelcomeSuggestion));
         }
@@ -1910,23 +1916,10 @@ public partial class MainWindow : Window
     {
         if (Control<TreeView>("FileTree") is not { } tree) return;
         tree.Items.Clear();
-        var root = new TreeViewItem { Header = Path.GetFileName(_projectPath.TrimEnd(Path.DirectorySeparatorChar)), IsExpanded = true };
+        var root = new TreeViewItem { Header = WorkspaceFileHeader(WorkspaceDirectory, true), Tag = WorkspaceDirectory, IsExpanded = true };
         tree.Items.Add(root);
-        if (!Directory.Exists(_projectPath)) return;
-
-        try
-        {
-            foreach (var directory in Directory.EnumerateDirectories(_projectPath)
-                         .Where(path => !new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
-                         .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).Take(35))
-                root.Items.Add(new TreeViewItem { Header = "▸  " + Path.GetFileName(directory), Foreground = Brush("#BFC0C4") });
-
-            foreach (var file in Directory.EnumerateFiles(_projectPath)
-                         .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).Take(80))
-                root.Items.Add(new TreeViewItem { Header = "·  " + Path.GetFileName(file), Foreground = Brush("#A4A5AA"), ToolTip = file });
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        PopulateWorkspaceDirectory(root, WorkspaceDirectory);
+        RenderWorkspaceMap();
     }
 
     private void RefreshFileTree() => RenderFileTree();
@@ -2170,6 +2163,7 @@ public partial class MainWindow : Window
     private void UpdateChatInfoPanel()
     {
         UpdateThreadGoalButton();
+        UpdateWorkspacePanels();
         if (Control<TextBlock>("ChatInfoTitle") is not { } title ||
             Control<TextBlock>("ChatInfoDetails") is not { } details ||
             Control<TextBlock>("ChatSessionInfo") is not { } session) return;
@@ -2191,9 +2185,9 @@ public partial class MainWindow : Window
         var thread = _currentThread;
         if (thread is null)
         {
-            button.IsEnabled = false;
-            SetThreadGoalButtonText(button, "Цель");
-            button.ToolTip = "Выберите чат, чтобы поставить цель";
+            button.IsEnabled = _selectedProject is not null;
+            SetThreadGoalButtonText(button, "Поставить цель");
+            button.ToolTip = "Создать чат и поставить цель";
             return;
         }
 
@@ -2302,7 +2296,7 @@ public partial class MainWindow : Window
     private static string CreateThreadGoalSummary(string objective)
     {
         var summary = string.Join(" ", objective.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        const int maximumLength = 24;
+        const int maximumLength = 160;
         return summary.Length <= maximumLength ? summary : summary[..(maximumLength - 1)].TrimEnd() + "…";
     }
 
@@ -2656,6 +2650,8 @@ public partial class MainWindow : Window
 
     private void RenderRepositoryInfo(GitRepositorySnapshot snapshot)
     {
+        if (Control<TextBlock>("WorkspaceBranch") is { } workspaceBranch)
+            workspaceBranch.Text = snapshot.IsRepository ? "⑂  " + snapshot.Branch : "Без Git";
         if (Control<TextBlock>("RepositoryBranch") is not { } branch ||
             Control<TextBlock>("RepositorySummary") is not { } summary ||
             Control<StackPanel>("RepositoryChangesPanel") is not { } changesPanel ||
@@ -5337,21 +5333,36 @@ public partial class MainWindow : Window
     {
         if (_activeView is not { ColumnDefinitions.Count: 4 } view) return;
         // Keep the conversation usable when repository details are open in a narrow window.
-        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
+        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1260 && !_sidebarAutoHideOverridden;
         var hideSidebar = _sidebarCollapsed || autoHideSidebar;
-        view.ColumnDefinitions[0].Width = new GridLength(42);
-        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : 280);
+        view.ColumnDefinitions[0].Width = new GridLength(0);
+        if (Control<TextBlock>("WorkspaceTagline") is { } tagline)
+            tagline.Visibility = view.ActualWidth >= 1450 ? Visibility.Visible : Visibility.Collapsed;
+        if (Control<Button>("WorkspaceSearchButton") is { } search)
+            search.Width = view.ActualWidth >= 1450 ? 280 : 160;
+        if (Control<StackPanel>("WorkspaceHeaderControls") is { } headerControls)
+            headerControls.Margin = new Thickness(view.ActualWidth >= 1450 ? 30 : 16, 0, 0, 0);
+        if (Control<Border>("WorkspaceDock") is { } dock)
+            dock.Margin = new Thickness(view.ActualWidth >= 1400 ? 140 : 12, 0, view.ActualWidth >= 1400 ? 140 : 12, 8);
+        if (Control<Grid>("WorkspaceDockGrid") is { } dockGrid)
+            dockGrid.ColumnDefinitions[0].Width = new GridLength(view.ActualWidth >= 1100 ? 140 : 130);
+        if (Control<StackPanel>("ComposerSettings") is { } settings)
+        {
+            Grid.SetColumn(settings, view.ActualWidth >= 1100 ? 1 : 0);
+            Grid.SetRow(settings, view.ActualWidth >= 1100 ? 0 : 1);
+        }
+        view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 385 : 300));
         if (Control<Border>("SidebarPanel") is { } sidebar)
             sidebar.Visibility = hideSidebar ? Visibility.Collapsed : Visibility.Visible;
         if (Control<Border>("ChatOverviewCard") is { } overview)
             overview.Width = view.ActualWidth > 0 && view.ActualWidth < 1250 ? 280 : 390;
-        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? 310 : 0);
+        view.ColumnDefinitions[3].Width = new GridLength(_contextOpen ? (view.ActualWidth >= 1400 ? 350 : 310) : 0);
     }
 
     private void ToggleSidebar()
     {
         if (_activeView is not { } view) return;
-        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1120 && !_sidebarAutoHideOverridden;
+        var autoHideSidebar = _contextOpen && view.ActualWidth > 0 && view.ActualWidth < 1260 && !_sidebarAutoHideOverridden;
         var isHidden = _sidebarCollapsed || autoHideSidebar;
         _sidebarCollapsed = !isHidden;
         _sidebarAutoHideOverridden = isHidden;
@@ -5504,7 +5515,7 @@ public partial class MainWindow : Window
 
     private async Task ShowEffortMenuAsync()
     {
-        if (Control<Button>("EffortButton") is not { } anchor) return;
+        if ((Control<Button>("EffortButton") ?? Control<Button>("WorkspaceToolsButton")) is not { } anchor) return;
         await EnsureModelCatalogAsync(anchor);
         if (_availableModels.Count == 0) return;
 
@@ -5673,7 +5684,17 @@ public partial class MainWindow : Window
         addExisting.Click += (_, _) => ChooseProjectFolder();
         menu.Items.Add(create);
         menu.Items.Add(addExisting);
-        menu.PlacementTarget = Control<Button>("AddProjectButton");
+        if (_projects.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            foreach (var project in _projects)
+            {
+                var item = new MenuItem { Header = project.Name, IsCheckable = true, IsChecked = project == _selectedProject };
+                item.Click += (_, _) => SelectProject(project);
+                menu.Items.Add(item);
+            }
+        }
+        menu.PlacementTarget = Control<Button>("WorkspaceProjectButton") ?? Control<Button>("AddProjectButton");
         menu.IsOpen = true;
     }
 
@@ -6284,6 +6305,7 @@ public partial class MainWindow : Window
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public CodexAppServerGoalDraft? PendingGoal { get; set; }
+        public List<WorkspaceGoalStep> GoalSteps { get; set; } = [];
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }
@@ -6322,6 +6344,7 @@ public partial class MainWindow : Window
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
         public CodexAppServerGoalDraft? PendingGoal { get; set; }
+        public List<WorkspaceGoalStep> GoalSteps { get; set; } = [];
         public bool IsArchived { get; set; }
         public bool IsPinned { get; set; }
         public bool HasUnreadResponse { get; set; }

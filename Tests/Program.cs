@@ -20,6 +20,11 @@ internal static class Program
         Directory.CreateDirectory(root);
         try
         {
+            await Check("Workspace search finds names and text with correct line numbers", () => WorkspaceSearchAsync(root));
+            await Check("Workspace search is bounded and honors cancellation", () => WorkspaceSearchLimitsAsync(root));
+            await Check("Workspace map reads real folders, frameworks and package dependencies", () => WorkspaceMapAsync(root));
+            await Check("Workspace map buttons select their actual paths and search UI returns results", () => WorkspaceControlsAsync(root));
+            await Check("Local goal steps round-trip without breaking legacy thread state", WorkspaceGoalStateAsync);
             await Check("JSON recovery preserves corrupt primary and repairs it", () => RecoveryAsync(root));
             await Check("Unrecoverable JSON does not overwrite either snapshot", () => BrokenRecoveryAsync(root));
             await Check("Queued writes preserve order and independent snapshots", () => QueueAsync(root));
@@ -60,6 +65,114 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task WorkspaceSearchAsync(string root)
+    {
+        var directory = Path.Combine(root, "workspace-search");
+        Directory.CreateDirectory(Path.Combine(directory, "src"));
+        Directory.CreateDirectory(Path.Combine(directory, "node_modules"));
+        File.WriteAllText(Path.Combine(directory, "src", "sample.cs"), "first\nNeedle on line two\nlast");
+        File.WriteAllText(Path.Combine(directory, "needle.txt"), "name match");
+        File.WriteAllText(Path.Combine(directory, "node_modules", "ignored.txt"), "needle");
+        File.WriteAllBytes(Path.Combine(directory, "binary.dat"), [0, 110, 101, 101, 100, 108, 101]);
+        var result = WorkspaceFileSearch.Find(directory, "NEEDLE", CancellationToken.None);
+        Require(result.Hits.Count == 2, "Expected one content match and one filename match");
+        Require(result.Hits.Any(hit => hit.Path.EndsWith("sample.cs") && hit.Line == 2), "Wrong content match line");
+        Require(result.Hits.Any(hit => hit.Path.EndsWith("needle.txt")), "Filename search failed");
+        Require(result.Skipped == 1 && !result.Limited, "Binary exclusion or limit reporting failed");
+        return Task.CompletedTask;
+    }
+
+    private static Task WorkspaceSearchLimitsAsync(string root)
+    {
+        var directory = Path.Combine(root, "workspace-search-limits");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "matches.txt"), string.Join('\n', Enumerable.Repeat("needle", 250)));
+        var result = WorkspaceFileSearch.Find(directory, "needle", CancellationToken.None);
+        Require(result.Hits.Count == 200 && result.Limited, "Search result limit was not enforced");
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        try
+        {
+            WorkspaceFileSearch.Find(directory, "needle", cancellation.Token);
+            throw new InvalidOperationException("Cancelled search completed normally");
+        }
+        catch (OperationCanceledException) { }
+        return Task.CompletedTask;
+    }
+
+    private static Task WorkspaceMapAsync(string root)
+    {
+        var directory = Path.Combine(root, "workspace-map");
+        Directory.CreateDirectory(Path.Combine(directory, "src"));
+        Directory.CreateDirectory(Path.Combine(directory, "node_modules"));
+        File.WriteAllText(Path.Combine(directory, "src", "sample.cs"), "class Sample {}");
+        File.WriteAllText(Path.Combine(directory, "app.csproj"), "<Project><PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup><ItemGroup><PackageReference Include=\"Example.Package\" Version=\"1.0\" /></ItemGroup></Project>");
+        File.WriteAllText(Path.Combine(directory, "package.json"), "{\"dependencies\":{\"example-module\":\"1.0\"}}");
+        var folders = WorkspaceProjectMap.Read(directory, 0);
+        Require(folders.Count == 1 && folders[0].Label == "src", "Map includes ignored folders");
+        var dependencies = WorkspaceProjectMap.Read(directory, 1);
+        Require(dependencies.Any(node => node.Label == "Example.Package") && dependencies.Any(node => node.Label == "net10.0-windows")
+            && dependencies.Any(node => node.Label == "example-module"), "Map lost declared dependencies");
+        Require(WorkspaceProjectMap.Read(directory, 2).Any(node => node.Label == ".cs · 1"), "File-type layer missing");
+        return Task.CompletedTask;
+    }
+
+    private static Task WorkspaceControlsAsync(string root)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
+                var canvas = new System.Windows.Controls.Canvas { Width = 300, Height = 230 };
+                string? selected = null;
+                var path = Path.Combine(root, "workspace-search", "src");
+                WorkspaceMapView.Render(canvas, [new WorkspaceMapNode("src", path)], root, 1, value => selected = value);
+                var node = canvas.Children.OfType<System.Windows.Controls.Button>().First();
+                node.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Require(selected == path, "Map selected the wrong directory");
+                canvas.Measure(new System.Windows.Size(300, 230));
+                canvas.Arrange(new System.Windows.Rect(0, 0, 300, 230));
+                Require(canvas.Children.OfType<System.Windows.Controls.Button>().All(button => button.ActualWidth > 0), "Map nodes have no layout");
+
+                var window = new WorkspaceSearchWindow(Path.Combine(root, "workspace-search"), (_, _) => Task.CompletedTask);
+                var dock = (System.Windows.Controls.DockPanel)window.Content;
+                var header = (System.Windows.Controls.StackPanel)dock.Children[0];
+                var input = (System.Windows.Controls.TextBox)header.Children[0];
+                var search = (System.Windows.Controls.Button)header.Children[1];
+                var status = (System.Windows.Controls.TextBlock)header.Children[2];
+                input.Text = "needle";
+                search.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                var frame = new System.Windows.Threading.DispatcherFrame();
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+                var started = Stopwatch.StartNew();
+                timer.Tick += (_, _) => { if (status.Text != "Поиск…" || started.Elapsed > TimeSpan.FromSeconds(5)) frame.Continue = false; };
+                timer.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame); timer.Stop();
+                var list = (System.Windows.Controls.ListBox)dock.Children[1];
+                Require(list.Items.Count == 2, "Search button did not display its results");
+                window.Close();
+                completion.SetResult();
+            }
+            catch (Exception error) { completion.SetException(error); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return completion.Task;
+    }
+
+    private static Task WorkspaceGoalStateAsync()
+    {
+        var type = typeof(MainWindow).GetNestedType("StoredThread", System.Reflection.BindingFlags.NonPublic)!;
+        var stored = JsonSerializer.Deserialize("{\"Id\":\"example\",\"GoalSteps\":[{\"Text\":\"Implement chat\",\"IsComplete\":true}]}", type)!;
+        using var result = JsonDocument.Parse(JsonSerializer.Serialize(stored, type));
+        var step = result.RootElement.GetProperty("GoalSteps")[0];
+        Require(step.GetProperty("Text").GetString() == "Implement chat" && step.GetProperty("IsComplete").GetBoolean(), "Goal steps lost state");
+        var legacy = JsonSerializer.Deserialize("{\"Id\":\"legacy\"}", type)!;
+        using var legacyResult = JsonDocument.Parse(JsonSerializer.Serialize(legacy, type));
+        Require(legacyResult.RootElement.GetProperty("GoalSteps").GetArrayLength() == 0, "Legacy state needs a migration");
+        return Task.CompletedTask;
     }
 
     private static Task GitContextAsync()
