@@ -1235,24 +1235,23 @@ internal static class Program
     private static Task ThreadHistoryBudgetAsync()
     {
         using var page = JsonDocument.Parse("[{\"text\":\"one\"},{\"text\":\"two\"}]");
-        var turns = new List<JsonElement>();
+        var pages = new List<JsonElement>();
         long bytes = 0;
-        var firstBytes = Encoding.UTF8.GetByteCount("{\"text\":\"one\"}");
-        var secondBytes = Encoding.UTF8.GetByteCount("{\"text\":\"two\"}");
-        CodexAppServerClient.AppendThreadHistoryPage(turns, page.RootElement, ref bytes, firstBytes + secondBytes);
-        Require(turns.Count == 2 && bytes == firstBytes + secondBytes,
+        var pageBytes = Encoding.UTF8.GetByteCount("[{\"text\":\"one\"},{\"text\":\"two\"}]");
+        CodexAppServerClient.AppendThreadHistoryPage(pages, page.RootElement, ref bytes, pageBytes);
+        Require(pages.Count == 1 && pages[0].GetArrayLength() == 2 && bytes == pageBytes,
             "A page within the thread history budget was rejected");
 
-        var limitedTurns = new List<JsonElement>();
+        var limitedPages = new List<JsonElement>();
         long limitedBytes = 0;
         try
         {
-            CodexAppServerClient.AppendThreadHistoryPage(limitedTurns, page.RootElement, ref limitedBytes, firstBytes + secondBytes - 1);
+            CodexAppServerClient.AppendThreadHistoryPage(limitedPages, page.RootElement, ref limitedBytes, pageBytes - 1);
             throw new InvalidOperationException("Thread history exceeded its byte budget without an error");
         }
         catch (InvalidDataException) { }
-        Require(limitedTurns.Count == 1 && limitedBytes == firstBytes,
-            "History budget accounting did not stop at the first oversized item");
+        Require(limitedPages.Count == 0 && limitedBytes == 0,
+            "History budget accounting retained an oversized page");
         return Task.CompletedTask;
     }
 

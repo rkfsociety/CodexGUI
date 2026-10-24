@@ -124,7 +124,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             long historyBytes = GetSerializedUtf8Length(thread);
             if (historyBytes > MaximumThreadHistoryBytes)
                 throw new InvalidDataException("Метаданные чата превышают допустимый размер 64 МиБ.");
-            var turns = new List<JsonElement>();
+            var pages = new List<JsonElement>();
             var seenCursors = new HashSet<string>(StringComparer.Ordinal);
             string? cursor = null;
             var page = 0;
@@ -140,7 +140,7 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
                 });
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
                     throw new InvalidDataException("Codex App Server вернул неизвестный формат истории чата.");
-                AppendThreadHistoryPage(turns, data, ref historyBytes, MaximumThreadHistoryBytes);
+                AppendThreadHistoryPage(pages, data, ref historyBytes, MaximumThreadHistoryBytes);
                 cursor = ReadCursor(response);
                 if (cursor is not null && !seenCursors.Add(cursor))
                     throw new InvalidDataException("Codex App Server повторил курсор истории чата.");
@@ -149,26 +149,33 @@ internal sealed class CodexAppServerClient(string executablePath, CancellationTo
             }
             while (!string.IsNullOrEmpty(cursor));
 
-            turns.Reverse();
-            var threadFields = thread.EnumerateObject()
-                .ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
-            threadFields["turns"] = JsonSerializer.SerializeToElement(turns);
+            var threadFields = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var property in thread.EnumerateObject())
+                if (property.Name != "turns") threadFields[property.Name] = property.Value;
+            threadFields["turns"] = EnumerateTurnsOldestFirst(pages);
             return JsonSerializer.SerializeToElement(new { thread = threadFields });
         }, cancellationToken);
     }
 
-    internal static void AppendThreadHistoryPage(List<JsonElement> turns, JsonElement data,
+    internal static void AppendThreadHistoryPage(List<JsonElement> pages, JsonElement data,
         ref long currentBytes, long maximumBytes)
     {
         if (data.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("Страница истории чата должна быть JSON-массивом.");
-        foreach (var item in data.EnumerateArray())
+        var pageBytes = GetSerializedUtf8Length(data);
+        if (pageBytes > maximumBytes - currentBytes)
+            throw new InvalidDataException($"История чата превышает допустимый размер {maximumBytes / 1024 / 1024} МиБ.");
+        currentBytes += pageBytes;
+        pages.Add(data);
+    }
+
+    private static IEnumerable<JsonElement> EnumerateTurnsOldestFirst(IReadOnlyList<JsonElement> newestFirstPages)
+    {
+        for (var pageIndex = newestFirstPages.Count - 1; pageIndex >= 0; pageIndex--)
         {
-            var itemBytes = GetSerializedUtf8Length(item);
-            if (itemBytes > maximumBytes - currentBytes)
-                throw new InvalidDataException($"История чата превышает допустимый размер {maximumBytes / 1024 / 1024} МиБ.");
-            currentBytes += itemBytes;
-            turns.Add(item.Clone());
+            var items = newestFirstPages[pageIndex].EnumerateArray().ToArray();
+            for (var itemIndex = items.Length - 1; itemIndex >= 0; itemIndex--)
+                yield return items[itemIndex];
         }
     }
 
