@@ -83,6 +83,7 @@ public partial class MainWindow : Window
     private bool _isReviewingChanges;
     private bool _isGitCommandRunning;
     private string _usageLimitsText = "Загружаю лимиты…";
+    private string _usageLimitsSummary = "Загрузка…";
     private string _usageLimitsTooltip = "Лимиты аккаунта";
     private FileSystemWatcher? _viewWatcher;
     private Forms.NotifyIcon? _trayIcon;
@@ -673,8 +674,8 @@ public partial class MainWindow : Window
         UpdateChatSectionHeading();
         if (Control<TextBlock>("UsageLimitsLabel") is { } usageLabel)
         {
-            usageLabel.Text = _usageLimitsText;
-            usageLabel.ToolTip = _usageLimitsTooltip;
+            usageLabel.Text = _usageLimitsSummary;
+            usageLabel.ToolTip = $"{_usageLimitsText}\n{_usageLimitsTooltip}";
         }
         UpdateContextIndicator();
         UpdateChatInfoPanel();
@@ -1185,11 +1186,13 @@ public partial class MainWindow : Window
         {
             var snapshot = await ReadUsageLimitsAsync();
             _usageLimitsText = FormatUsageLimits(snapshot);
+            _usageLimitsSummary = FormatUsageLimitsSummary(snapshot);
             _usageLimitsTooltip = $"Лимиты обновлены {DateTime.Now:HH:mm}";
         }
         catch (Exception error)
         {
             _usageLimitsText = "Лимиты недоступны";
+            _usageLimitsSummary = "Недоступны";
             _usageLimitsTooltip = error.Message;
         }
         finally
@@ -1197,8 +1200,8 @@ public partial class MainWindow : Window
             _isRefreshingUsage = false;
             if (Control<TextBlock>("UsageLimitsLabel") is { } label)
             {
-                label.Text = _usageLimitsText;
-                label.ToolTip = _usageLimitsTooltip;
+                label.Text = _usageLimitsSummary;
+                label.ToolTip = $"{_usageLimitsText}\n{_usageLimitsTooltip}";
             }
         }
     }
@@ -1382,6 +1385,24 @@ public partial class MainWindow : Window
             return reset is null
                 ? $"{period}: {100 - window.UsedPercent}% осталось"
                 : $"{period}: {100 - window.UsedPercent}% осталось (сброс {reset})";
+        }));
+    }
+
+    private static string FormatUsageLimitsSummary(UsageSnapshot snapshot)
+    {
+        if (snapshot.Windows.Count == 0) return "Недоступны";
+        return string.Join("  ·  ", snapshot.Windows.Select(window =>
+        {
+            var period = window.DurationMinutes switch
+            {
+                300 => "5 ч",
+                10080 => "Нед.",
+                { } minutes when minutes % 1440 == 0 => $"{minutes / 1440} д",
+                { } minutes when minutes % 60 == 0 => $"{minutes / 60} ч",
+                { } minutes => $"{minutes} мин",
+                _ => "Лимит"
+            };
+            return $"{period} {100 - window.UsedPercent}%";
         }));
     }
 
@@ -5364,6 +5385,16 @@ public partial class MainWindow : Window
         if (Control<Button>("WorkspaceBranchButton") is { } branchButton) branchButton.Width = view.ActualWidth >= 1100 ? 104 : 80;
         if (Control<TextBlock>("WorkspaceProjectPrefix") is { } projectPrefix) projectPrefix.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
         if (Control<StackPanel>("WorkspaceAgentStatus") is { } agentStatus) agentStatus.Visibility = view.ActualWidth >= 1100 ? Visibility.Visible : Visibility.Collapsed;
+        if (Control<Border>("UsageLimitsPanel") is { } usageLimitsPanel)
+        {
+            var compactLimits = view.ActualWidth >= 1400;
+            usageLimitsPanel.Visibility = view.ActualWidth >= 1260 ? Visibility.Visible : Visibility.Collapsed;
+            usageLimitsPanel.Width = compactLimits ? 150 : 260;
+            if (Control<FrameworkElement>("UsageLimitsIcon") is { } usageLimitsIcon)
+                usageLimitsIcon.Visibility = compactLimits ? Visibility.Collapsed : Visibility.Visible;
+            if (Control<TextBlock>("UsageLimitsTitle") is { } usageLimitsTitle)
+                usageLimitsTitle.Visibility = compactLimits ? Visibility.Collapsed : Visibility.Visible;
+        }
         foreach (var name in new[] { "WorkspaceChatsButton", "WorkspaceAgentButton", "WorkspaceToolsButton" })
             if (Control<Button>(name) is { } tab) tab.Margin = new Thickness(view.ActualWidth >= 1100 ? 30 : 0, 0, view.ActualWidth >= 1100 ? -10 : 0, 0);
         if (Control<Grid>("WorkspaceHeaderGrid") is { } headerGrid)

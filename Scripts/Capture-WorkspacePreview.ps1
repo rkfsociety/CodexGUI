@@ -268,6 +268,11 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
         [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
     }
     $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
+    $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1260) { 'Visible' } else { 'Collapsed' }
+    $compactLimits = $Width -ge 1400
+    $workspace.FindName('UsageLimitsPanel').Width = if ($compactLimits) { 150 } else { 260 }
+    $workspace.FindName('UsageLimitsIcon').Visibility = if ($compactLimits) { 'Collapsed' } else { 'Visible' }
+    $workspace.FindName('UsageLimitsTitle').Visibility = if ($compactLimits) { 'Collapsed' } else { 'Visible' }
     $workspace.FindName('WorkspaceSearchButton').Width = if ($Width -ge 1450) { 304 } else { 160 }
     $workspace.FindName('WorkspaceHeaderGrid').ColumnDefinitions[0].Width = if ($Width -ge 1450) { [System.Windows.GridLength]::new(425) } else { [System.Windows.GridLength]::Auto }
     $workspace.FindName('WorkspaceHeaderControls').Margin = [System.Windows.Thickness]::new($(if ($Width -ge 1450) { 30 } else { 16 }), 0, 0, 0)
@@ -1075,6 +1080,16 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     foreach ($name in @('WorkspaceSearchButton', 'WindowCloseButton')) {
         if (-not [System.Windows.Rect]::new(0, 0, $Width, $Height).Contains((Get-PreviewBounds $name))) {
             throw "Header control is outside the window: $name"
+        }
+    }
+    if ($visual.FindName('UsageLimitsPanel').Visibility -eq 'Visible') {
+        $limitsBounds = Get-PreviewBounds 'UsageLimitsPanel'
+        $webSearchBounds = Get-PreviewBounds 'WorkspaceWebButton'
+        if ($webSearchBounds.Right -gt $limitsBounds.Left) {
+            throw "Account limits overlap composer actions: web=$webSearchBounds limits=$limitsBounds"
+        }
+        if (-not $limitsBounds.Contains((Get-PreviewBounds 'UsageLimitsLabel'))) {
+            throw 'Account limits text overflows its composer panel.'
         }
     }
     $searchBounds = Get-PreviewBounds 'WorkspaceSearchButton'

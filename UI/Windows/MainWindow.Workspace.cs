@@ -110,7 +110,6 @@ public partial class MainWindow
         if (Control<Button>("WorkspaceComposerSettings") is not { } button) return;
         var menu = new ContextMenu();
         Add(_currentThread?.UseWorktree == true ? "Рабочая копия · изолированная" : "Рабочая копия · локальная", async () => await ToggleWorktreeModeAsync());
-        Add("Лимиты аккаунта", () => CodexMessageDialog.Show(this, _usageLimitsText + "\n" + _usageLimitsTooltip, "Лимиты аккаунта", MessageBoxButton.OK, MessageBoxImage.Information));
         menu.PlacementTarget = button; menu.IsOpen = true;
         void Add(string title, Action action)
         {

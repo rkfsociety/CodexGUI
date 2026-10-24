@@ -954,6 +954,13 @@
                   </Button>
                 </WrapPanel>
               </StackPanel>
+              <Border x:Name="UsageLimitsPanel" Grid.Column="0" Width="260" Height="34" Margin="8,0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="#11191F" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="8,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <Path x:Name="UsageLimitsIcon" Data="M12,2 A10,10 0 1 1 11.99,2 M12,6 V12 L16,14" Width="14" Height="14" Margin="0,0,8,0" Stretch="Uniform" Stroke="{StaticResource Accent}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                  <TextBlock x:Name="UsageLimitsTitle" Text="Лимиты" FontSize="10" Foreground="{StaticResource TextMuted}" Margin="0,0,9,0" VerticalAlignment="Center" />
+                  <TextBlock x:Name="UsageLimitsLabel" Text="Загрузка…" FontSize="10" Foreground="#D1F9E8" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="Лимиты аккаунта" />
+                </StackPanel>
+              </Border>
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
                 <Grid Width="34" Height="34" Margin="0,0,8,0" ToolTip="Контекст текущего чата" Visibility="Collapsed">
                   <Ellipse Stroke="#435D6D" StrokeThickness="2.6" />
@@ -1010,16 +1017,6 @@
                 </Button>
               </StackPanel>
             </Grid>
-            <Border Grid.Row="3" Visibility="Collapsed" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="3,6,3,0" Margin="0,6,0,0">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="ЛИМИТЫ" FontSize="9" FontWeight="SemiBold" Foreground="{StaticResource TextFaint}" Margin="0,0,10,0" VerticalAlignment="Center" />
-                <TextBlock x:Name="UsageLimitsLabel" Grid.Column="1" Text="Загружаю лимиты…" FontSize="10" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="Лимиты аккаунта" />
-              </Grid>
-            </Border>
           </Grid>
         </Border>
         <TextBlock Text="Enter — отправить  ·  Ctrl+Enter — направить  ·  Shift+Enter — новая строка" Foreground="{StaticResource TextFaint}" FontSize="11" HorizontalAlignment="Center" Margin="0,4,0,0" Visibility="Collapsed" />
