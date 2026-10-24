@@ -268,7 +268,7 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
         [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
     }
     $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
-    $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1260) { 'Visible' } else { 'Collapsed' }
+    $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1400) { 'Visible' } else { 'Collapsed' }
     $compactLimits = $Width -ge 1400
     $workspace.FindName('UsageLimitsPanel').Width = if ($compactLimits) { 150 } else { 260 }
     $workspace.FindName('UsageLimitsIcon').Visibility = if ($compactLimits) { 'Collapsed' } else { 'Visible' }
