@@ -511,10 +511,16 @@ internal sealed class CodexAppServerWorkerControl
 
 internal sealed class CodexAppServerConnection : IAsyncDisposable
 {
+    private const int IncomingMessageQueueCapacity = 128;
     private readonly Process _process;
     private readonly StreamWriter _writer;
-    private readonly Task<string> _standardErrorTask;
-    private readonly Channel<JsonElement> _incoming = Channel.CreateUnbounded<JsonElement>();
+    private readonly Task _standardErrorTask;
+    private readonly Channel<JsonElement> _incoming = Channel.CreateBounded<JsonElement>(new BoundedChannelOptions(IncomingMessageQueueCapacity)
+    {
+        FullMode = BoundedChannelFullMode.Wait,
+        SingleReader = true,
+        SingleWriter = true
+    });
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _pending = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private int _nextRequestId;
@@ -524,8 +530,14 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     {
         _process = process;
         _writer = process.StandardInput;
-        _standardErrorTask = process.StandardError.ReadToEndAsync();
+        _standardErrorTask = DrainStandardErrorAsync(process.StandardError);
         ReaderTask = Task.Run(ReadMessagesAsync);
+    }
+
+    private static async Task DrainStandardErrorAsync(StreamReader reader)
+    {
+        var buffer = new char[8192];
+        while (await reader.ReadAsync(buffer.AsMemory()) != 0) { }
     }
 
     public Task ReaderTask { get; }
