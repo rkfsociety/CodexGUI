@@ -36,6 +36,8 @@ internal static class Program
             await Check("Every public RPC forwards operation cancellation", AllRpcCancellationAsync);
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
+            await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
+            await Check("Untracked text lines are counted without loading large files", () => TextLineCountingAsync(root));
             Console.WriteLine($"PASS: {_passed} checks");
             return 0;
         }
@@ -49,6 +51,47 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task GitContextAsync()
+    {
+        var snapshot = new GitRepositorySnapshot(true, "C:\\project", "main", "origin/main", 2, 1, null,
+            true, true,
+            [
+                new RepositoryFileStatus("src/changed.cs", 'M', '.', false),
+                new RepositoryFileStatus("notes\nforged-status.txt", '?', '?', true),
+                new RepositoryFileStatus("src/local.cs", '.', 'M', false)
+            ], null);
+        var context = GitRepositoryInspector.FormatAgentContext(snapshot, maximumFiles: 2);
+        Require(context.Contains("Ветка: main", StringComparison.Ordinal), "Current branch was omitted");
+        Require(context.Contains("в индексе: 1, изменены: 1, новые: 1", StringComparison.Ordinal), "Status counts are wrong");
+        Require(context.Contains("notes\\nforged-status.txt", StringComparison.Ordinal)
+            && !context.Contains("notes\nforged-status.txt", StringComparison.Ordinal),
+            "Filename newline was not escaped");
+        Require(!context.Contains("src/local.cs", StringComparison.Ordinal) && context.Contains("не показано файлов: 1", StringComparison.Ordinal),
+            "Context file limit was not enforced");
+        return Task.CompletedTask;
+    }
+
+    private static async Task TextLineCountingAsync(string root)
+    {
+        var path = Path.Combine(root, "line-counter.txt");
+        await File.WriteAllTextAsync(path, new string('x', 20_000) + "\nlast line");
+        Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) == 2,
+            "Line count across read buffers was incorrect");
+        await File.WriteAllTextAsync(path, "one\ntwo\n");
+        Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) == 2,
+            "Final newline was double-counted");
+        await File.WriteAllBytesAsync(path, [65, 0, 66, 10]);
+        Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) is null,
+            "Binary file should not contribute text lines");
+        await File.WriteAllTextAsync(path, "");
+        Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) == 0,
+            "Empty text file should have zero lines");
+        await using (var oversized = new FileStream(path, FileMode.Create, FileAccess.Write))
+            oversized.SetLength(4L * 1024 * 1024 + 1);
+        Require(await GitRepositoryInspector.CountTextLinesAsync(path, CancellationToken.None) is null,
+            "Oversized file should be skipped");
     }
 
     private static Task GitHubRemotesAsync()

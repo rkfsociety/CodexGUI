@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -33,6 +34,43 @@ internal sealed record GitRepositorySnapshot(
 internal static class GitRepositoryInspector
 {
     private sealed record GitCommandResult(int ExitCode, string Output, string Error);
+
+    // A compact, explicitly user-inserted snapshot for the agent's composer.
+    // Escape line separators in Git-controlled names so one filename cannot forge extra lines.
+    internal static string FormatAgentContext(GitRepositorySnapshot snapshot, int maximumFiles = 40)
+    {
+        if (!snapshot.IsRepository) throw new ArgumentException("Git snapshot is unavailable.", nameof(snapshot));
+        if (maximumFiles < 1) throw new ArgumentOutOfRangeException(nameof(maximumFiles));
+
+        static string OneLine(string value) => value.Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("\t", "\\t", StringComparison.Ordinal);
+        var staged = snapshot.Changes.Count(file => !file.IsUntracked && file.IndexStatus != '.');
+        var modified = snapshot.Changes.Count(file => !file.IsUntracked && file.WorktreeStatus != '.');
+        var untracked = snapshot.Changes.Count(file => file.IsUntracked);
+        var result = new StringBuilder();
+        result.AppendLine("Контекст локального Git-репозитория (снимок; проверь актуальность перед изменениями):");
+        result.Append("Ветка: ").AppendLine(OneLine(snapshot.Branch));
+        if (!string.IsNullOrWhiteSpace(snapshot.Upstream))
+            result.Append("Upstream: ").AppendLine(OneLine(snapshot.Upstream));
+        result.Append("Коммиты относительно upstream: +").Append(snapshot.Ahead)
+            .Append(" / -").AppendLine(snapshot.Behind.ToString());
+        result.Append("Файлов с изменениями: ").Append(snapshot.Changes.Count)
+            .Append(" (в индексе: ").Append(staged)
+            .Append(", изменены: ").Append(modified)
+            .Append(", новые: ").Append(untracked).AppendLine(").");
+        foreach (var file in snapshot.Changes.Take(maximumFiles))
+        {
+            var state = file.IsUntracked ? "новый"
+                : file.IndexStatus != '.' && file.WorktreeStatus != '.' ? "индекс + рабочая папка"
+                : file.IndexStatus != '.' ? "в индексе" : "в рабочей папке";
+            result.Append("- [").Append(state).Append("] ").AppendLine(OneLine(file.Path));
+        }
+        if (snapshot.Changes.Count > maximumFiles)
+            result.Append("… не показано файлов: ").Append(snapshot.Changes.Count - maximumFiles)
+                .AppendLine(". Получите полный список локально.");
+        return result.ToString().TrimEnd();
+    }
 
     public static async Task<GitRepositorySnapshot> ReadAsync(string directory, CancellationToken cancellationToken)
     {
@@ -140,19 +178,43 @@ internal static class GitRepositoryInspector
             {
                 var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
                 if (!fullPath.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar,
-                        StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath)) continue;
-                var info = new FileInfo(fullPath);
-                if (info.Length > 4 * 1024 * 1024 || info.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
-                var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken);
-                if (Array.IndexOf(bytes, (byte)0) >= 0) continue;
-                added += bytes.LongCount(item => item == (byte)'\n');
-                if (bytes.Length > 0 && bytes[^1] != (byte)'\n') added++;
+                        StringComparison.OrdinalIgnoreCase)) continue;
+                var lineCount = await CountTextLinesAsync(fullPath, cancellationToken);
+                if (lineCount is { } count) added += count;
             }
-            catch (IOException) { }
+            catch (IOException) { } // Untracked files can disappear during refresh.
             catch (UnauthorizedAccessException) { }
             catch (ArgumentException) { }
         }
         return (added, removed);
+    }
+
+    // Count a bounded file in small chunks rather than allocating its entire contents per refresh.
+    // Preserve the previous behavior: binary (NUL-containing) files contribute no line count.
+    internal static async Task<long?> CountTextLinesAsync(string path, CancellationToken cancellationToken)
+    {
+        const long maximumBytes = 4L * 1024 * 1024;
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length > maximumBytes || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            return null;
+
+        var buffer = new byte[16 * 1024];
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            buffer.Length, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        long lines = 0;
+        long bytesRead = 0;
+        byte lastByte = 0;
+        int count;
+        while ((count = await stream.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+        {
+            bytesRead += count;
+            if (bytesRead > maximumBytes || buffer.AsSpan(0, count).Contains((byte)0)) return null;
+            for (var index = 0; index < count; index++)
+                if (buffer[index] == (byte)'\n') lines++;
+            lastByte = buffer[count - 1];
+        }
+
+        return lines + (bytesRead > 0 && lastByte != (byte)'\n' ? 1 : 0);
     }
 
     public static async Task<string> ReadFileDiffAsync(string repositoryRoot, RepositoryFileStatus file,

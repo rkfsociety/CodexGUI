@@ -30,10 +30,11 @@ public partial class MainWindow
                 if (state is not null)
                 {
                     _projects.AddRange(state.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Id) && !string.IsNullOrWhiteSpace(project.Path)));
+                    var activeProjectIds = _projects.Select(project => project.Id).ToHashSet(StringComparer.Ordinal);
                     _removedProjects.AddRange(state.RemovedProjects.Where(project =>
                         !string.IsNullOrWhiteSpace(project.Id) &&
                         !string.IsNullOrWhiteSpace(project.Path) &&
-                        !_projects.Any(active => active.Id == project.Id)));
+                        !activeProjectIds.Contains(project.Id)));
                     _actions.AddRange(state.Actions
                         .Where(action => !string.IsNullOrWhiteSpace(action.Id)
                             && !string.IsNullOrWhiteSpace(action.Name)
@@ -63,11 +64,12 @@ public partial class MainWindow
                             ActiveRun = stored.ActiveRun
                         });
                     }
+                    var knownThreadIds = _threads.Select(thread => thread.Id).ToHashSet(StringComparer.Ordinal);
                     _promptQueue.AddRange(state.QueuedPrompts.Where(prompt =>
                         !string.IsNullOrWhiteSpace(prompt.Id) &&
                         !string.IsNullOrWhiteSpace(prompt.ThreadId) &&
                         !string.IsNullOrWhiteSpace(prompt.Text) &&
-                        _threads.Any(thread => thread.Id == prompt.ThreadId)));
+                        knownThreadIds.Contains(prompt.ThreadId)));
                     _selectedProject = _projects.FirstOrDefault(project => project.Id == state.SelectedProjectId);
                     _selectedModel = string.IsNullOrWhiteSpace(state.SelectedModel) ? DefaultModel : state.SelectedModel;
                     _selectedEffort = string.IsNullOrWhiteSpace(state.SelectedEffort) ? DefaultEffort : state.SelectedEffort;

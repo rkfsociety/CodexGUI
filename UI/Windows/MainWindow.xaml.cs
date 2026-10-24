@@ -79,6 +79,7 @@ public partial class MainWindow : Window
     private string? _snapshotProjectPath;
     private bool _isRefreshingRepository;
     private bool _repositoryRefreshPending;
+    private bool _isInsertingRepositoryContext;
     private bool _isReviewingChanges;
     private bool _isGitCommandRunning;
     private string _usageLimitsText = "Загружаю лимиты…";
@@ -554,6 +555,7 @@ public partial class MainWindow : Window
             _ = RefreshRepositoryInfoAsync();
         });
         Click("RepositoryRemoteButton", (_, _) => OpenRepositoryRemote());
+        Click("InsertGitContextButton", async (_, _) => await InsertRepositoryContextAsync());
         Click("ReviewChangesButton", async (_, _) => await ReviewUncommittedChangesAsync());
         Click("StageAllChangesButton", async (_, _) => await RunRepositoryGitCommandAsync(
             "Добавляю изменения в индекс…", "Изменения добавлены в индекс Git.",
@@ -2663,6 +2665,8 @@ public partial class MainWindow : Window
         changesPanel.Children.Clear();
         remoteButton.Visibility = snapshot.RemoteUrl is null ? Visibility.Collapsed : Visibility.Visible;
         remoteButton.ToolTip = snapshot.RemoteUrl;
+        if (Control<Button>("InsertGitContextButton") is { } contextButton)
+            contextButton.IsEnabled = snapshot.IsRepository && !_isInsertingRepositoryContext;
         reviewButton.Visibility = Visibility.Collapsed;
         if (!snapshot.IsRepository)
         {
@@ -3256,6 +3260,45 @@ public partial class MainWindow : Window
         input.Text = (string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text.TrimEnd() + "\n\n") + note;
         input.CaretIndex = input.Text.Length;
         return true;
+    }
+
+    private async Task InsertRepositoryContextAsync()
+    {
+        if (_isInsertingRepositoryContext) return;
+        var workingDirectory = _currentThread?.WorktreePath ?? _projectPath;
+        var threadId = _currentThread?.Id;
+        if (!Directory.Exists(workingDirectory))
+        {
+            SetStatus("Git-контекст недоступен", "Рабочая папка больше не существует.", isError: true);
+            return;
+        }
+
+        _isInsertingRepositoryContext = true;
+        if (Control<Button>("InsertGitContextButton") is { } button) button.IsEnabled = false;
+        try
+        {
+            // An isolated conversation must use its own worktree, not the project's main checkout.
+            var snapshot = await GitRepositoryInspector.ReadAsync(workingDirectory, _repositoryRefreshCancellation.Token);
+            if (_isClosing || threadId != _currentThread?.Id ||
+                !string.Equals(workingDirectory, _currentThread?.WorktreePath ?? _projectPath, StringComparison.OrdinalIgnoreCase))
+                return;
+            if (!snapshot.IsRepository)
+            {
+                SetStatus("Git-контекст недоступен", snapshot.Error ?? "Git-репозиторий не найден.", isError: true);
+                return;
+            }
+
+            InsertActionPrompt(GitRepositoryInspector.FormatAgentContext(snapshot));
+            SetStatus("Git-контекст добавлен", "Сводка вставлена в черновик; отправьте её при необходимости.");
+        }
+        catch (OperationCanceledException) when (_repositoryRefreshCancellation.IsCancellationRequested) { }
+        finally
+        {
+            _isInsertingRepositoryContext = false;
+            if (Control<Button>("InsertGitContextButton") is { } contextButton)
+                contextButton.IsEnabled = _repositorySnapshot is { IsRepository: true }
+                    && string.Equals(_snapshotProjectPath, _projectPath, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private void OpenRepositoryRemote()
