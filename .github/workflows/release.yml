@@ -82,12 +82,22 @@ jobs:
       - name: Run focused regression checks
         run: dotnet run --project Tests/CodexGUI.Checks.csproj --configuration Release
 
+      - name: Build the default self-contained apphost
+        run: dotnet build Build/CodexGUI.csproj --configuration Release --no-restore --output artifacts/build-output
+
+      - name: Verify default build without an installed .NET runtime
+        run: pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1 -ExecutablePath artifacts/build-output/CodexGUI.exe -CopyApplicationDirectory
+
       - name: Publish self-contained Windows app
         if: steps.version.outputs.should_release == 'true'
         run: >-
           dotnet publish Build/CodexGUI.csproj --configuration Release --runtime win-x64
           --self-contained true --output artifacts/publish
           -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Verify self-contained multi-file app without an installed .NET runtime
+        if: steps.version.outputs.should_release == 'true'
+        run: pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1 -ExecutablePath artifacts/publish/CodexGUI.exe -CopyApplicationDirectory
 
       - name: Publish single-file executable
         if: steps.version.outputs.should_release == 'true'

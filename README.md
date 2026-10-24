@@ -8,7 +8,7 @@
 2. Приложение установится в профиль пользователя и скачает App Server при первом запуске.
 3. Войдите через ChatGPT, выберите папку проекта и начните чат.
 
-Релизный `CodexGUI.exe` содержит .NET и WPF runtime; отдельно устанавливать .NET для него не нужно. `Run-CodexGUI.cmd` также публикует и запускает self-contained portable EXE, поэтому не вызывает системное окно установки .NET. Непосредственный `.exe` из `Build/bin/Debug` или `Build/bin/Release` остаётся framework-dependent сборкой и требует .NET Desktop Runtime 10.
+Все сборки приложения self-contained для Windows x64 и не требуют установленного .NET Desktop Runtime. Результат `dotnet build` — многофайловая сборка; сохраняйте её DLL и runtime-файлы рядом с EXE. `Run-CodexGUI.cmd` публикует и запускает portable single-file EXE.
 
 Отдельная установка Codex CLI для чатов не нужна. Обновления загружаются автоматически; для установки нажмите появившуюся кнопку обновления.
 

@@ -1,4 +1,7 @@
-param([string]$ExecutablePath = (Join-Path $PSScriptRoot '..\Build\bin\Portable\CodexGUI.exe'))
+param(
+    [string]$ExecutablePath = (Join-Path $PSScriptRoot '..\Build\bin\Portable\CodexGUI.exe'),
+    [switch]$CopyApplicationDirectory
+)
 
 $ErrorActionPreference = 'Stop'
 $executable = (Resolve-Path -LiteralPath $ExecutablePath).Path
@@ -7,8 +10,19 @@ $testDirectory = Join-Path $tempBase ('CodexGUI-package-check-' + [Guid]::NewGui
 $process = $null
 try {
     [void][IO.Directory]::CreateDirectory($testDirectory)
-    $isolatedExecutable = Join-Path $testDirectory 'CodexGUI.exe'
-    Copy-Item -LiteralPath $executable -Destination $isolatedExecutable
+    $isolatedExecutable = Join-Path $testDirectory ([IO.Path]::GetFileName($executable))
+    if ($CopyApplicationDirectory) {
+        foreach ($entry in Get-ChildItem -LiteralPath (Split-Path -Parent $executable) -Force) {
+            Copy-Item -LiteralPath $entry.FullName -Destination $testDirectory -Recurse -Force
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $testDirectory 'coreclr.dll')) -or
+            -not (Test-Path -LiteralPath (Join-Path $testDirectory 'PresentationFramework.dll'))) {
+            throw 'The application directory does not contain the self-contained .NET and WPF runtime.'
+        }
+    }
+    else {
+        Copy-Item -LiteralPath $executable -Destination $isolatedExecutable
+    }
     $emptyRuntime = Join-Path $testDirectory 'empty-runtime'
     [void][IO.Directory]::CreateDirectory($emptyRuntime)
     $extraction = Join-Path $testDirectory 'extracted-runtime'
@@ -36,19 +50,26 @@ try {
         throw 'The isolated package did not exit its managed startup probe.'
     }
     if ($process.ExitCode -ne 0) { throw "Managed startup failed with exit code $($process.ExitCode)." }
-    # The Windows single-file host statically links CoreCLR; a separate coreclr.dll is not required.
-    # https://github.com/dotnet/runtime/blob/main/src/native/corehost/apphost/static/CMakeLists.txt
-    $trace = [IO.File]::ReadAllText($hostTrace)
-    if ($trace -notmatch 'Using internal hostpolicy' -or
-        $trace -notmatch "CoreCLR path = '', CoreCLR dir = ''" -or
-        $trace -notmatch 'PresentationFramework\.dll found in bundle') {
-        $trace -split "`n" | Where-Object { $_ -match 'HOSTPOLICY|CoreCLR path|PresentationFramework\.dll' } |
-            Select-Object -First 6 | ForEach-Object { $_.Substring(0, [Math]::Min(220, $_.Length)) }
-        throw 'The host trace does not confirm the embedded CoreCLR and WPF bundle.'
+    if ($CopyApplicationDirectory) {
+        $nativeWpf = Get-ChildItem -LiteralPath $testDirectory -Recurse -Filter wpfgfx_cor3.dll -File | Select-Object -First 1
+        if ($null -eq $nativeWpf) { throw 'The application directory did not supply its native WPF graphics library.' }
+        Write-Output 'PASS: multi-file self-contained app starts with empty DOTNET_ROOT and exits the managed probe without user state or App Server.'
     }
-    $nativeWpf = Get-ChildItem -LiteralPath $extraction -Recurse -Filter wpfgfx_cor3.dll -File | Select-Object -First 1
-    if ($null -eq $nativeWpf) { throw 'The EXE did not supply its native WPF graphics library.' }
-    Write-Output 'PASS: single EXE starts with empty DOTNET_ROOT, uses embedded CoreCLR and bundled WPF, and exits the managed probe without user state or App Server.'
+    else {
+        # The Windows single-file host statically links CoreCLR; a separate coreclr.dll is not required.
+        # https://github.com/dotnet/runtime/blob/main/src/native/corehost/apphost/static/CMakeLists.txt
+        $trace = [IO.File]::ReadAllText($hostTrace)
+        if ($trace -notmatch 'Using internal hostpolicy' -or
+            $trace -notmatch "CoreCLR path = '', CoreCLR dir = ''" -or
+            $trace -notmatch 'PresentationFramework\.dll found in bundle') {
+            $trace -split "`n" | Where-Object { $_ -match 'HOSTPOLICY|CoreCLR path|PresentationFramework\.dll' } |
+                Select-Object -First 6 | ForEach-Object { $_.Substring(0, [Math]::Min(220, $_.Length)) }
+            throw 'The host trace does not confirm the embedded CoreCLR and WPF bundle.'
+        }
+        $nativeWpf = Get-ChildItem -LiteralPath $extraction -Recurse -Filter wpfgfx_cor3.dll -File | Select-Object -First 1
+        if ($null -eq $nativeWpf) { throw 'The EXE did not supply its native WPF graphics library.' }
+        Write-Output 'PASS: single EXE starts with empty DOTNET_ROOT, uses embedded CoreCLR and bundled WPF, and exits the managed probe without user state or App Server.'
+    }
 }
 finally {
     if ($null -ne $process) { $process.Dispose() }
