@@ -67,3 +67,10 @@
 - Версия повышена с `0.0.109` до `0.0.110`. Сборка прошла без предупреждений и ошибок; regression runner прошёл 37 проверок.
 - Публикация: коммит `529c22f` отправлен в `origin/main`; release workflow `40106484923` завершился успешно. Опубликован `v0.0.110` с EXE, ZIP, checksum и signature; старый версионированный release/tag удалён политикой workflow. HEAD: `529c22f`.
 - Следующий цикл: аудит согласованности записей automation run с control-файлами и output log.
+
+## Цикл — восстановление preparing automation
+
+- Аудит нашёл, что после перезапуска статус `preparing` переводился в `running` при наличии любого `completed.json` в каталоге `WorkerRunId`, даже если `started.json` принадлежал другой задаче.
+- Исправление: preparing run восстанавливается при совпадающем started-marker либо completion с совпадающим RunId; старый completion без RunId требует подтверждённого started-marker. Добавлен regression-тест на matching, mismatch и legacy.
+- Версия повышена с `0.0.110` до `0.0.111`. Сборка прошла без предупреждений и ошибок; regression runner прошёл 38 проверок.
+- Следующий цикл: продолжить аудит control-файлов и связности output log с automation run.

@@ -91,8 +91,10 @@ public partial class MainWindow
                 var runDirectory = run.WorkerRunId is { Length: > 0 } workerRunId && Guid.TryParseExact(workerRunId, "N", out _)
                     ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", workerRunId)
                     : "";
-                if (runDirectory.Length > 0 && (TryRestoreAutomationWorkerIdentity(run, runDirectory)
-                    || File.Exists(Path.Combine(runDirectory, "completed.json"))))
+                var markerMatches = runDirectory.Length > 0 && TryRestoreAutomationWorkerIdentity(run, runDirectory);
+                var completionPath = Path.Combine(runDirectory, "completed.json");
+                if (runDirectory.Length > 0 && CanResumePreparingAutomation(
+                    markerMatches, completionPath, run.WorkerRunId!))
                 {
                     run.Status = "running";
                     CodexAutomationStore.SaveRun(run);
@@ -358,6 +360,23 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(completion.RunId)
             && !string.Equals(completion.RunId, expectedRunId, StringComparison.Ordinal))
             throw new InvalidDataException("Файл завершения принадлежит другой фоновой задаче.");
+    }
+
+    private static bool CanResumePreparingAutomation(bool startedMarkerMatches, string completionPath, string expectedRunId)
+    {
+        if (startedMarkerMatches) return true;
+        if (!File.Exists(completionPath)) return false;
+        try
+        {
+            var completion = JsonSerializer.Deserialize<CodexAppServerWorkerCompletion>(File.ReadAllText(completionPath));
+            return completion?.RunId is { Length: > 0 } runId
+                && string.Equals(runId, expectedRunId, StringComparison.Ordinal);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Не удалось проверить результат подготовки автоматизации: {0}", error.Message);
+            return false;
+        }
     }
 
     private static bool TryRestoreAutomationWorkerIdentity(CodexAutomationRun run, string runDirectory)

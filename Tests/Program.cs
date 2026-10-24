@@ -45,6 +45,7 @@ internal static class Program
             await Check("Restored worker paths are rebuilt from the run id", () => StoredWorkerPathsAsync(root));
             await Check("Automation recovery requires a matching worker marker", () => AutomationWorkerIdentityAsync(root));
             await Check("Automation completion is bound to its worker run", AutomationCompletionIdentityAsync);
+            await Check("Preparing automation recovery validates completion identity", () => PreparingAutomationRecoveryAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -271,6 +272,29 @@ internal static class Program
             throw new InvalidOperationException("Completion for a different worker run was accepted");
         }
         catch (System.Reflection.TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
+        return Task.CompletedTask;
+    }
+
+    private static Task PreparingAutomationRecoveryAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var method = typeof(MainWindow).GetMethod("CanResumePreparingAutomation", nonPublicStatic)
+            ?? throw new InvalidOperationException("Automation preparation recovery method was not found");
+        var runId = Guid.NewGuid().ToString("N");
+        var otherRunId = Guid.NewGuid().ToString("N");
+        var completionPath = Path.Combine(root, "preparing-automation", "completed.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(completionPath)!);
+
+        bool CanResume(bool markerMatches) => (bool)method.Invoke(null, [markerMatches, completionPath, runId])!;
+
+        Require(CanResume(markerMatches: true), "A matching worker marker should recover a preparing run");
+        File.WriteAllText(completionPath, JsonSerializer.Serialize(new CodexAppServerWorkerCompletion()));
+        Require(!CanResume(markerMatches: false), "A legacy completion without a matching marker was trusted");
+        File.WriteAllText(completionPath, JsonSerializer.Serialize(new CodexAppServerWorkerCompletion { RunId = otherRunId }));
+        Require(!CanResume(markerMatches: false), "A completion for another run recovered the preparing automation");
+        File.WriteAllText(completionPath, JsonSerializer.Serialize(new CodexAppServerWorkerCompletion { RunId = runId }));
+        Require(CanResume(markerMatches: false), "A completion bound to the expected run was rejected");
         return Task.CompletedTask;
     }
 
