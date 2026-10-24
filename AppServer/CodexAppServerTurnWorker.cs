@@ -780,7 +780,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
                 try { await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(1)); }
                 catch (TimeoutException error)
                 {
-                    System.Diagnostics.Trace.TraceWarning("App-server output readers remained blocked after closing their streams: {0}", error.Message);
+                    throw new TimeoutException("App-server output readers remained blocked after closing their streams.", error);
                 }
             }
         }
