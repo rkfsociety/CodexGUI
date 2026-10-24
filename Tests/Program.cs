@@ -15,6 +15,7 @@ internal static class Program
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
         if (args.FirstOrDefault() == "--fake-appserver-flood") return await FakeAppServerFloodAsync();
+        if (args.FirstOrDefault() == "--fake-appserver-ignore-shutdown") return await FakeAppServerIgnoreShutdownAsync();
         if (args.FirstOrDefault() == "write-actions") return WriteActions(args);
 
         var root = Path.Combine(Path.GetTempPath(), "CodexGUI-checks-" + Guid.NewGuid().ToString("N"));
@@ -53,6 +54,7 @@ internal static class Program
             await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
+            await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -505,6 +507,53 @@ internal static class Program
         }
         catch (IOException) { }
         return 0;
+    }
+
+    private static async Task<int> FakeAppServerIgnoreShutdownAsync()
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+        return 0;
+    }
+
+    private static async Task AppServerShutdownTimeoutAsync()
+    {
+        var startInfo = new ProcessStartInfo(Executable)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("--fake-appserver-ignore-shutdown");
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the unresponsive fake app-server peer");
+        var processId = process.Id;
+        var connection = new CodexAppServerConnection(process);
+        try
+        {
+            await connection.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            try
+            {
+                using var leftover = Process.GetProcessById(processId);
+                Require(leftover.HasExited, "DisposeAsync returned while the unresponsive app-server was still running");
+            }
+            catch (ArgumentException) { }
+        }
+        finally
+        {
+            try
+            {
+                using var leftover = Process.GetProcessById(processId);
+                if (!leftover.HasExited)
+                {
+                    leftover.Kill(entireProcessTree: true);
+                    await leftover.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+            }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+        }
     }
 
     private static Task WorkspaceSearchAsync(string root)

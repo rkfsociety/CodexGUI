@@ -589,7 +589,14 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
     private static async Task DrainStandardErrorAsync(StreamReader reader)
     {
         var buffer = new char[8192];
-        while (await reader.ReadAsync(buffer.AsMemory()) != 0) { }
+        try
+        {
+            while (await reader.ReadAsync(buffer.AsMemory()) != 0) { }
+        }
+        catch (Exception error) when (error is IOException or ObjectDisposedException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Ошибка при чтении stderr Codex app-server: {0}", error.Message);
+        }
     }
 
     public Task ReaderTask { get; }
@@ -754,14 +761,28 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
                 catch (TimeoutException)
                 {
                     try { _process.Kill(entireProcessTree: true); }
-                    catch (InvalidOperationException) { }
+                    catch (InvalidOperationException) when (_process.HasExited) { }
                     try { await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-                    catch (TimeoutException) { }
+                    catch (TimeoutException error)
+                    {
+                        throw new TimeoutException("Codex app-server did not exit after termination was requested.", error);
+                    }
                 }
             }
             // A descendant may retain stdout/stderr even after the server exits.
             try { await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (TimeoutException) { }
+            catch (TimeoutException)
+            {
+                try { _process.StandardOutput.Dispose(); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+                try { _process.StandardError.Dispose(); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+                try { await Task.WhenAll(ReaderTask, _standardErrorTask).WaitAsync(TimeSpan.FromSeconds(1)); }
+                catch (TimeoutException error)
+                {
+                    System.Diagnostics.Trace.TraceWarning("App-server output readers remained blocked after closing their streams: {0}", error.Message);
+                }
+            }
         }
         finally
         {

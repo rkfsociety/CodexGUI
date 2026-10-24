@@ -151,3 +151,10 @@
 - Версия повышена с `0.0.119` до `0.0.120`. Локальная компиляция тестового проекта прошла без предупреждений/ошибок; regression runner и app/EXE локально не запускались.
 - Release workflow `40109654134` прошёл regression suite и fake-peer lifecycle check с заполненной очередью на GitHub runner; опубликован `v0.0.120` с EXE, ZIP, checksum и signature.
 - Следующий цикл: проверить таймауты завершения дочернего app-server при удерживаемых stdout/stderr handles.
+
+## Цикл — обязательное завершение дочернего app-server
+
+- Проверка `DisposeAsync` выявила, что после `Kill(entireProcessTree)` второй timeout молча считался завершением, а неудача kill могла быть скрыта; также stderr/output readers могли остаться незавершёнными после ожидания.
+- Исправление: неудачное завершение теперь сообщает timeout; при зависших readers закрываются stdout/stderr streams и выполняется дополнительное ограниченное ожидание. Добавлен fake peer, который игнорирует shutdown, для CI проверки kill path.
+- Версия повышена с `0.0.120` до `0.0.121`. `dotnet build Tests/CodexGUI.Checks.csproj --no-restore` прошёл без предупреждений и ошибок; test runner, приложение и EXE локально не запускались.
+- Следующий цикл: проверить ошибки принудительного завершения и reader fault propagation без оставления процессов.
