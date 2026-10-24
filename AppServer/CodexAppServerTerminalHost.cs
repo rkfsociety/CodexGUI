@@ -16,11 +16,15 @@ internal sealed record CodexTerminalExit(string ProcessId, int ExitCode, string?
 
 internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
 {
+    private static readonly TimeSpan DefaultControlRequestTimeout = TimeSpan.FromSeconds(8);
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationTokenSource _startupCancellation = new();
+    private readonly CancellationToken _lifetimeToken;
+    private readonly CancellationToken _startupToken;
     private readonly Func<Task<CodexAppServerConnection>> _connect;
+    private readonly TimeSpan _controlRequestTimeout;
     private CodexAppServerConnection? _connection;
     private Task? _notificationTask;
     private int _disposed;
@@ -31,8 +35,16 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     internal CodexAppServerTerminalHost()
         : this(() => CodexAppServerConnection.StartAsync(CodexAppServerRuntime.ResolveExecutable())) { }
 
-    internal CodexAppServerTerminalHost(Func<Task<CodexAppServerConnection>> connect) =>
+    internal CodexAppServerTerminalHost(
+        Func<Task<CodexAppServerConnection>> connect,
+        TimeSpan? controlRequestTimeout = null)
+    {
+        _lifetimeToken = _lifetime.Token;
+        _startupToken = _startupCancellation.Token;
         _connect = connect ?? throw new ArgumentNullException(nameof(connect));
+        _controlRequestTimeout = controlRequestTimeout ?? DefaultControlRequestTimeout;
+        if (_controlRequestTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(controlRequestTimeout));
+    }
 
     public async Task StartSessionAsync(string processId, string workingDirectory, bool fullAccess, int rows = 28, int cols = 100)
     {
@@ -74,7 +86,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
         if (!_sessions.ContainsKey(processId)) throw new InvalidOperationException("Терминал уже завершён.");
         var connection = _connection ?? throw new InvalidOperationException("Codex terminal не подключён к App Server.");
-        await connection.SendRequestAsync("command/exec/write", new
+        await SendControlRequestAsync(connection, "command/exec/write", new
         {
             processId,
             deltaBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
@@ -86,20 +98,54 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         if (Volatile.Read(ref _disposed) != 0) return;
         if (!_sessions.ContainsKey(processId)) return;
         var connection = _connection ?? throw new InvalidOperationException("Codex terminal не подключён к App Server.");
-        await connection.SendRequestAsync("command/exec/resize", new
+        await SendControlRequestAsync(connection, "command/exec/resize", new
         {
             processId,
             size = new { rows = Math.Clamp(rows, 8, 120), cols = Math.Clamp(cols, 30, 300) }
         });
     }
 
-    public async Task TerminateSessionAsync(string processId)
+    public Task<bool> TerminateSessionAsync(string processId) =>
+        TryTerminateSessionAsync(processId, CancellationToken.None);
+
+    private async Task<bool> TryTerminateSessionAsync(string processId, CancellationToken cancellationToken)
     {
-        if (!_sessions.ContainsKey(processId) || _connection is not { } connection) return;
-        try { await connection.SendRequestAsync("command/exec/terminate", new { processId }); }
-        catch (Exception error) when (error is InvalidOperationException or EndOfStreamException or TimeoutException)
+        if (!_sessions.ContainsKey(processId)) return true;
+        if (_connection is not { } connection) return false;
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetimeToken);
+        timeout.CancelAfter(_controlRequestTimeout);
+        try
+        {
+            await connection.SendRequestAsync("command/exec/terminate", new { processId }, timeout.Token);
+            return true;
+        }
+        catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
+        {
+            System.Diagnostics.Trace.TraceWarning("Истекло ожидание завершения терминала {0}: {1}", processId, error.Message);
+            return false;
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or TimeoutException)
         {
             System.Diagnostics.Trace.TraceWarning("Не удалось завершить терминал {0}: {1}", processId, error.Message);
+            return false;
+        }
+    }
+
+    private async Task<JsonElement> SendControlRequestAsync(
+        CodexAppServerConnection connection,
+        string method,
+        object parameters)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeToken);
+        timeout.CancelAfter(_controlRequestTimeout);
+        try
+        {
+            return await connection.SendRequestAsync(method, parameters, timeout.Token);
+        }
+        catch (OperationCanceledException error) when (timeout.IsCancellationRequested && !_lifetime.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Terminal App Server RPC {method} did not respond within {_controlRequestTimeout.TotalSeconds:0} seconds.", error);
         }
     }
 
@@ -107,7 +153,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     {
         if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
         if (_connection is not null) return;
-        var cancellationToken = _startupCancellation.Token;
+        var cancellationToken = _startupToken;
         await _startLock.WaitAsync(cancellationToken);
         try
         {
@@ -121,7 +167,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                 throw;
             }
             _connection = connection;
-            _notificationTask = Task.Run(() => ReadNotificationsAsync(connection, _lifetime.Token));
+            _notificationTask = Task.Run(() => ReadNotificationsAsync(connection, _lifetimeToken));
         }
         finally { _startLock.Release(); }
     }
@@ -197,8 +243,10 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         {
             try
             {
-                foreach (var processId in _sessions.Keys.ToArray())
-                    await TerminateSessionAsync(processId);
+                using var terminationDeadline = new CancellationTokenSource(_controlRequestTimeout);
+                var terminations = _sessions.Keys.ToArray()
+                    .Select(processId => TryTerminateSessionAsync(processId, terminationDeadline.Token));
+                await Task.WhenAll(terminations);
             }
             finally
             {

@@ -15,6 +15,7 @@ internal static class Program
         // The same executable supplies a predictable stdio peer and competing writer processes.
         if (args.FirstOrDefault() == "--listen") return await FakeServerAsync();
         if (args.FirstOrDefault() == "--fake-appserver-block-initialize") return await FakeAppServerBlockInitializeAsync(args);
+        if (args.FirstOrDefault() == "--fake-appserver-terminal-control") return await FakeAppServerTerminalControlAsync(args);
         if (args.FirstOrDefault() == "--fake-appserver-flood") return await FakeAppServerFloodAsync();
         if (args.FirstOrDefault() == "--fake-appserver-ignore-shutdown") return await FakeAppServerIgnoreShutdownAsync();
         if (args.FirstOrDefault() == "write-actions") return WriteActions(args);
@@ -62,6 +63,7 @@ internal static class Program
             await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
             await Check("App-server initialization forwards cancellation and closes its child", AppServerConnectionCancellationAsync);
             await Check("Closing terminal host cancels pending app-server initialization", () => TerminalHostStartupCancellationAsync(root));
+            await Check("Terminal terminate RPC times out and remains retryable", () => TerminalTerminateTimeoutAsync(root));
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
@@ -637,6 +639,52 @@ internal static class Program
         finally
         {
             await host.DisposeAsync();
+        }
+    }
+
+    private static async Task TerminalTerminateTimeoutAsync(string root)
+    {
+        var startedMarker = Path.Combine(root, "terminal-control-started.pid");
+        var terminateMarker = Path.Combine(root, "terminal-control-terminate.pid");
+        var host = new CodexAppServerTerminalHost(() =>
+        {
+            var startInfo = new ProcessStartInfo(Executable)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add("--fake-appserver-terminal-control");
+            startInfo.ArgumentList.Add(startedMarker);
+            startInfo.ArgumentList.Add(terminateMarker);
+            var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Could not start the fake terminal app-server peer");
+            try { return Task.FromResult(new CodexAppServerConnection(process)); }
+            catch
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                process.Dispose();
+                throw;
+            }
+        }, TimeSpan.FromMilliseconds(150));
+
+        try
+        {
+            const string processId = "terminal-control-timeout";
+            await host.StartSessionAsync(processId, root, fullAccess: false);
+            await WaitForFileAsync(startedMarker);
+
+            var terminated = await host.TerminateSessionAsync(processId).WaitAsync(TimeSpan.FromSeconds(3));
+            Require(!terminated, "A blocked terminal terminate RPC reported success");
+            Require(File.Exists(terminateMarker), "The fake server did not receive the terminal terminate request");
+            Require(await host.TerminateSessionAsync(processId), "A terminal terminate retry did not recover");
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
         }
     }
 
@@ -1530,6 +1578,35 @@ internal static class Program
                 await Console.In.ReadToEndAsync();
                 return 0;
             }
+        }
+        return 0;
+    }
+
+    private static async Task<int> FakeAppServerTerminalControlAsync(string[] args)
+    {
+        var startedMarker = args.ElementAtOrDefault(1)
+            ?? throw new InvalidOperationException("The terminal start marker path is required");
+        var terminateMarker = args.ElementAtOrDefault(2)
+            ?? throw new InvalidOperationException("The terminal terminate marker path is required");
+        var terminateRequests = 0;
+        while (await Console.In.ReadLineAsync() is { } line)
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("id", out var id)) continue;
+            var method = root.TryGetProperty("method", out var methodValue) ? methodValue.GetString() : null;
+            if (method == "command/exec")
+            {
+                await File.WriteAllTextAsync(startedMarker, Environment.ProcessId.ToString());
+                continue;
+            }
+            if (method == "command/exec/terminate" && ++terminateRequests == 1)
+            {
+                await File.WriteAllTextAsync(terminateMarker, Environment.ProcessId.ToString());
+                continue;
+            }
+            await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result = new { ok = true } }));
+            await Console.Out.FlushAsync();
         }
         return 0;
     }

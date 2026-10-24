@@ -18,6 +18,7 @@ internal sealed class CodexTerminalWindow : Window
     private readonly string? _initialCommand;
     private readonly CodexAppServerTerminalHost _host = new();
     private readonly Dictionary<string, TerminalTab> _sessions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _closingSessions = new(StringComparer.Ordinal);
     private readonly TabControl _tabs = new();
     private readonly TextBlock _status = new();
     private int _terminalNumber;
@@ -237,16 +238,40 @@ internal sealed class CodexTerminalWindow : Window
     {
         if (!tab.IsRunning) return;
         try { await _host.WriteInputAsync(tab.ProcessId, input); }
-        catch (Exception error) { AppendOutput(tab, "\r\n[ввод не отправлен: " + error.Message + "]\r\n"); }
+        catch (OperationCanceledException) when (_isClosing) { }
+        catch (Exception error)
+        {
+            if (!_isClosing) AppendOutput(tab, "\r\n[ввод не отправлен: " + error.Message + "]\r\n");
+        }
     }
 
     private async Task CloseTerminalAsync(string processId)
     {
-        if (!_sessions.Remove(processId, out var tab)) return;
-        try { await _host.TerminateSessionAsync(processId); }
-        catch (Exception error) { System.Diagnostics.Trace.TraceWarning("Не удалось завершить PowerShell: {0}", error.Message); }
-        _tabs.Items.Remove(tab.Item);
-        if (_sessions.Count == 0) _status.Text = "Все терминалы закрыты";
+        if (!_sessions.TryGetValue(processId, out var tab) || !_closingSessions.Add(processId)) return;
+        tab.HeaderLabel.Text = tab.Title + " · завершение…";
+        try
+        {
+            if (!await _host.TerminateSessionAsync(processId))
+            {
+                if (_isClosing) return;
+                tab.HeaderLabel.Text = tab.IsRunning ? tab.Title : tab.Title + " · завершён";
+                _status.Text = "Терминал не подтвердил завершение. Повторите закрытие.";
+                AppendOutput(tab, "\r\n[не удалось завершить терминал; вкладка оставлена для повтора]\r\n");
+                return;
+            }
+
+            if (_isClosing) return;
+            _sessions.Remove(processId);
+            _tabs.Items.Remove(tab.Item);
+            if (_sessions.Count == 0) _status.Text = "Все терминалы закрыты";
+        }
+        catch (Exception error)
+        {
+            if (_isClosing) return;
+            tab.HeaderLabel.Text = tab.IsRunning ? tab.Title : tab.Title + " · завершён";
+            _status.Text = "Не удалось завершить терминал: " + error.Message;
+        }
+        finally { _closingSessions.Remove(processId); }
     }
 
     private void OnOutputReceived(CodexTerminalOutput output)
