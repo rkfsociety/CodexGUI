@@ -38,6 +38,9 @@ internal static class Program
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
+            await Check("Agent Git context detects potentially sensitive files", GitSecretsAsync);
+            await Check("Agent Git context escapes terminal and Unicode formatting characters", GitContextEscapingAsync);
+            await Check("Git status parsing handles large repositories and renamed paths", GitStatusScaleAsync);
             await Check("Git porcelain v2 detects unmerged entries", GitConflictParsingAsync);
             await Check("NUL-delimited Git numstat handles renames and special filenames", GitNumstatAsync);
             await Check("Untracked text lines are counted without loading large files", () => TextLineCountingAsync(root));
@@ -92,6 +95,57 @@ internal static class Program
         var behindContext = GitRepositoryInspector.FormatAgentContext(behind);
         Require(behindContext.Contains("отстаёт от upstream", StringComparison.Ordinal), "Behind warning was omitted");
         Require(behindContext.Contains("HEAD отсутствует", StringComparison.Ordinal), "Unborn HEAD warning was omitted");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitSecretsAsync()
+    {
+        var snapshot = new GitRepositorySnapshot(true, "C:\\project", "main", "origin/main", 0, 0, null,
+            true, true,
+            [
+                new RepositoryFileStatus(".env.local", 'A', '.', false),
+                new RepositoryFileStatus("certs/private.pem", '?', '?', true),
+                new RepositoryFileStatus(".env.example", '?', '?', true)
+            ], null);
+        var context = GitRepositoryInspector.FormatAgentContext(snapshot, maximumFiles: 1);
+        Require(context.Contains("потенциально чувствительных файлов: 2 (в индексе: 1)", StringComparison.Ordinal),
+            "Potential secret warning did not include staged and untracked files");
+        Require(context.Contains("Проверены только имена файлов", StringComparison.Ordinal),
+            "Filename-only detection limitations were not explained");
+        Require(GitRepositoryInspector.IsPotentialSecretFile("keys/id_ed25519"), "Private key not recognized");
+        Require(GitRepositoryInspector.IsPotentialSecretFile(@"config\.npmrc"), "Windows separator not recognized");
+        Require(!GitRepositoryInspector.IsPotentialSecretFile(".env.sample"), "Safe sample flagged");
+        Require(!GitRepositoryInspector.IsPotentialSecretFile("src/config.json"), "Ordinary config flagged");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitContextEscapingAsync()
+    {
+        var snapshot = new GitRepositorySnapshot(true, "C:\\project", "main", "origin/main", 0, 0, null,
+            true, true, [new RepositoryFileStatus("src/\u001b[31m\u202Efake.cs", '.', 'M', false)], null);
+        var context = GitRepositoryInspector.FormatAgentContext(snapshot);
+        Require(context.Contains(@"src/\u001B[31m\u202Efake.cs", StringComparison.Ordinal),
+            "Escape and bidi formatting characters were not neutralized");
+        Require(!context.Contains('\u001b') && !context.Contains('\u202E'),
+            "Agent context retained terminal or bidi control characters");
+        return Task.CompletedTask;
+    }
+
+    private static Task GitStatusScaleAsync()
+    {
+        var porcelain = new StringBuilder("# branch.head main\0# branch.upstream origin/main\0# branch.ab +5 -2\0");
+        for (var index = 0; index < 8_000; index++)
+            porcelain.Append("? dir/file-").Append(index).Append(".txt\0");
+        porcelain.Append("2 R. N... 100644 100644 100644 abc def R100 renamed file.txt\0old file.txt\0");
+        porcelain.Append("? trailing\nname.txt\0");
+        var parsed = GitRepositoryInspector.ParseStatus(porcelain.ToString());
+        Require(parsed.Branch == "main" && parsed.Upstream == "origin/main"
+            && parsed.Ahead == 5 && parsed.Behind == 2, "Branch metadata was lost");
+        Require(parsed.Changes.Count == 8_002, "Large porcelain input was not fully parsed");
+        Require(parsed.Changes[^2].Path == "renamed file.txt" && !parsed.Changes[^2].IsUntracked,
+            "Rename source was incorrectly counted as a change");
+        Require(parsed.Changes[^1].Path == "trailing\nname.txt",
+            "Git filename containing newline was damaged");
         return Task.CompletedTask;
     }
 

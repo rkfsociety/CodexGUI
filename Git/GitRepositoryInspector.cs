@@ -42,9 +42,7 @@ internal static class GitRepositoryInspector
         if (!snapshot.IsRepository) throw new ArgumentException("Git snapshot is unavailable.", nameof(snapshot));
         if (maximumFiles < 1) throw new ArgumentOutOfRangeException(nameof(maximumFiles));
 
-        static string OneLine(string value) => value.Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal)
-            .Replace("\t", "\\t", StringComparison.Ordinal);
+        static string OneLine(string value) => EscapeAgentField(value);
         var staged = snapshot.Changes.Count(file => !file.IsUntracked && file.IndexStatus != '.');
         var modified = snapshot.Changes.Count(file => !file.IsUntracked && file.WorktreeStatus != '.');
         var untracked = snapshot.Changes.Count(file => file.IsUntracked);
@@ -68,6 +66,16 @@ internal static class GitRepositoryInspector
         if (conflicted > 0)
             result.Append("ВНИМАНИЕ: неразрешённых Git-конфликтов: ").Append(conflicted)
                 .AppendLine(". Не перезаписывайте конфликтные файлы без проверки.");
+        var possibleSecrets = snapshot.Changes.Count(file => IsPotentialSecretFile(file.Path));
+        if (possibleSecrets > 0)
+        {
+            var stagedSecrets = snapshot.Changes.Count(file =>
+                !file.IsUntracked && file.IndexStatus != '.' && IsPotentialSecretFile(file.Path));
+            result.Append("ВНИМАНИЕ: потенциально чувствительных файлов: ").Append(possibleSecrets)
+                .Append(" (в индексе: ").Append(stagedSecrets)
+                .AppendLine("). Проверьте их перед коммитом или отправкой.");
+            result.AppendLine("Проверены только имена файлов; их содержимое не анализировалось.");
+        }
         result.Append("Файлов с изменениями: ").Append(snapshot.Changes.Count)
             .Append(" (в индексе: ").Append(staged)
             .Append(", изменены: ").Append(modified)
@@ -84,6 +92,65 @@ internal static class GitRepositoryInspector
             result.Append("… не показано файлов: ").Append(snapshot.Changes.Count - maximumFiles)
                 .AppendLine(". Получите полный список локально.");
         return result.ToString().TrimEnd();
+    }
+
+
+    // Git can represent terminal control and bidirectional formatting characters in filenames.
+    // Never allow those characters to alter the structure of the context inserted into a prompt.
+    internal static string EscapeAgentField(string value)
+    {
+        StringBuilder? escaped = null;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (char.IsControl(character) ||
+                char.GetUnicodeCategory(character) == System.Globalization.UnicodeCategory.Format)
+            {
+                escaped ??= new StringBuilder(value.Length + 8).Append(value.AsSpan(0, index));
+                switch (character)
+                {
+                    case '\r': escaped.Append("\\r"); break;
+                    case '\n': escaped.Append("\\n"); break;
+                    case '\t': escaped.Append("\\t"); break;
+                    default: escaped.Append("\\u").Append(((int)character).ToString("X4")); break;
+                }
+            }
+            else
+            {
+                escaped?.Append(character);
+            }
+        }
+        return escaped?.ToString() ?? value;
+    }
+
+    // Filename-only preflight: do not open files or inject their secrets into agent context.
+    internal static bool IsPotentialSecretFile(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        var separator = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+        var name = path[(separator + 1)..];
+        if (name.Equals(".env", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith(".env.", StringComparison.OrdinalIgnoreCase))
+        {
+            return !new[] { ".example", ".sample", ".template", ".dist", ".default" }
+                .Any(suffix => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return name.Equals(".npmrc", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".pypirc", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("credentials.json", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("secrets.json", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("service-account.json", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("service_account.json", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("id_rsa", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("id_ed25519", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("id_ecdsa", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".pem", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".p12", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".pfx", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".key", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".tfvars", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".tfvars.json", StringComparison.OrdinalIgnoreCase);
     }
 
     public static async Task<GitRepositorySnapshot> ReadAsync(string directory, CancellationToken cancellationToken)
@@ -607,28 +674,34 @@ internal static class GitRepositoryInspector
         var hasHead = true;
         var changes = new List<RepositoryFileStatus>();
 
-        var records = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        for (var index = 0; index < records.Length; index++)
+        // Parse porcelain v2 records in-place. Split('\0') allocates a large array and
+        // a string for every record, even for filenames we only need to read once.
+        var remaining = output.AsSpan();
+        while (!remaining.IsEmpty)
         {
-            var record = records[index];
-            if (record.StartsWith("# branch.head ", StringComparison.Ordinal))
+            var end = remaining.IndexOf('\0');
+            var record = end >= 0 ? remaining[..end] : remaining;
+            remaining = end >= 0 ? remaining[(end + 1)..] : ReadOnlySpan<char>.Empty;
+            if (record.IsEmpty) continue;
+
+            if (record.StartsWith("# branch.head ".AsSpan(), StringComparison.Ordinal))
             {
-                branch = record[14..];
+                branch = record[14..].ToString();
                 continue;
             }
-            if (record.StartsWith("# branch.oid ", StringComparison.Ordinal))
+            if (record.StartsWith("# branch.oid ".AsSpan(), StringComparison.Ordinal))
             {
-                hasHead = !record.EndsWith("(initial)", StringComparison.Ordinal);
+                hasHead = !record.EndsWith("(initial)".AsSpan(), StringComparison.Ordinal);
                 continue;
             }
-            if (record.StartsWith("# branch.upstream ", StringComparison.Ordinal))
+            if (record.StartsWith("# branch.upstream ".AsSpan(), StringComparison.Ordinal))
             {
-                upstream = record[18..];
+                upstream = record[18..].ToString();
                 continue;
             }
-            if (record.StartsWith("# branch.ab ", StringComparison.Ordinal))
+            if (record.StartsWith("# branch.ab ".AsSpan(), StringComparison.Ordinal))
             {
-                var parts = record.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var parts = record.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 4)
                 {
                     _ = int.TryParse(parts[2].TrimStart('+'), out ahead);
@@ -637,9 +710,9 @@ internal static class GitRepositoryInspector
                 continue;
             }
 
-            if (record.StartsWith("? ", StringComparison.Ordinal))
+            if (record.StartsWith("? ".AsSpan(), StringComparison.Ordinal))
             {
-                changes.Add(new RepositoryFileStatus(record[2..], '?', '?', true));
+                changes.Add(new RepositoryFileStatus(record[2..].ToString(), '?', '?', true));
                 continue;
             }
 
@@ -649,28 +722,33 @@ internal static class GitRepositoryInspector
             var xy = GetField(record, 1);
             if (xy.Length < 2) continue;
             var path = GetFieldAfter(record, pathField);
-            changes.Add(new RepositoryFileStatus(path, xy[0], xy[1], false, type == 'u'));
-            if (type == '2' && index + 1 < records.Length) index++;
+            changes.Add(new RepositoryFileStatus(path.ToString(), xy[0], xy[1], false, type == 'u'));
+            if (type == '2')
+            {
+                // The following NUL-delimited field is the original rename/copy path.
+                var renameEnd = remaining.IndexOf('\0');
+                remaining = renameEnd >= 0 ? remaining[(renameEnd + 1)..] : ReadOnlySpan<char>.Empty;
+            }
         }
 
         return (branch, upstream, ahead, behind, changes, hasHead);
     }
 
-    private static string GetField(string record, int fieldIndex)
+    private static ReadOnlySpan<char> GetField(ReadOnlySpan<char> record, int fieldIndex)
     {
         var value = GetFieldAfter(record, fieldIndex);
         var end = value.IndexOf(' ');
         return end < 0 ? value : value[..end];
     }
 
-    private static string GetFieldAfter(string record, int fieldIndex)
+    private static ReadOnlySpan<char> GetFieldAfter(ReadOnlySpan<char> record, int fieldIndex)
     {
         var start = 0;
         for (var field = 0; field < fieldIndex; field++)
         {
-            var separator = record.IndexOf(' ', start);
-            if (separator < 0) return "";
-            start = separator + 1;
+            var separator = record[start..].IndexOf(' ');
+            if (separator < 0) return ReadOnlySpan<char>.Empty;
+            start += separator + 1;
         }
 
         return record[start..];
