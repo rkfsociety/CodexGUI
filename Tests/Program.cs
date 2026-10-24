@@ -42,6 +42,7 @@ internal static class Program
             await Check("Pre-cancelled RPC never starts a process", PreCancelledAsync);
             await Check("Worker recovery rejects invalid or reused process identities", () => WorkerIdentityRecoveryAsync(root));
             await Check("Worker cleanup cannot delete outside its run directory", () => WorkerCleanupConfinementAsync(root));
+            await Check("Restored worker paths are rebuilt from the run id", () => StoredWorkerPathsAsync(root));
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -143,6 +144,53 @@ internal static class Program
         runType.GetProperty("RequestPath")!.SetValue(run, "invalid\0path");
         cleanup.Invoke(null, [run]);
         Require(File.Exists(sentinel), "Worker cleanup did not tolerate a malformed saved path");
+        return Task.CompletedTask;
+    }
+
+    private static Task StoredWorkerPathsAsync(string root)
+    {
+        const System.Reflection.BindingFlags nonPublicStatic = System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static;
+        var runType = typeof(MainWindow).GetNestedType("ActiveCliRun", System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ActiveCliRun type was not found");
+        var normalize = typeof(MainWindow).GetMethod("NormalizeStoredActiveRun", nonPublicStatic)
+            ?? throw new InvalidOperationException("Stored worker normalization method was not found");
+        var run = Activator.CreateInstance(runType)
+            ?? throw new InvalidOperationException("ActiveCliRun could not be created");
+        var runId = Guid.NewGuid().ToString("N");
+        runType.GetProperty("RunId")!.SetValue(run, runId);
+        runType.GetProperty("RequestPath")!.SetValue(run, Path.Combine(root, "outside", "request.json"));
+        runType.GetProperty("ScriptPath")!.SetValue(run, Path.Combine(root, "outside", "worker.ps1"));
+        runType.GetProperty("StartedPath")!.SetValue(run, Path.Combine(root, "outside", "started.json"));
+        runType.GetProperty("OutputPath")!.SetValue(run, Path.Combine(root, "outside", "output.jsonl"));
+        runType.GetProperty("ErrorPath")!.SetValue(run, Path.Combine(root, "outside", "error.txt"));
+        runType.GetProperty("CompletionPath")!.SetValue(run, Path.Combine(root, "outside", "completed.json"));
+
+        var normalized = normalize.Invoke(null, [run])!;
+        var runDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", runId);
+        foreach (var (property, filename) in new[]
+        {
+            ("RequestPath", "request.json"),
+            ("ScriptPath", "CodexCliWorker.ps1"),
+            ("StartedPath", "started.json"),
+            ("OutputPath", "stdout.jsonl"),
+            ("ErrorPath", "stderr.txt"),
+            ("CompletionPath", "completed.json")
+        })
+        {
+            var actualPath = (string?)runType.GetProperty(property)!.GetValue(normalized);
+            Require(string.Equals(actualPath, Path.Combine(runDirectory, filename), StringComparison.OrdinalIgnoreCase),
+                $"Stored {property} was not rebuilt under the worker run directory");
+        }
+
+        runType.GetProperty("RunId")!.SetValue(run, "..");
+        try
+        {
+            normalize.Invoke(null, [run]);
+            throw new InvalidOperationException("Invalid stored worker run id was accepted");
+        }
+        catch (System.Reflection.TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
         return Task.CompletedTask;
     }
 

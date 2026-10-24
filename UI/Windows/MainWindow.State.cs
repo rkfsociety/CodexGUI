@@ -19,6 +19,23 @@ public partial class MainWindow
             throw new InvalidDataException("Файл состояния содержит повреждённые коллекции.");
     }
 
+    private static ActiveCliRun? NormalizeStoredActiveRun(ActiveCliRun? run)
+    {
+        if (run is null) return null;
+        if (!Guid.TryParseExact(run.RunId, "N", out _))
+            throw new InvalidDataException("Активный запуск содержит некорректный идентификатор.");
+
+        var runDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "workers", run.RunId);
+        run.RequestPath = Path.Combine(runDirectory, "request.json");
+        run.ScriptPath = Path.Combine(runDirectory, "CodexCliWorker.ps1");
+        run.StartedPath = Path.Combine(runDirectory, "started.json");
+        run.OutputPath = Path.Combine(runDirectory, "stdout.jsonl");
+        run.ErrorPath = Path.Combine(runDirectory, "stderr.txt");
+        run.CompletionPath = Path.Combine(runDirectory, "completed.json");
+        return run;
+    }
+
     private void LoadState()
     {
         var statePath = GetStatePath();
@@ -63,7 +80,7 @@ public partial class MainWindow
                             ContextWindowTokens = stored.ContextWindowTokens,
                             PendingGoal = stored.PendingGoal,
                             GoalSteps = stored.GoalSteps ?? [],
-                            ActiveRun = stored.ActiveRun
+                            ActiveRun = NormalizeStoredActiveRun(stored.ActiveRun)
                         });
                     }
                     var knownThreadIds = _threads.Select(thread => thread.Id).ToHashSet(StringComparer.Ordinal);
