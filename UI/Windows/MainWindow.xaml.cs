@@ -5646,11 +5646,11 @@ public partial class MainWindow : Window
 
     private static string EffortDisplayName(string effort) => effort switch
     {
-        "low" => "Низкие",
-        "medium" => "Средние",
-        "high" => "Высокие",
-        "xhigh" => "Очень высокие",
-        "max" => "Максимальные",
+        "low" => "Лёгкое",
+        "medium" => "Среднее",
+        "high" => "Высокое",
+        "xhigh" => "Очень высокое",
+        "max" => "Максимальное",
         "ultra" => "Ультра",
         _ => effort
     };
