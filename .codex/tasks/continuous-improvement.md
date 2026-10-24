@@ -89,5 +89,7 @@
 - Причина: `Run-CodexGUI.cmd` собирал framework-dependent `Build/bin/Release/net10.0-windows/CodexGUI.exe` и запускал его напрямую. На машине без .NET Desktop Runtime Windows показывал системное окно установки .NET до входа в код CodexGUI.
 - Исправление: launcher теперь публикует и запускает portable self-contained single-file EXE. Release workflow также проверяет именно публикуемый single-file артефакт с пустым `DOTNET_ROOT`.
 - Ограничение проверки: не запускать приложение или EXE локально; достаточно проверки сборки/исходников. CI изолированный runtime smoke test запускает только на GitHub runner.
-- Версия повышена с `0.0.112` до `0.0.113`. Проверки ожидают выполнения.
+- Версия повышена с `0.0.112` до `0.0.113`. `dotnet build Build/CodexGUI.csproj --no-restore` прошёл с 0 предупреждений и ошибок; локальный EXE не запускался.
+- Release workflow `40107357759` успешно запустил `Scripts/Test-PortablePackage.ps1` на реальном `artifacts/single-file/CodexGUI.exe` с пустым `DOTNET_ROOT`; опубликован `v0.0.113`. Проверка подтверждает startup без установленного .NET и без пользовательского состояния.
+- Launcher устранён в исходниках; установленная локальная копия не заменялась. Для применения к локальному запуску пользователь должен использовать обновлённый `Run-CodexGUI.cmd` или скачать self-contained release `CodexGUI.exe`.
 - Следующий цикл: проверить другие локальные entry point’ы, которые могут запускать framework-dependent EXE.
