@@ -50,6 +50,7 @@ internal static class Program
             await Check("Automation output readers skip malformed lines", () => AutomationOutputRecoveryAsync(root));
             await Check("Malformed worker controls are reported and removed", () => MalformedControlFileAsync(root));
             await Check("Worker control responses validate ids and payloads", () => WorkerControlValidationAsync(root));
+            await Check("Worker protocol line reader preserves boundaries and enforces its limit", BoundedProtocolLinesAsync);
             await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
@@ -411,6 +412,23 @@ internal static class Program
         Require(!File.Exists(controlPath), "An invalid ResponseJson control was not removed");
         Require(File.ReadAllText(outputPath).Contains("\"type\":\"control.error\"", StringComparison.Ordinal),
             "An invalid ResponseJson control was not logged");
+    }
+
+    private static async Task BoundedProtocolLinesAsync()
+    {
+        var reader = new BoundedTextLineReader(new StringReader("first\nsecond\r\nthird"), 8);
+        Require(await reader.ReadLineAsync() == "first", "The protocol reader lost the first line");
+        Require(await reader.ReadLineAsync() == "second", "The protocol reader did not normalize CRLF");
+        Require(await reader.ReadLineAsync() == "third", "The protocol reader lost an unterminated final line");
+        Require(await reader.ReadLineAsync() is null, "The protocol reader did not report end of stream");
+
+        var oversizedReader = new BoundedTextLineReader(new StringReader("123456789"), 8);
+        try
+        {
+            await oversizedReader.ReadLineAsync();
+            throw new InvalidOperationException("The protocol reader accepted a line over its limit");
+        }
+        catch (InvalidDataException) { }
     }
 
     private static Task WorkspaceSearchAsync(string root)

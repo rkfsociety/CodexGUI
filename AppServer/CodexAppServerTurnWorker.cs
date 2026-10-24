@@ -509,12 +509,63 @@ internal sealed class CodexAppServerWorkerControl
     public string? Prompt { get; set; }
 }
 
+internal sealed class BoundedTextLineReader
+{
+    private readonly TextReader _reader;
+    private readonly int _maximumLineCharacters;
+    private readonly char[] _buffer = new char[8192];
+    private int _position;
+    private int _length;
+
+    public BoundedTextLineReader(TextReader reader, int maximumLineCharacters)
+    {
+        if (maximumLineCharacters <= 0) throw new ArgumentOutOfRangeException(nameof(maximumLineCharacters));
+        _reader = reader;
+        _maximumLineCharacters = maximumLineCharacters;
+    }
+
+    public async Task<string?> ReadLineAsync()
+    {
+        var line = new StringBuilder(Math.Min(_maximumLineCharacters, _buffer.Length));
+        while (true)
+        {
+            if (_position == _length)
+            {
+                _length = await _reader.ReadAsync(_buffer.AsMemory());
+                _position = 0;
+                if (_length == 0) return line.Length == 0 ? null : CompleteLine(line);
+            }
+
+            var available = _buffer.AsSpan(_position, _length - _position);
+            var newlineIndex = available.IndexOf('\n');
+            var segmentLength = newlineIndex >= 0 ? newlineIndex : available.Length;
+            if (segmentLength > _maximumLineCharacters - line.Length)
+                throw new InvalidDataException($"Codex app-server JSONL message exceeds {_maximumLineCharacters} characters.");
+            line.Append(available[..segmentLength]);
+            _position += segmentLength;
+            if (newlineIndex >= 0)
+            {
+                _position++;
+                return CompleteLine(line);
+            }
+        }
+    }
+
+    private static string CompleteLine(StringBuilder line)
+    {
+        if (line.Length > 0 && line[^1] == '\r') line.Length--;
+        return line.ToString();
+    }
+}
+
 internal sealed class CodexAppServerConnection : IAsyncDisposable
 {
     private const int IncomingMessageQueueCapacity = 128;
+    private const int MaximumProtocolLineCharacters = 32 * 1024 * 1024;
     private readonly Process _process;
     private readonly StreamWriter _writer;
     private readonly Task _standardErrorTask;
+    private readonly BoundedTextLineReader _standardOutput;
     private readonly Channel<JsonElement> _incoming = Channel.CreateBounded<JsonElement>(new BoundedChannelOptions(IncomingMessageQueueCapacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -531,6 +582,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         _process = process;
         _writer = process.StandardInput;
         _standardErrorTask = DrainStandardErrorAsync(process.StandardError);
+        _standardOutput = new BoundedTextLineReader(process.StandardOutput, MaximumProtocolLineCharacters);
         ReaderTask = Task.Run(ReadMessagesAsync);
     }
 
@@ -644,7 +696,7 @@ internal sealed class CodexAppServerConnection : IAsyncDisposable
         Exception? readerFailure = null;
         try
         {
-            while (await _process.StandardOutput.ReadLineAsync() is { } line)
+            while (await _standardOutput.ReadLineAsync() is { } line)
             {
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
