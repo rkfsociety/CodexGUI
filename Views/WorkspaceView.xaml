@@ -858,11 +858,7 @@
             </Grid.RowDefinitions>
             <Path Grid.RowSpan="4" Panel.ZIndex="-1" Margin="-25,-5,-19,-6" Stretch="Fill" Data="M30,1 H1010 Q1024,1 1027,15 L1040,91 Q1043,105 1027,105 H14 Q0,105 2,91 L14,15 Q17,1 30,1 Z" StrokeThickness="1" IsHitTestVisible="False" x:Name="ComposerSurface">
               <Path.Fill>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                  <GradientStop Color="#E51B252D" Offset="0.0" />
-                  <GradientStop Color="#E9141E26" Offset="0.5" />
-                  <GradientStop Color="#F00B1720" Offset="1.0" />
-                </LinearGradientBrush>
+                <SolidColorBrush Color="#121B20" />
               </Path.Fill>
               <Path.Style>
                 <Style TargetType="Path">
@@ -892,7 +888,7 @@
               <TextBox x:Name="PromptInput" HorizontalAlignment="Stretch" TextAlignment="Left" MinHeight="44" MaxHeight="180" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="4,7,4,10" FontSize="13" Foreground="{StaticResource TextFaint}" Language="ru-RU" SpellCheck.IsEnabled="False" Text="Опишите задачу, задайте вопрос или попросите что-то изменить..." />
               <StackPanel x:Name="ComposerSettings" Grid.Column="1" Margin="0,1,8,0">
                 <WrapPanel Margin="0">
-                  <Button x:Name="ModelButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="12,0,10,0" Margin="0,0,13,0" Background="#0E1A22" Foreground="#D8E3E9" ToolTip="Выбрать модель" Width="160" HorizontalContentAlignment="Stretch">
+                  <Button x:Name="ModelButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="12,0,10,0" Margin="0,0,13,0" Background="#11181E" Foreground="#D8E3E9" ToolTip="Выбрать модель" Width="160" HorizontalContentAlignment="Stretch">
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="16" />
@@ -904,7 +900,7 @@
                       <Path Width="8" Height="5" Stretch="Fill" Margin="0" VerticalAlignment="Center" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M0.8,0.8 L4,4.2 L7.2,0.8" Grid.Column="2" HorizontalAlignment="Right" />
                     </Grid>
                   </Button>
-                  <Button x:Name="ModeButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="12,0,11,0" Margin="0" Background="#0E1A22" Foreground="#D8E3E9" ToolTip="Настроить доступ и подтверждения" Width="162" HorizontalContentAlignment="Stretch">
+                  <Button x:Name="ModeButton" Style="{StaticResource ComposerControlButton}" Height="36" Padding="12,0,11,0" Margin="0" Background="#10171D" Foreground="#D8E3E9" ToolTip="Настроить доступ и подтверждения" Width="162" HorizontalContentAlignment="Stretch">
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="17" />
