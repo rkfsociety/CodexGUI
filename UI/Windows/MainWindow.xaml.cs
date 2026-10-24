@@ -5388,7 +5388,7 @@ public partial class MainWindow : Window
         if (Control<Border>("UsageLimitsPanel") is { } usageLimitsPanel)
         {
             var compactLimits = view.ActualWidth >= 1400;
-            usageLimitsPanel.Visibility = view.ActualWidth >= 1400 ? Visibility.Visible : Visibility.Collapsed;
+            usageLimitsPanel.Visibility = view.ActualWidth >= 1450 ? Visibility.Visible : Visibility.Collapsed;
             usageLimitsPanel.Width = compactLimits ? 150 : 260;
             if (Control<FrameworkElement>("UsageLimitsIcon") is { } usageLimitsIcon)
                 usageLimitsIcon.Visibility = compactLimits ? Visibility.Collapsed : Visibility.Visible;

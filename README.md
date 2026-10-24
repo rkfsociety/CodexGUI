@@ -61,6 +61,13 @@ pwsh -NoProfile -File Scripts/Test-PortablePackage.ps1
 pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Reference -Width 1585 -Height 992 -VerifyLayout
 ```
 
+Для локальной диагностики координат композера используйте `-ReportLayout`: скрипт выводит JSON с границами и видимостью элементов, не открывая окно CodexGUI. Например, проверка границ адаптивной панели лимитов:
+
+```powershell
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Workspace -Width 1449 -Height 850 -ReportLayout
+pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1 -View Workspace -Width 1450 -Height 850 -ReportLayout
+```
+
 `Reference` использует только тестовые данные из `Scripts/WorkspaceReferenceFixture.ps1`. Проверка сравнивает координаты и размеры панелей с допуском 2 пикселя, а также проверяет границы элементов ввода и отсутствие обрезания текста карточек. Для пустого приветственного экрана используйте `-View Reference`, для примера переписки — `-View Workspace`; уменьшенный размер окна можно проверить с `-Width 900 -Height 620`. Состояния композера проверяются параметром `-ComposerState Draft`, `Attachments`, `Queued` или `Running`; без него используется пустой ввод. Все состояния — локальные визуальные фикстуры, запросы не отправляются.
 
 Для быстрого снимка интерфейса из текущего исходного кода, не запуская CodexGUI:

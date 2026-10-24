@@ -80,6 +80,7 @@ param(
     [string]$View = 'Workspace',
     [string]$OutputPath,
     [switch]$VerifyLayout,
+    [switch]$ReportLayout,
     [switch]$ShowUpdateProgress,
     [ValidateSet('Empty', 'Draft', 'Attachments', 'Queued', 'Running')]
     [string]$ComposerState = 'Empty',
@@ -88,7 +89,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$VerifyLayout = $VerifyLayout -or $View -in @('Welcome', 'Reference')
+$VerifyLayout = $VerifyLayout -or $ReportLayout -or $View -in @('Welcome', 'Reference')
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) {
     throw 'Run this preview with: pwsh -NoProfile -STA -File Scripts/Capture-WorkspacePreview.ps1'
 }
@@ -268,7 +269,7 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
         [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
     }
     $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
-    $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1400) { 'Visible' } else { 'Collapsed' }
+    $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
     $compactLimits = $Width -ge 1400
     $workspace.FindName('UsageLimitsPanel').Width = if ($compactLimits) { 150 } else { 260 }
     $workspace.FindName('UsageLimitsIcon').Visibility = if ($compactLimits) { 'Collapsed' } else { 'Visible' }
@@ -1052,7 +1053,7 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
             WorkspaceDock = @(148, 853, 1289, 135)
             ComposerBorder = @(366, 867, 1041, 106)
             WorkspaceChatsButton = @(196, 867, 170, 36)
-            ModelButton = @(1045, 873, 160, 36)
+            ModelButton = @(904, 873, 160, 36)
             ModeButton = @(1218, 873, 162, 36)
             AddContextButton = @(388, 929, 38, 38)
             WorkspaceComposerSettings = @(1150, 929, 42, 38)
@@ -1091,6 +1092,31 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
         if (-not $limitsBounds.Contains((Get-PreviewBounds 'UsageLimitsLabel'))) {
             throw 'Account limits text overflows its composer panel.'
         }
+    }
+    $limitsShouldBeVisible = $Width -ge 1450
+    if (($visual.FindName('UsageLimitsPanel').Visibility -eq 'Visible') -ne $limitsShouldBeVisible) {
+        throw "Account limits visibility does not match the 1450-pixel breakpoint at width $Width."
+    }
+    if ($ReportLayout) {
+        $layoutNames = @(
+            'ComposerBorder', 'PromptInput', 'ModelButton', 'EffortButton', 'ModeButton',
+            'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton',
+            'ScreenshotButton', 'WorkspaceWebButton', 'UsageLimitsPanel', 'UsageLimitsLabel',
+            'WorkspaceComposerSettings', 'SendButton'
+        )
+        $layoutReport = foreach ($name in $layoutNames) {
+            $element = $visual.FindName($name)
+            $bounds = Get-PreviewBounds $name
+            [pscustomobject]@{
+                Name = $name
+                Visibility = $element.Visibility.ToString()
+                X = [Math]::Round($bounds.X, 1)
+                Y = [Math]::Round($bounds.Y, 1)
+                Width = [Math]::Round($bounds.Width, 1)
+                Height = [Math]::Round($bounds.Height, 1)
+            }
+        }
+        Write-Output ('LAYOUT_JSON:' + (ConvertTo-Json -InputObject @($layoutReport) -Compress))
     }
     $searchBounds = Get-PreviewBounds 'WorkspaceSearchButton'
     $controlsBounds = Get-PreviewBounds 'WorkspaceHeaderControls'
