@@ -41,6 +41,7 @@ internal static class Program
             await Check("Queued writes preserve order and independent snapshots", () => QueueAsync(root));
             await Check("A failed queued write is reported and does not block retries", () => QueueRetryAsync(root));
             await Check("Project action writers serialize revision check and replacement", () => ActionsAsync(root));
+            await Check("Project actions reject oversized valid JSON during load and save", () => ActionsSizeAsync(root));
             await Check("Schedules recover the previous valid snapshot", () => SchedulesAsync(root));
             await Check("Automation run loading skips oversized valid JSON", () => AutomationRunSizeAsync(root));
             await Check("Unrecoverable schedules block saves until a successful reload", () => BrokenSchedulesAsync(root));
@@ -1494,6 +1495,36 @@ internal static class Program
         Require(new[] { first.ExitCode, second.ExitCode }.Order().SequenceEqual(new[] { 0, 3 }), "Expected one success and one revision conflict");
         var saved = CodexProjectActionStore.Load(project, out _);
         Require(saved.Count == 1 && saved[0].Name is "first" or "second", "Invalid saved action");
+    }
+
+    private static async Task ActionsSizeAsync(string root)
+    {
+        var project = Path.Combine(root, "oversized-project-actions");
+        var configurationDirectory = Path.Combine(project, ".codex");
+        Directory.CreateDirectory(configurationDirectory);
+        var path = Path.Combine(configurationDirectory, "codexgui-actions.json");
+
+        // The document is valid JSON, so the size limit must be checked before deserialization.
+        File.WriteAllText(path, "[]" + new string(' ', 8 * 1024 * 1024));
+        var oversizedLength = new FileInfo(path).Length;
+        await ThrowsAsync<InvalidDataException>(() =>
+        {
+            _ = CodexProjectActionStore.Load(project, out _);
+            return Task.CompletedTask;
+        });
+        await ThrowsAsync<InvalidDataException>(() =>
+        {
+            CodexProjectActionStore.Save(project, new[] { Action("new") }, null);
+            return Task.CompletedTask;
+        });
+        Require(new FileInfo(path).Length == oversizedLength, "An oversized action file was overwritten");
+
+        File.WriteAllText(path, "[]");
+        var restored = CodexProjectActionStore.Load(project, out var revision);
+        Require(restored.Count == 0 && revision is not null, "A normal action file was rejected");
+        CodexProjectActionStore.Save(project, new[] { Action("restored") }, revision);
+        Require(CodexProjectActionStore.Load(project, out _).Single().Name == "restored",
+            "Saving did not recover after an oversized action file");
     }
 
     private static CodexActionDefinition Action(string name) => new() { Name = name, Prompt = "Prompt " + name };

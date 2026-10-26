@@ -11,6 +11,7 @@ namespace CodexGUI;
 
 internal static class CodexProjectActionStore
 {
+    private const int MaximumConfigurationBytes = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -25,7 +26,7 @@ internal static class CodexProjectActionStore
         WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
         if (!File.Exists(configurationPath)) return [];
 
-        var contents = File.ReadAllText(configurationPath);
+        var contents = ReadConfiguration(configurationPath);
         revision = GetRevision(contents);
         var storedActions = JsonSerializer.Deserialize<List<CodexActionDefinition?>>(contents, JsonOptions)
             ?? throw new InvalidDataException("Файл действий проекта пуст.");
@@ -48,7 +49,7 @@ internal static class CodexProjectActionStore
             catch (AbandonedMutexException) { acquired = true; } // Re-read the file after an interrupted writer.
             if (!acquired) throw new IOException("Файл действий проекта занят другим процессом. Повторите сохранение.");
             var currentRevision = File.Exists(configurationPath)
-                ? GetRevision(File.ReadAllText(configurationPath))
+                ? GetRevision(ReadConfiguration(configurationPath))
                 : null;
             if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
                 throw new IOException("Файл действий проекта изменился после открытия окна. Закройте и откройте окно снова, чтобы загрузить актуальные действия.");
@@ -60,6 +61,28 @@ internal static class CodexProjectActionStore
             return GetRevision(serialized);
         }
         finally { if (acquired) writeLock.ReleaseMutex(); }
+    }
+
+    private static string ReadConfiguration(string path)
+    {
+        // Project-controlled JSON must not cause unbounded allocations during load or revision checks.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            81920, FileOptions.SequentialScan);
+        if (stream.Length > MaximumConfigurationBytes)
+            throw new InvalidDataException("Файл действий проекта превышает допустимый размер 8 МиБ.");
+
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var contents = new StringBuilder((int)Math.Min(stream.Length, 4096));
+        var buffer = new char[8192];
+        int length;
+        while ((length = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            // Also enforce the bound if the file changes while it is being read.
+            if (contents.Length > MaximumConfigurationBytes - length)
+                throw new InvalidDataException("Файл действий проекта превышает допустимый размер 8 МиБ.");
+            contents.Append(buffer, 0, length);
+        }
+        return contents.ToString();
     }
 
     private static (string Root, string ConfigurationPath) GetPaths(string projectPath)
