@@ -303,7 +303,7 @@ internal sealed class CodexTerminalWindow : Window
             builder.Append(text);
         }
 
-        if (batch.TruncatedProcessId is { } truncatedProcessId)
+        foreach (var truncatedProcessId in batch.TruncatedProcessIds)
             Append(truncatedProcessId, "\r\n[часть terminal output пропущена из-за переполнения буфера]\r\n");
         foreach (var output in batch.Items) Append(output.ProcessId, output.Text);
 

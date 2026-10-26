@@ -816,16 +816,29 @@ internal static class Program
         Require(!buffer.Enqueue(new CodexTerminalOutput("shell", "5678")), "Terminal chunks did not coalesce into one pending flush");
         Require(!buffer.Enqueue(new CodexTerminalOutput("shell", "90")), "An overflowing terminal chunk scheduled a duplicate flush");
         var batch = buffer.Drain();
-        Require(batch.TruncatedProcessId == "shell", "Overflow was not associated with its terminal session");
+        Require(batch.TruncatedProcessIds.SequenceEqual(["shell"]), "Overflow was not associated with its terminal session");
         Require(string.Concat(batch.Items.Select(item => item.Text)) == "567890", "The output buffer did not preserve the newest terminal text");
         Require(buffer.Enqueue(new CodexTerminalOutput("shell", "new")), "Draining did not reset flush scheduling");
 
         var oversizedBuffer = new TerminalOutputBatchBuffer(maximumCharacters: 4, maximumChunks: 2);
         Require(oversizedBuffer.Enqueue(new CodexTerminalOutput("shell", "abcdef")), "An oversized first chunk did not schedule a flush");
         var oversizedBatch = oversizedBuffer.Drain();
-        Require(oversizedBatch.TruncatedProcessId == "shell"
+        Require(oversizedBatch.TruncatedProcessIds.SequenceEqual(["shell"])
             && string.Concat(oversizedBatch.Items.Select(item => item.Text)) == "cdef",
             "A single oversized chunk was not clipped to the configured limit");
+        var mixedBuffer = new TerminalOutputBatchBuffer(maximumCharacters: 4, maximumChunks: 2);
+        Require(mixedBuffer.Enqueue(new CodexTerminalOutput("first", "1234")),
+            "The first session did not schedule a flush");
+        Require(!mixedBuffer.Enqueue(new CodexTerminalOutput("second", "abcdef")),
+            "A second session scheduled a duplicate flush");
+        var mixedBatch = mixedBuffer.Drain();
+        Require(mixedBatch.TruncatedProcessIds.Count == 2
+            && mixedBatch.TruncatedProcessIds.Contains("first")
+            && mixedBatch.TruncatedProcessIds.Contains("second"),
+            "Overflow notifications were lost for one of the terminal sessions");
+        Require(mixedBatch.Items.Count == 1 && mixedBatch.Items[0].ProcessId == "second"
+            && mixedBatch.Items[0].Text == "cdef",
+            "Overflow did not retain the latest output for the second session");
         return Task.CompletedTask;
     }
 

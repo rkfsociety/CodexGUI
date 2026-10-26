@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace CodexGUI;
 
-internal sealed record TerminalOutputBatch(IReadOnlyList<CodexTerminalOutput> Items, string? TruncatedProcessId);
+internal sealed record TerminalOutputBatch(IReadOnlyList<CodexTerminalOutput> Items, IReadOnlyList<string> TruncatedProcessIds);
 
 internal sealed class TerminalOutputBatchBuffer
 {
@@ -14,7 +14,7 @@ internal sealed class TerminalOutputBatchBuffer
     private readonly int _maximumCharacters;
     private readonly int _maximumChunks;
     private int _pendingCharacters;
-    private string? _truncatedProcessId;
+    private readonly HashSet<string> _truncatedProcessIds = new(StringComparer.Ordinal);
     private bool _flushScheduled;
 
     internal TerminalOutputBatchBuffer(
@@ -38,7 +38,7 @@ internal sealed class TerminalOutputBatchBuffer
 
         lock (_sync)
         {
-            if (sourceTruncated) _truncatedProcessId ??= output.ProcessId;
+            if (sourceTruncated) _truncatedProcessIds.Add(output.ProcessId);
             if (output.Text.Length > 0)
             {
                 while (_pending.Count > 0 &&
@@ -46,14 +46,14 @@ internal sealed class TerminalOutputBatchBuffer
                 {
                     var dropped = _pending.Dequeue();
                     _pendingCharacters -= dropped.Text.Length;
-                    _truncatedProcessId ??= dropped.ProcessId;
+                    _truncatedProcessIds.Add(dropped.ProcessId);
                 }
 
                 _pending.Enqueue(output);
                 _pendingCharacters += output.Text.Length;
             }
 
-            if (_flushScheduled || (_pending.Count == 0 && _truncatedProcessId is null)) return false;
+            if (_flushScheduled || (_pending.Count == 0 && _truncatedProcessIds.Count == 0)) return false;
             _flushScheduled = true;
             return true;
         }
@@ -64,12 +64,12 @@ internal sealed class TerminalOutputBatchBuffer
         lock (_sync)
         {
             var items = _pending.ToArray();
-            var truncatedProcessId = _truncatedProcessId;
+            var truncatedProcessIds = new List<string>(_truncatedProcessIds);
             _pending.Clear();
             _pendingCharacters = 0;
-            _truncatedProcessId = null;
+            _truncatedProcessIds.Clear();
             _flushScheduled = false;
-            return new TerminalOutputBatch(items, truncatedProcessId);
+            return new TerminalOutputBatch(items, truncatedProcessIds);
         }
     }
 
@@ -79,7 +79,7 @@ internal sealed class TerminalOutputBatchBuffer
         {
             _pending.Clear();
             _pendingCharacters = 0;
-            _truncatedProcessId = null;
+            _truncatedProcessIds.Clear();
             _flushScheduled = false;
         }
     }
