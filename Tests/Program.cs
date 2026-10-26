@@ -937,6 +937,32 @@ internal static class Program
         Require(dependencies.Any(node => node.Label == "Example.Package") && dependencies.Any(node => node.Label == "net10.0-windows")
             && dependencies.Any(node => node.Label == "example-module"), "Map lost declared dependencies");
         Require(WorkspaceProjectMap.Read(directory, 2).Any(node => node.Label == ".cs · 1"), "File-type layer missing");
+
+        File.WriteAllText(Path.Combine(directory, "entity.csproj"),
+            "<!DOCTYPE Project [<!ENTITY injected 'UNSAFE_ENTITY'>]><Project><ItemGroup><PackageReference Include='&injected;' /></ItemGroup></Project>");
+        Require(!WorkspaceProjectMap.Read(directory, 1).Any(node => node.Label == "UNSAFE_ENTITY"),
+            "Project map expanded an XML entity from an untrusted project file");
+
+        var outsideProject = Path.Combine(root, "outside-map.csproj");
+        File.WriteAllText(outsideProject,
+            "<Project><ItemGroup><PackageReference Include='Outside.Project' /></ItemGroup></Project>");
+        var linkedProject = Path.Combine(directory, "linked.csproj");
+        var linkCreated = false;
+        try
+        {
+            File.CreateSymbolicLink(linkedProject, outsideProject);
+            linkCreated = true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // Windows without symbolic-link privileges cannot exercise this case locally.
+        }
+        if (linkCreated)
+        {
+            Require(!WorkspaceProjectMap.Read(directory, 1).Any(node => node.Label == "Outside.Project"),
+                "Project map followed a symbolic link outside the workspace");
+            File.Delete(linkedProject);
+        }
         return Task.CompletedTask;
     }
 
