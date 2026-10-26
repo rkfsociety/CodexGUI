@@ -1525,6 +1525,24 @@ internal static class Program
         CodexProjectActionStore.Save(project, new[] { Action("restored") }, revision);
         Require(CodexProjectActionStore.Load(project, out _).Single().Name == "restored",
             "Saving did not recover after an oversized action file");
+
+        // A valid collection of individually bounded actions can exceed the file budget.
+        // Reject it before replacement, keeping the last readable revision intact.
+        var beforeSave = File.ReadAllBytes(path);
+        _ = CodexProjectActionStore.Load(project, out var savedRevision);
+        var largePrompt = new string('x', 12_000);
+        var oversizedActions = Enumerable.Range(0, 700)
+            .Select(index => new CodexActionDefinition { Name = $"large-{index}", Prompt = largePrompt })
+            .ToArray();
+        await ThrowsAsync<InvalidDataException>(() =>
+        {
+            CodexProjectActionStore.Save(project, oversizedActions, savedRevision);
+            return Task.CompletedTask;
+        });
+        Require(File.ReadAllBytes(path).SequenceEqual(beforeSave),
+            "Oversized action save replaced the last readable file");
+        Require(CodexProjectActionStore.Load(project, out var afterRevision).Single().Name == "restored"
+            && afterRevision == savedRevision, "Oversized action save changed the revision");
     }
 
     private static CodexActionDefinition Action(string name) => new() { Name = name, Prompt = "Prompt " + name };

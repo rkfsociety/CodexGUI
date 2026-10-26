@@ -55,6 +55,9 @@ internal static class CodexProjectActionStore
                 throw new IOException("Файл действий проекта изменился после открытия окна. Закройте и откройте окно снова, чтобы загрузить актуальные действия.");
 
             var serialized = JsonSerializer.Serialize(actions, JsonOptions);
+            // Never persist a file that the bounded loader would refuse to read back.
+            if (Encoding.UTF8.GetByteCount(serialized) > MaximumConfigurationBytes)
+                throw new InvalidDataException("Файл действий проекта превышает допустимый размер 8 МиБ.");
             Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
             WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
             AtomicJsonFile.Write(configurationPath, actions, JsonOptions);
