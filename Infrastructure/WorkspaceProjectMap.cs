@@ -73,6 +73,11 @@ internal static class WorkspaceProjectMap
             try
             {
                 using var document = JsonDocument.Parse(File.ReadAllText(package));
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    nodes.Add(new WorkspaceMapNode("Ошибка JSON", package));
+                    continue;
+                }
                 foreach (var key in new[] { "dependencies", "devDependencies" })
                     if (document.RootElement.TryGetProperty(key, out var dependencies) && dependencies.ValueKind == JsonValueKind.Object)
                         foreach (var dependency in dependencies.EnumerateObject()) nodes.Add(new WorkspaceMapNode(dependency.Name, package));

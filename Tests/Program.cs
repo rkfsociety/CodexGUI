@@ -978,6 +978,17 @@ internal static class Program
                 "Project map followed a symbolic link outside the workspace");
             File.Delete(linkedProject);
         }
+
+        // A syntactically valid package.json may still have a non-object root.
+        // It must not crash the project map or hide valid .NET dependencies.
+        foreach (var invalidRoot in new[] { "[]", "null", "\"package\"" })
+        {
+            File.WriteAllText(Path.Combine(directory, "package.json"), invalidRoot);
+            var invalidDependencies = WorkspaceProjectMap.Read(directory, 1);
+            Require(invalidDependencies.Any(node => node.Label == "Ошибка JSON")
+                && invalidDependencies.Any(node => node.Label == "Example.Package"),
+                "Non-object package manifest crashed the map or hid valid dependencies");
+        }
         return Task.CompletedTask;
     }
 
