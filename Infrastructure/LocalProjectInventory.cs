@@ -26,7 +26,7 @@ internal static class LocalProjectInventory
 
         var files = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var root = Path.GetFullPath(workingDirectory);
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
         try
         {
             if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0) return "";
@@ -35,6 +35,16 @@ internal static class LocalProjectInventory
             {
                 if (!seen.Add(relativePath)) return;
                 var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                // Checking only the final file misses linked parent folders such as .codex.
+                // Do not follow a directory link when collecting project instruction names.
+                for (var parent = Path.GetDirectoryName(fullPath);
+                     parent is not null && !string.Equals(parent, root, StringComparison.OrdinalIgnoreCase);
+                     parent = Path.GetDirectoryName(parent))
+                {
+                    if (!Directory.Exists(parent) || (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                        return;
+                }
+
                 if (File.Exists(fullPath) && (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) == 0)
                     files.Add(relativePath);
             }

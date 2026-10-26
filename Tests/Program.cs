@@ -1203,11 +1203,15 @@ internal static class Program
         Directory.CreateDirectory(Path.Combine(project, "Build"));
         Directory.CreateDirectory(Path.Combine(project, "Tests"));
         File.WriteAllText(Path.Combine(project, "AGENTS.md"), "never expose this secret marker");
+        var instructionsDirectory = Path.Combine(project, ".codex");
+        Directory.CreateDirectory(instructionsDirectory);
+        File.WriteAllText(Path.Combine(instructionsDirectory, "rules.md"), "local instructions");
         File.WriteAllText(Path.Combine(project, "Build", "App.csproj"), "<Project />");
         File.WriteAllText(Path.Combine(project, "Tests", "App.Tests.csproj"), "<Project />");
         File.WriteAllText(Path.Combine(project, ".env"), "SECRET=never");
         var hints = LocalProjectInventory.FormatAgentHints(project);
         Require(hints.Contains("AGENTS.md", StringComparison.Ordinal)
+            && hints.Contains(".codex/rules.md", StringComparison.Ordinal)
             && hints.Contains("Build/App.csproj", StringComparison.Ordinal)
             && hints.Contains("Tests/App.Tests.csproj", StringComparison.Ordinal),
             "Project instructions or .NET entry points were omitted");
@@ -1221,6 +1225,23 @@ internal static class Program
             "Project inventory size limit was not enforced");
         Require(LocalProjectInventory.FormatAgentHints(Path.Combine(root, "missing")) == "",
             "Nonexistent projects should not produce hints");
+
+        // A repository may contain a directory link to instructions outside its root.
+        var outside = Path.Combine(root, "inventory-outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "rules.md"), "external instructions");
+        Directory.Delete(instructionsDirectory, recursive: true);
+        try
+        {
+            Directory.CreateSymbolicLink(instructionsDirectory, outside);
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            // Creating symlinks requires a privilege on some Windows machines.
+            return Task.CompletedTask;
+        }
+        Require(!LocalProjectInventory.FormatAgentHints(project).Contains(".codex/rules.md", StringComparison.Ordinal),
+            "Project inventory followed a linked instructions directory");
         return Task.CompletedTask;
     }
 
