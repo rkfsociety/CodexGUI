@@ -8,6 +8,7 @@ namespace CodexGUI;
 internal static class WorktreeSetupConfiguration
 {
     private const string ConfigurationRelativePath = ".codex/codexgui-worktree.json";
+    private const int MaximumConfigurationBytes = 64 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public static bool Exists(string repositoryRoot)
@@ -20,7 +21,17 @@ internal static class WorktreeSetupConfiguration
         EnsureNoReparsePoints(root, path);
         if (!File.Exists(path)) return null;
 
-        var configuration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(path))
+        // Repository-controlled configuration must not cause unbounded memory allocation.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            4096, FileOptions.SequentialScan);
+        if (stream.Length > MaximumConfigurationBytes)
+            throw new InvalidDataException("Файл настройки worktree превышает допустимый размер 64 КиБ.");
+        using var reader = new StreamReader(stream);
+        var buffer = new char[MaximumConfigurationBytes + 1];
+        var length = reader.ReadBlock(buffer, 0, buffer.Length);
+        if (length > MaximumConfigurationBytes)
+            throw new InvalidDataException("Файл настройки worktree превышает допустимый размер 64 КиБ.");
+        var configuration = JsonSerializer.Deserialize<Configuration>(new string(buffer, 0, length))
             ?? throw new InvalidDataException("Файл настройки worktree пуст.");
         if (string.IsNullOrWhiteSpace(configuration.SetupScript))
             throw new InvalidDataException("В настройке worktree не указан setupScript.");

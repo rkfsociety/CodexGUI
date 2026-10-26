@@ -84,6 +84,7 @@ internal static class Program
             await Check("Git context records a validated HEAD baseline", GitHeadBaselineAsync);
             await Check("Agent Git context detects potentially sensitive files", GitSecretsAsync);
             await Check("Staged secret preflight preserves NUL-delimited filenames", StagedSecretsAsync);
+            await Check("Worktree setup configuration rejects oversized files", () => WorktreeConfigSizeAsync(root));
             await Check("Local agent discovers project verification entry points without reading files", () => ProjectInventoryAsync(root));
             await Check("Agent Git context escapes terminal and Unicode formatting characters", GitContextEscapingAsync);
             await Check("Git status parsing handles large repositories and renamed paths", GitStatusScaleAsync);
@@ -1170,6 +1171,29 @@ internal static class Program
             "NUL-delimited sensitive file names were corrupted");
         Require(GitRepositoryInspector.IsPotentialSecretFile(".git-credentials"),
             "Git credentials were not recognized");
+        return Task.CompletedTask;
+    }
+
+    private static Task WorktreeConfigSizeAsync(string root)
+    {
+        var repository = Path.Combine(root, "worktree-config-size");
+        var folder = Path.Combine(repository, ".codex");
+        Directory.CreateDirectory(folder);
+        var configPath = Path.Combine(folder, "codexgui-worktree.json");
+
+        // Preserve support for ordinary UTF-8 files with a byte-order mark.
+        File.WriteAllText(configPath, "{\"setupScript\":\"Scripts/setup.ps1\"}", new UTF8Encoding(true));
+        Require(WorktreeSetupConfiguration.ReadScriptPath(repository) == Path.Combine("Scripts", "setup.ps1"),
+            "Valid worktree setup configuration was not read");
+
+        // An untrusted repository may contain an oversized setup configuration.
+        File.WriteAllText(configPath, "{\"setupScript\":\"" + new string('a', 65_536) + "\"}");
+        try
+        {
+            _ = WorktreeSetupConfiguration.ReadScriptPath(repository);
+            throw new InvalidOperationException("Oversized worktree setup configuration was accepted");
+        }
+        catch (InvalidDataException) { }
         return Task.CompletedTask;
     }
 
