@@ -64,6 +64,7 @@ internal sealed class CodexAutomationRun
 internal static class CodexAutomationStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private const int MaximumRunFileBytes = 1024 * 1024;
     private static bool _definitionsSaveBlocked;
     public static string Root => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "automations");
@@ -165,15 +166,32 @@ internal static class CodexAutomationStore
         AtomicJsonFile.Write(definitionsPath, definitions, JsonOptions, backupPath: definitionsPath + ".bak");
     }
 
-    public static List<CodexAutomationRun> LoadRuns()
+    public static List<CodexAutomationRun> LoadRuns() => LoadRuns(RunsDirectory);
+
+    internal static List<CodexAutomationRun> LoadRuns(string runsDirectory)
     {
-        if (!Directory.Exists(RunsDirectory)) return [];
+        if (!Directory.Exists(runsDirectory)) return [];
         var runs = new List<CodexAutomationRun>();
-        foreach (var path in Directory.EnumerateFiles(RunsDirectory, "*.json"))
+        foreach (var path in Directory.EnumerateFiles(runsDirectory, "*.json"))
         {
             try
             {
-                if (JsonSerializer.Deserialize<CodexAutomationRun>(File.ReadAllText(path)) is { } run
+                // Persisted run files may be corrupt or unexpectedly large; never read one without a bound.
+                using var stream = File.OpenRead(path);
+                if (stream.Length > MaximumRunFileBytes)
+                {
+                    System.Diagnostics.Trace.TraceWarning("Пропущен слишком большой результат автоматизации: {0}", path);
+                    continue;
+                }
+                // Read one extra byte to detect growth while the file is being inspected.
+                var contents = new byte[checked((int)stream.Length + 1)];
+                var bytesRead = stream.ReadAtLeast(contents, contents.Length, throwOnEndOfStream: false);
+                if (bytesRead > MaximumRunFileBytes)
+                {
+                    System.Diagnostics.Trace.TraceWarning("Пропущен слишком большой результат автоматизации: {0}", path);
+                    continue;
+                }
+                if (JsonSerializer.Deserialize<CodexAutomationRun>(contents.AsSpan(0, bytesRead)) is { } run
                     && Guid.TryParseExact(run.Id, "N", out _)
                     && string.Equals(Path.GetFileNameWithoutExtension(path), run.Id, StringComparison.OrdinalIgnoreCase))
                     runs.Add(run);

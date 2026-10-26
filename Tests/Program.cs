@@ -42,6 +42,7 @@ internal static class Program
             await Check("A failed queued write is reported and does not block retries", () => QueueRetryAsync(root));
             await Check("Project action writers serialize revision check and replacement", () => ActionsAsync(root));
             await Check("Schedules recover the previous valid snapshot", () => SchedulesAsync(root));
+            await Check("Automation run loading skips oversized valid JSON", () => AutomationRunSizeAsync(root));
             await Check("Unrecoverable schedules block saves until a successful reload", () => BrokenSchedulesAsync(root));
             await Check("Interval catch-up retains its original cadence", IntervalAsync);
             await Check("Monthly schedules skip nonexistent dates", MonthlyAsync);
@@ -1491,6 +1492,25 @@ internal static class Program
         File.WriteAllText(args[4], "ready");
         try { CodexProjectActionStore.Save(args[1], new[] { Action(args[3]) }, args[2]); return 0; }
         catch (IOException error) when (error.Message.Contains("изменился после открытия", StringComparison.Ordinal)) { return 3; }
+    }
+
+    private static Task AutomationRunSizeAsync(string root)
+    {
+        var directory = Path.Combine(root, "run-size-check");
+        Directory.CreateDirectory(directory);
+        var valid = new CodexAutomationRun { Id = Guid.NewGuid().ToString("N"), Summary = "valid run" };
+        File.WriteAllText(Path.Combine(directory, valid.Id + ".json"), JsonSerializer.Serialize(valid));
+
+        var oversized = new CodexAutomationRun
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Summary = new string('x', 1024 * 1024)
+        };
+        File.WriteAllText(Path.Combine(directory, oversized.Id + ".json"), JsonSerializer.Serialize(oversized));
+        var loaded = CodexAutomationStore.LoadRuns(directory);
+        Require(loaded.Count == 1 && loaded[0].Id == valid.Id && loaded[0].Summary == "valid run",
+            "Oversized but valid JSON was accepted or prevented recovery of the valid run");
+        return Task.CompletedTask;
     }
 
     private static Task SchedulesAsync(string root)
