@@ -83,6 +83,23 @@ finally {
         throw 'Refusing cleanup outside the dedicated package test directory.'
     }
     if (Test-Path -LiteralPath $resolvedTestDirectory) {
-        Remove-Item -LiteralPath $resolvedTestDirectory -Recurse -Force
+        # Windows may briefly retain an EXE handle after the managed process exits.
+        # This is an isolated, disposable CI directory: do not fail a successful
+        # runtime probe solely because antivirus or the OS delays file deletion.
+        $cleanupError = $null
+        for ($attempt = 1; $attempt -le 20; $attempt++) {
+            try {
+                Remove-Item -LiteralPath $resolvedTestDirectory -Recurse -Force -ErrorAction Stop
+                $cleanupError = $null
+                break
+            }
+            catch {
+                $cleanupError = $_
+                if ($attempt -lt 20) { Start-Sleep -Milliseconds 250 }
+            }
+        }
+        if ($null -ne $cleanupError) {
+            Write-Warning "Could not remove isolated package check directory: $($cleanupError.Exception.Message)"
+        }
     }
 }
