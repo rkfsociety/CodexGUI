@@ -206,12 +206,20 @@ internal static class CodexAutomationStore
         return runs.OrderByDescending(run => run.StartedAtUtc).ToList();
     }
 
-    public static void SaveRun(CodexAutomationRun run)
+    public static void SaveRun(CodexAutomationRun run) => SaveRun(run, RunsDirectory);
+
+    internal static void SaveRun(CodexAutomationRun run, string runsDirectory)
     {
-        Directory.CreateDirectory(RunsDirectory);
         if (!Guid.TryParseExact(run.Id, "N", out _))
             throw new InvalidDataException("Недопустимый идентификатор запуска автоматизации.");
-        AtomicJsonFile.Write(Path.Combine(RunsDirectory, run.Id + ".json"), run, JsonOptions);
+
+        // A saved result must remain readable by the bounded LoadRuns reader.
+        var serialized = JsonSerializer.Serialize(run, JsonOptions);
+        if (System.Text.Encoding.UTF8.GetByteCount(serialized) > MaximumRunFileBytes)
+            throw new InvalidDataException("Результат автоматизации превышает допустимый размер 1 МиБ.");
+
+        Directory.CreateDirectory(runsDirectory);
+        AtomicJsonFile.Write(Path.Combine(runsDirectory, run.Id + ".json"), run, JsonOptions);
     }
 
     public static void MarkRunReviewed(CodexAutomationRun run)

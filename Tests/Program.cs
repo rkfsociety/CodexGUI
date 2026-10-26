@@ -1554,12 +1554,28 @@ internal static class Program
         catch (IOException error) when (error.Message.Contains("изменился после открытия", StringComparison.Ordinal)) { return 3; }
     }
 
-    private static Task AutomationRunSizeAsync(string root)
+    private static async Task AutomationRunSizeAsync(string root)
     {
         var directory = Path.Combine(root, "run-size-check");
         Directory.CreateDirectory(directory);
         var valid = new CodexAutomationRun { Id = Guid.NewGuid().ToString("N"), Summary = "valid run" };
-        File.WriteAllText(Path.Combine(directory, valid.Id + ".json"), JsonSerializer.Serialize(valid));
+        var validPath = Path.Combine(directory, valid.Id + ".json");
+        CodexAutomationStore.SaveRun(valid, directory);
+        var original = File.ReadAllBytes(validPath);
+
+        // Reject results that LoadRuns would silently skip, without losing a previous snapshot.
+        var oversizedSave = new CodexAutomationRun
+        {
+            Id = valid.Id,
+            Summary = new string('x', 1024 * 1024)
+        };
+        await ThrowsAsync<InvalidDataException>(() =>
+        {
+            CodexAutomationStore.SaveRun(oversizedSave, directory);
+            return Task.CompletedTask;
+        });
+        Require(File.ReadAllBytes(validPath).SequenceEqual(original),
+            "Oversized automation result save replaced the last readable file");
 
         var oversized = new CodexAutomationRun
         {
@@ -1570,7 +1586,6 @@ internal static class Program
         var loaded = CodexAutomationStore.LoadRuns(directory);
         Require(loaded.Count == 1 && loaded[0].Id == valid.Id && loaded[0].Summary == "valid run",
             "Oversized but valid JSON was accepted or prevented recovery of the valid run");
-        return Task.CompletedTask;
     }
 
     private static Task SchedulesAsync(string root)
