@@ -71,12 +71,18 @@ internal sealed record WorkspaceSearchResult(IReadOnlyList<WorkspaceSearchHit> H
 
 internal static class WorkspaceFileSearch
 {
-    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation)
+    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
+        int maximumDirectories = 10000)
     {
+        if (maximumDirectories < 1) throw new ArgumentOutOfRangeException(nameof(maximumDirectories));
         var hits = new List<WorkspaceSearchHit>();
         var pending = new Stack<string>(); pending.Push(root);
         var scanned = 0; var skipped = 0; var directories = 0;
-        while (pending.Count > 0 && hits.Count < 200 && scanned < 5000 && directories < 10000)
+        // Count discovered entries as well as visited folders so a single huge directory
+        // cannot fill the pending stack before the traversal limit is checked.
+        var discoveredDirectories = 1;
+        var directoryLimitReached = false;
+        while (pending.Count > 0 && hits.Count < 200 && scanned < 5000 && directories < maximumDirectories)
         {
             cancellation.ThrowIfCancellationRequested();
             var directory = pending.Pop(); directories++;
@@ -85,6 +91,12 @@ internal static class WorkspaceFileSearch
                 foreach (var child in Directory.EnumerateDirectories(directory))
                 {
                     cancellation.ThrowIfCancellationRequested();
+                    if (discoveredDirectories >= maximumDirectories)
+                    {
+                        directoryLimitReached = true;
+                        break;
+                    }
+                    discoveredDirectories++;
                     if (new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) continue;
                     if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
                 }
@@ -117,6 +129,7 @@ internal static class WorkspaceFileSearch
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { skipped++; }
         }
-        return new WorkspaceSearchResult(hits, scanned, skipped, hits.Count >= 200 || scanned >= 5000 || directories >= 10000);
+        return new WorkspaceSearchResult(hits, scanned, skipped,
+            hits.Count >= 200 || scanned >= 5000 || directories >= maximumDirectories || directoryLimitReached);
     }
 }

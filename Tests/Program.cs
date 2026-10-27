@@ -32,6 +32,7 @@ internal static class Program
         {
             await Check("Workspace search finds names and text with correct line numbers", () => WorkspaceSearchAsync(root));
             await Check("Workspace search is bounded and honors cancellation", () => WorkspaceSearchLimitsAsync(root));
+            await Check("Workspace search bounds queued directories before visiting them", () => WorkspaceSearchDirectoryBudgetAsync(root));
             await Check("Workspace map reads real folders, frameworks and package dependencies", () => WorkspaceMapAsync(root));
             await Check("Workspace map buttons select their actual paths and search UI returns results", () => WorkspaceControlsAsync(root));
             await Check("Borderless maximize bounds respect monitor work areas", MaximizedWorkAreaAsync);
@@ -953,6 +954,26 @@ internal static class Program
             throw new InvalidOperationException("Cancelled search completed normally");
         }
         catch (OperationCanceledException) { }
+        return Task.CompletedTask;
+    }
+
+    private static Task WorkspaceSearchDirectoryBudgetAsync(string root)
+    {
+        var directory = Path.Combine(root, "workspace-search-directory-budget");
+        Directory.CreateDirectory(directory);
+        var rootFile = Path.Combine(directory, "root.txt");
+        File.WriteAllText(rootFile, "needle");
+        for (var index = 0; index < 12; index++)
+        {
+            var child = Path.Combine(directory, $"folder-{index:D2}");
+            Directory.CreateDirectory(child);
+            File.WriteAllText(Path.Combine(child, "content.txt"), "needle");
+        }
+
+        var result = WorkspaceFileSearch.Find(directory, "needle", CancellationToken.None, maximumDirectories: 3);
+        Require(result.Limited, "A directory fan-out must report the traversal limit");
+        Require(result.Scanned <= 3, "Directory fan-out exceeded the search budget");
+        Require(result.Hits.Any(hit => hit.Path == rootFile), "Directory budget hid matches in the root folder");
         return Task.CompletedTask;
     }
 
