@@ -32,7 +32,11 @@ internal sealed class TerminalOutputBatchBuffer
         ArgumentNullException.ThrowIfNull(output);
         if (output.Text.Length > _maximumCharacters)
         {
-            output = output with { Text = output.Text[^_maximumCharacters..] };
+            var start = output.Text.Length - _maximumCharacters;
+            // Do not turn a valid UTF-16 surrogate pair into a dangling low surrogate.
+            if (char.IsLowSurrogate(output.Text[start]) && char.IsHighSurrogate(output.Text[start - 1]))
+                start++;
+            output = output with { Text = output.Text[start..] };
             sourceTruncated = true;
         }
 

@@ -841,6 +841,21 @@ internal static class Program
         Require(mixedBatch.Items.Count == 1 && mixedBatch.Items[0].ProcessId == "second"
             && mixedBatch.Items[0].Text == "cdef",
             "Overflow did not retain the latest output for the second session");
+        var unicodeBuffer = new TerminalOutputBatchBuffer(maximumCharacters: 2, maximumChunks: 2);
+        Require(unicodeBuffer.Enqueue(new CodexTerminalOutput("unicode", "a😀b")),
+            "Unicode output did not schedule a flush");
+        var unicodeBatch = unicodeBuffer.Drain();
+        Require(unicodeBatch.Items.Count == 1 && unicodeBatch.Items[0].Text == "b"
+            && unicodeBatch.TruncatedProcessIds.SequenceEqual(["unicode"]),
+            "Clipping terminal output split a UTF-16 surrogate pair");
+
+        var emojiBuffer = new TerminalOutputBatchBuffer(maximumCharacters: 1, maximumChunks: 2);
+        Require(emojiBuffer.Enqueue(new CodexTerminalOutput("unicode", "a😀")),
+            "A clipped emoji did not schedule a truncation warning");
+        var emojiBatch = emojiBuffer.Drain();
+        Require(emojiBatch.Items.Count == 0 && emojiBatch.TruncatedProcessIds.SequenceEqual(["unicode"]),
+            "A clipped emoji left a dangling UTF-16 surrogate");
+
         return Task.CompletedTask;
     }
 
