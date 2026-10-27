@@ -18,6 +18,8 @@ internal static class AtomicJsonFile
             using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 JsonSerializer.Serialize(stream, value, options);
+                if (stream.Length > MaximumJsonBytes)
+                    throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
                 stream.Flush(flushToDisk: true);
             }
             if (backupPath is not null && File.Exists(path))
@@ -68,6 +70,8 @@ internal static class AtomicJsonFile
                 FileShare.None, 81920, FileOptions.Asynchronous))
             {
                 await JsonSerializer.SerializeAsync(stream, value, options, cancellationToken);
+                if (stream.Length > MaximumJsonBytes)
+                    throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
                 await stream.FlushAsync(cancellationToken);
                 stream.Flush(flushToDisk: true);
             }

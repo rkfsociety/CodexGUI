@@ -38,6 +38,7 @@ internal static class Program
             await Check("Local goal steps round-trip without breaking legacy thread state", WorkspaceGoalStateAsync);
             await Check("JSON recovery preserves corrupt primary and repairs it", () => RecoveryAsync(root));
             await Check("Unrecoverable JSON does not overwrite either snapshot", () => BrokenRecoveryAsync(root));
+            await Check("Oversized JSON writes preserve primary and backup snapshots", () => OversizedJsonWritesAsync(root));
             await Check("Queued writes preserve order and independent snapshots", () => QueueAsync(root));
             await Check("A failed queued write is reported and does not block retries", () => QueueRetryAsync(root));
             await Check("Project action writers serialize revision check and replacement", () => ActionsAsync(root));
@@ -1518,6 +1519,47 @@ internal static class Program
         try { await action(); }
         catch (T) { return; }
         throw new InvalidOperationException("Expected " + typeof(T).Name);
+    }
+
+    // Produce a JSON document over 128 MiB without allocating a huge managed string.
+    private sealed class OversizedJsonConverter : System.Text.Json.Serialization.JsonConverter<object>
+    {
+        public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => throw new NotSupportedException();
+
+        public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            var chunk = new string('x', 8192);
+            for (var i = 0; i < 16_384; i++) writer.WriteStringValue(chunk);
+            writer.WriteEndArray();
+        }
+    }
+
+    private static async Task OversizedJsonWritesAsync(string root)
+    {
+        var path = Path.Combine(root, "oversized-json.json");
+        AtomicJsonFile.Write(path, new[] { "backup" });
+        AtomicJsonFile.Write(path, new[] { "primary" }, backupPath: path + ".bak");
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new OversizedJsonConverter());
+
+        void AssertSnapshotsIntact()
+        {
+            Require(File.ReadAllText(path) == """["primary"]""", "Oversized write replaced the readable primary");
+            Require(File.ReadAllText(path + ".bak") == """["backup"]""", "Oversized write changed the valid backup");
+            Require(!Directory.EnumerateFiles(root, "oversized-json.json.*.tmp").Any(),
+                "Oversized write left a temporary file behind");
+        }
+
+        await ThrowsAsync<InvalidDataException>(() =>
+        {
+            AtomicJsonFile.Write(path, new object(), options, backupPath: path + ".bak");
+            return Task.CompletedTask;
+        });
+        AssertSnapshotsIntact();
+        await ThrowsAsync<InvalidDataException>(() => AtomicJsonFile.WriteAsync(path, new object(), options));
+        AssertSnapshotsIntact();
     }
 
     private static Task RecoveryAsync(string root)
