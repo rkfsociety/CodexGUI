@@ -979,6 +979,13 @@ internal static class Program
 
     private static Task WorkspaceMapAsync(string root)
     {
+        // A removed or inaccessible project folder should produce an empty map,
+        // not an exception that prevents the workspace panel from rendering.
+        var missingDirectory = Path.Combine(root, "workspace-map-missing");
+        foreach (var mode in new[] { 0, 1, 2 })
+            Require(WorkspaceProjectMap.Read(missingDirectory, mode).Count == 0,
+                "A missing project folder crashed the workspace map");
+
         var directory = Path.Combine(root, "workspace-map");
         Directory.CreateDirectory(Path.Combine(directory, "src"));
         Directory.CreateDirectory(Path.Combine(directory, "node_modules"));

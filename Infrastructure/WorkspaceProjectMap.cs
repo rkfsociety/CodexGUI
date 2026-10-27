@@ -19,19 +19,44 @@ internal static class WorkspaceProjectMap
         ".git", "bin", "obj", "node_modules", ".vs"
     };
 
+    private static string[] EnumerateDirectoriesSafely(string root)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(root)
+                .Where(path =>
+                {
+                    if (ExcludedDirectories.Contains(System.IO.Path.GetFileName(path))) return false;
+                    try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
+                })
+                .Take(MaximumTopLevelDirectories)
+                .OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    private static string[] EnumerateFilesSafely(string directory, string pattern, int limit)
+    {
+        try { return Directory.EnumerateFiles(directory, pattern).Take(limit).ToArray(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return []; }
+    }
+
     internal static IReadOnlyList<WorkspaceMapNode> Read(string root, int mode)
     {
-        var directories = Directory.EnumerateDirectories(root)
-            .Where(path => !ExcludedDirectories.Contains(System.IO.Path.GetFileName(path))
-                && (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
-            .Take(MaximumTopLevelDirectories)
-            .OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase).ToArray();
+        // A workspace can be moved or a child folder can disappear during a refresh.
+        // Keep the remaining map layers usable instead of failing the entire render.
+        var directories = EnumerateDirectoriesSafely(root);
         if (mode == 0) return directories.Take(6).Select(path => new WorkspaceMapNode(System.IO.Path.GetFileName(path), path)).ToArray();
         var candidates = new[] { root }.Concat(directories).ToArray();
         if (mode == 2)
         {
             // File links can point outside the selected workspace. Never expose them as map targets.
-            var files = candidates.SelectMany(directory => Directory.EnumerateFiles(directory).Take(500))
+            var files = candidates.SelectMany(directory => EnumerateFilesSafely(directory, "*", 500))
                 .Where(path =>
                 {
                     try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
@@ -48,7 +73,7 @@ internal static class WorkspaceProjectMap
         var nodes = new List<WorkspaceMapNode>();
         foreach (var directory in candidates)
         {
-            foreach (var manifest in Directory.EnumerateFiles(directory, "*.csproj").Take(12))
+            foreach (var manifest in EnumerateFilesSafely(directory, "*.csproj", 12))
             {
                 try
                 {
