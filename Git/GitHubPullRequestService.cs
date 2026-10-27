@@ -103,15 +103,31 @@ internal static class GitHubPullRequestService
 
         var pullRequestUrl = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
-            .LastOrDefault(IsPullRequestUrl);
+            .LastOrDefault(line => IsPullRequestUrl(line, repositorySlug));
         return pullRequestUrl ?? throw new InvalidDataException("GitHub CLI сообщил об успехе, но не вернул ссылку на Pull Request.");
     }
 
-    private static bool IsPullRequestUrl(string value)
-        => Uri.TryCreate(value, UriKind.Absolute, out var uri)
-            && uri.Scheme == Uri.UriSchemeHttps
-            && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-            && uri.AbsolutePath.Contains("/pull/", StringComparison.Ordinal);
+    // gh normally prints a canonical PR URL. Do not mistake an unrelated or malformed
+    // GitHub link in CLI output for a successfully created pull request.
+    internal static bool IsPullRequestUrl(string value, string repositorySlug)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || !uri.IsDefaultPort
+            || uri.UserInfo.Length != 0
+            || uri.Query.Length != 0
+            || uri.Fragment.Length != 0)
+            return false;
+
+        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        return segments.Length == 4
+            && string.Equals(segments[0] + "/" + segments[1], repositorySlug, StringComparison.OrdinalIgnoreCase)
+            && segments[2] == "pull"
+            && int.TryParse(segments[3], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var number)
+            && number > 0;
+    }
 
     private static async Task TerminateProcessAsync(Process process)
     {

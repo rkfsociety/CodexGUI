@@ -80,7 +80,7 @@ internal static class Program
             await Check("Terminal output batches preserve recent text within a bound", TerminalOutputBatchBufferAsync);
             await Check("App-server disposal unblocks a full incoming queue", BoundedQueueShutdownAsync);
             await Check("App-server disposal kills an unresponsive child", AppServerShutdownTimeoutAsync);
-            await Check("GitHub PR recognizes SSH remotes and rejects malformed slugs", GitHubRemotesAsync);
+            await Check("GitHub PR validates remotes and returned pull request URLs", GitHubRemotesAsync);
             await Check("Agent Git context is bounded and escapes multiline filenames", GitContextAsync);
             await Check("Agent Git preflight warns about conflicts and unsafe branch state", GitPreflightAsync);
             await Check("Git context records a validated HEAD baseline", GitHeadBaselineAsync);
@@ -1414,6 +1414,26 @@ internal static class Program
         {
             Require(!GitHubPullRequestService.TryGetRepositorySlug(remote, out _),
                 "Malformed GitHub origin was accepted: " + remote);
+        }
+
+        Require(GitHubPullRequestService.IsPullRequestUrl(
+            "https://github.com/rkfsociety/CodexGUI/pull/123", "rkfsociety/CodexGUI"),
+            "A valid GitHub PR URL was rejected");
+        foreach (var url in new[]
+        {
+            "https://github.com/rkfsociety/other/pull/123",
+            "https://github.com/rkfsociety/CodexGUI/pull/not-a-number",
+            "https://github.com/rkfsociety/CodexGUI/pull/0",
+            "https://github.com/rkfsociety/CodexGUI/issues/123",
+            "https://github.com/rkfsociety/CodexGUI/pull/123/commits",
+            "https://github.com.evil.example/rkfsociety/CodexGUI/pull/123",
+            "https://github.com:444/rkfsociety/CodexGUI/pull/123",
+            "https://user@github.com/rkfsociety/CodexGUI/pull/123",
+            "https://github.com/rkfsociety/CodexGUI/pull/123?redirect=1"
+        })
+        {
+            Require(!GitHubPullRequestService.IsPullRequestUrl(url, "rkfsociety/CodexGUI"),
+                "Unrelated or malformed PR URL was accepted: " + url);
         }
 
         return Task.CompletedTask;
