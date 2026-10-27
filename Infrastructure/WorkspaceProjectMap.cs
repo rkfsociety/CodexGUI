@@ -50,11 +50,11 @@ internal static class WorkspaceProjectMap
         {
             foreach (var manifest in Directory.EnumerateFiles(directory, "*.csproj").Take(12))
             {
-                var manifestInfo = new FileInfo(manifest);
-                if ((manifestInfo.Attributes & FileAttributes.ReparsePoint) != 0
-                    || manifestInfo.Length > 1024 * 1024) continue;
                 try
                 {
+                    var manifestInfo = new FileInfo(manifest);
+                    if ((manifestInfo.Attributes & FileAttributes.ReparsePoint) != 0
+                        || manifestInfo.Length > 1024 * 1024) continue;
                     // Project files are untrusted input: do not resolve DTDs or external entities.
                     using var reader = XmlReader.Create(manifest, new XmlReaderSettings
                     {
@@ -74,14 +74,17 @@ internal static class WorkspaceProjectMap
                         if (!string.IsNullOrWhiteSpace(framework.Value)) nodes.Add(new WorkspaceMapNode(framework.Value, manifest));
                 }
                 catch (System.Xml.XmlException) { nodes.Add(new WorkspaceMapNode("Ошибка XML", manifest)); }
+                // A manifest can be removed, locked or become inaccessible during refresh.
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
             var package = System.IO.Path.Combine(directory, "package.json");
             if (!File.Exists(package)) continue;
-            var packageInfo = new FileInfo(package);
-            if ((packageInfo.Attributes & FileAttributes.ReparsePoint) != 0
-                || packageInfo.Length > 1024 * 1024) continue;
             try
             {
+                var packageInfo = new FileInfo(package);
+                if ((packageInfo.Attributes & FileAttributes.ReparsePoint) != 0
+                    || packageInfo.Length > 1024 * 1024) continue;
                 using var document = JsonDocument.Parse(File.ReadAllText(package));
                 if (document.RootElement.ValueKind != JsonValueKind.Object)
                 {
@@ -93,6 +96,8 @@ internal static class WorkspaceProjectMap
                         foreach (var dependency in dependencies.EnumerateObject()) nodes.Add(new WorkspaceMapNode(dependency.Name, package));
             }
             catch (JsonException) { nodes.Add(new WorkspaceMapNode("Ошибка JSON", package)); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
         return nodes.DistinctBy(node => node.Label).Take(6).ToArray();
     }

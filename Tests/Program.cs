@@ -1026,6 +1026,27 @@ internal static class Program
                 && invalidDependencies.Any(node => node.Label == "Example.Package"),
                 "Non-object package manifest crashed the map or hid valid dependencies");
         }
+        // Locked manifests must not break the entire map; other dependencies stay visible.
+        var lockedProject = Path.Combine(directory, "locked.csproj");
+        File.WriteAllText(lockedProject,
+            "<Project><ItemGroup><PackageReference Include='Locked.Package' /></ItemGroup></Project>");
+        using (var locked = new FileStream(lockedProject, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var available = WorkspaceProjectMap.Read(directory, 1);
+            Require(available.Any(node => node.Label == "Example.Package")
+                && !available.Any(node => node.Label == "Locked.Package"),
+                "Locked .csproj interrupted project map or exposed unreadable dependencies");
+        }
+        File.Delete(lockedProject);
+
+        var packagePath = Path.Combine(directory, "package.json");
+        File.WriteAllText(packagePath, "{\"dependencies\":{\"example-module\":\"1.0\"}}");
+        using (var locked = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var available = WorkspaceProjectMap.Read(directory, 1);
+            Require(available.Any(node => node.Label == "Example.Package"),
+                "Locked package.json hid available .NET dependencies");
+        }
         return Task.CompletedTask;
     }
 
