@@ -24,7 +24,8 @@ internal static class CodexExtensionCatalog
 
     internal static IReadOnlyList<CodexExtension> ParsePlugins(JsonElement root)
     {
-        if (!root.TryGetProperty("installed", out var installed) || installed.ValueKind != JsonValueKind.Array
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("installed", out var installed) || installed.ValueKind != JsonValueKind.Array
             || !root.TryGetProperty("available", out var available) || available.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("Codex CLI вернул неизвестный формат каталога плагинов.");
 
@@ -46,7 +47,8 @@ internal static class CodexExtensionCatalog
 
     internal static (IReadOnlyList<CodexExtension> Skills, IReadOnlyList<string> Errors) ParseSkills(JsonElement root)
     {
-        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("Codex CLI вернул неизвестный формат каталога скиллов.");
 
         var skills = new List<CodexExtension>();
@@ -69,6 +71,8 @@ internal static class CodexExtensionCatalog
             foreach (var item in items.EnumerateArray())
             {
                 var path = Text(item, "path");
+                if (string.IsNullOrWhiteSpace(path))
+                    throw new InvalidDataException("В записи скилла Codex отсутствует путь.");
                 var plugin = Text(item, "pluginId");
                 skills.Add(new CodexExtension(path, Text(item, "name"), Text(item, "description"),
                     path, plugin.Length > 0 ? plugin : null, true, Flag(item, "enabled"), false));

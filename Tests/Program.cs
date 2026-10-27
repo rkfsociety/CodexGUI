@@ -93,6 +93,7 @@ internal static class Program
             await Check("Git porcelain v2 detects unmerged entries", GitConflictParsingAsync);
             await Check("NUL-delimited Git numstat handles renames and special filenames", GitNumstatAsync);
             await Check("Untracked text lines are counted without loading large files", () => TextLineCountingAsync(root));
+            await Check("Extension catalogs reject malformed roots and unusable skill paths", ExtensionCatalogValidationAsync);
             await Check("Codex CLI output capture is bounded and drains excess output", CliOutputBoundAsync);
             Console.WriteLine($"PASS: {_passed} checks");
             return 0;
@@ -1455,6 +1456,46 @@ internal static class Program
         {
             Require(!GitHubPullRequestService.IsPullRequestUrl(url, "rkfsociety/CodexGUI"),
                 "Unrelated or malformed PR URL was accepted: " + url);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task ExtensionCatalogValidationAsync()
+    {
+        foreach (var malformed in new[] { "[]", "null", "\"unexpected\"" })
+        {
+            using var document = JsonDocument.Parse(malformed);
+            try
+            {
+                _ = CodexExtensionCatalog.ParsePlugins(document.RootElement);
+                throw new InvalidOperationException("Malformed plugin catalog was accepted");
+            }
+            catch (InvalidDataException) { }
+
+            try
+            {
+                _ = CodexExtensionCatalog.ParseSkills(document.RootElement);
+                throw new InvalidOperationException("Malformed skill catalog was accepted");
+            }
+            catch (InvalidDataException) { }
+        }
+
+        using (var missingPath = JsonDocument.Parse("""{"data":[{"skills":[{"name":"Broken","enabled":true}]}]}"""))
+        {
+            try
+            {
+                _ = CodexExtensionCatalog.ParseSkills(missingPath.RootElement);
+                throw new InvalidOperationException("A skill without a path was accepted");
+            }
+            catch (InvalidDataException) { }
+        }
+
+        using (var valid = JsonDocument.Parse("""{"data":[{"skills":[{"path":"skills/example","name":"Example","enabled":true}]}]}"""))
+        {
+            var skills = CodexExtensionCatalog.ParseSkills(valid.RootElement).Skills;
+            Require(skills.Count == 1 && skills[0].Id == "skills/example",
+                "A valid skill entry was rejected");
         }
 
         return Task.CompletedTask;
