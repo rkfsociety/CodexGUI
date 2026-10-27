@@ -30,7 +30,17 @@ internal static class WorkspaceProjectMap
         var candidates = new[] { root }.Concat(directories).ToArray();
         if (mode == 2)
         {
-            var files = candidates.SelectMany(directory => Directory.EnumerateFiles(directory).Take(500));
+            // File links can point outside the selected workspace. Never expose them as map targets.
+            var files = candidates.SelectMany(directory => Directory.EnumerateFiles(directory).Take(500))
+                .Where(path =>
+                {
+                    try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    {
+                        // A file may disappear or become inaccessible while the map refreshes.
+                        return false;
+                    }
+                });
             return files.GroupBy(path => System.IO.Path.GetExtension(path).ToLowerInvariant())
                 .OrderByDescending(group => group.Count()).Take(6)
                 .Select(group => new WorkspaceMapNode($"{(group.Key.Length == 0 ? "без типа" : group.Key)} · {group.Count()}", group.First())).ToArray();

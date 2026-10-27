@@ -980,6 +980,27 @@ internal static class Program
             File.Delete(linkedProject);
         }
 
+        // File-type map nodes must not navigate through links to files outside the workspace.
+        var outsideFile = Path.Combine(root, "outside-map.secret");
+        File.WriteAllText(outsideFile, "external file");
+        var linkedFile = Path.Combine(directory, "linked.secret");
+        var fileLinkCreated = false;
+        try
+        {
+            File.CreateSymbolicLink(linkedFile, outsideFile);
+            fileLinkCreated = true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // Creating symlinks requires a privilege on some Windows machines.
+        }
+        if (fileLinkCreated)
+        {
+            Require(!WorkspaceProjectMap.Read(directory, 2).Any(node => node.Path == linkedFile),
+                "File-type map exposed a symbolic link outside the workspace");
+            File.Delete(linkedFile);
+        }
+
         // A syntactically valid package.json may still have a non-object root.
         // It must not crash the project map or hide valid .NET dependencies.
         foreach (var invalidRoot in new[] { "[]", "null", "\"package\"" })
