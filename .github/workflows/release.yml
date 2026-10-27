@@ -56,9 +56,11 @@ jobs:
             throw "Project version must use three numeric parts: $version"
           }
 
-          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
+          # An interrupted release upload can leave a draft without a tag or assets.
+          # Drafts must not block retrying the same version.
+          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName,isDraft
           if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
-          $releaseTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+          $releaseTags = @($releaseJson | ConvertFrom-Json | Where-Object { -not $_.isDraft } | ForEach-Object { $_.tagName })
           $latestVersion = '0.0.000'
           foreach ($tag in $releaseTags) {
             if ($tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)$') { continue }
@@ -232,18 +234,35 @@ jobs:
 
       - name: Publish GitHub Release
         if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "v${{ steps.version.outputs.version }}"
-          "artifacts/single-file/CodexGUI.exe"
-          "artifacts/CodexGUI.exe.sha256"
-          "artifacts/CodexGUI-win-x64.zip"
-          "artifacts/CodexGUI-win-x64.zip.sha256"
-          "artifacts/CodexGUI-win-x64.zip.sig"
-          --target "${{ github.sha }}"
-          --title "v${{ steps.version.outputs.version }}"
-          --notes-file "artifacts/release-notes.md"
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          $releaseJson = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect existing releases for $tag." }
+          $existing = @($releaseJson | ConvertFrom-Json | Where-Object { $_.tag_name -eq $tag })
+          if ($existing.Count -gt 0) {
+            if ($existing.Count -ne 1 -or -not $existing[0].draft) {
+              throw "Release $tag already exists and is not a recoverable draft."
+            }
+            # A failed create/upload can leave an incomplete draft with no tag.
+            # Remove only the unpublished draft for this exact version, then retry.
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$($existing[0].id)"
+            if ($LASTEXITCODE -ne 0) { throw "Could not remove incomplete draft $tag." }
+          }
+          gh release create $tag `
+            "artifacts/single-file/CodexGUI.exe" `
+            "artifacts/CodexGUI.exe.sha256" `
+            "artifacts/CodexGUI-win-x64.zip" `
+            "artifacts/CodexGUI-win-x64.zip.sha256" `
+            "artifacts/CodexGUI-win-x64.zip.sig" `
+            --target $env:TARGET_SHA `
+            --title $tag `
+            --notes-file "artifacts/release-notes.md"
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish release $tag." }
 
       - name: Delete older releases and tags
         if: steps.version.outputs.should_release == 'true'
