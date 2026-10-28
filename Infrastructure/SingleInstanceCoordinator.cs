@@ -44,9 +44,29 @@ internal sealed class SingleInstanceCoordinator : IDisposable
 
     public void ListenForActivation(Action activatePrimary)
     {
+        ArgumentNullException.ThrowIfNull(activatePrimary);
+        var dispatcher = Application.Current?.Dispatcher
+            ?? throw new InvalidOperationException("Диспетчер приложения недоступен.");
+
+        // Re-registering must not leak a previous wait callback.
+        _activationWait?.Unregister(null);
         _activationWait = ThreadPool.RegisterWaitForSingleObject(
             _activationEvent,
-            (_, _) => Application.Current.Dispatcher.BeginInvoke(activatePrimary),
+            (_, _) =>
+            {
+                // A second launch can signal us while the primary application is closing.
+                // Posting to a stopped dispatcher must not crash a ThreadPool callback.
+                if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                    return;
+                try
+                {
+                    dispatcher.BeginInvoke(activatePrimary);
+                }
+                catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    // The dispatcher shut down between the check and the post.
+                }
+            },
             null,
             Timeout.Infinite,
             executeOnlyOnce: false);
