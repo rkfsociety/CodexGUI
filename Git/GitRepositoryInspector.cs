@@ -37,6 +37,8 @@ internal sealed record GitRepositorySnapshot(
 internal static class GitRepositoryInspector
 {
     private sealed record GitCommandResult(int ExitCode, string Output, string Error);
+    // Large repositories and custom Git helpers must not exhaust the UI process memory.
+    private const int MaximumCapturedGitCharactersPerStream = 16 * 1024 * 1024;
 
     // A compact, explicitly user-inserted snapshot for the agent's composer.
     // Escape line separators in Git-controlled names so one filename cannot forge extra lines.
@@ -691,8 +693,11 @@ internal static class GitRepositoryInspector
 
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить Git.");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
+        // Continue draining both pipes after the cap so a noisy Git process cannot deadlock.
+        var outputTask = CodexCliService.ReadBoundedOutputAsync(
+            process.StandardOutput, MaximumCapturedGitCharactersPerStream);
+        var errorTask = CodexCliService.ReadBoundedOutputAsync(
+            process.StandardError, MaximumCapturedGitCharactersPerStream);
         try
         {
             await process.WaitForExitAsync(cancellationToken).WaitAsync(timeout);
@@ -717,7 +722,11 @@ internal static class GitRepositoryInspector
         {
             throw new TimeoutException("Git завершился, но его потоки вывода остались открыты.", error);
         }
-        return new GitCommandResult(process.ExitCode, await outputTask, await errorTask);
+        var output = await outputTask;
+        var errorOutput = await errorTask;
+        if (output.ExceededLimit || errorOutput.ExceededLimit)
+            throw new InvalidDataException("Вывод Git превысил допустимый размер 16 МиБ на поток.");
+        return new GitCommandResult(process.ExitCode, output.Text, errorOutput.Text);
     }
 
     private static async Task TerminateGitProcessAsync(Process process)
