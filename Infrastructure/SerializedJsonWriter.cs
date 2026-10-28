@@ -20,7 +20,9 @@ internal sealed class SerializedJsonWriter
             {
                 // Each caller observes its own result; a failed write must not poison later retries.
                 _ = previous.Exception;
-                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                var directory = System.IO.Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory))
+                    System.IO.Directory.CreateDirectory(directory);
                 AtomicJsonFile.Write(path, snapshot, options, backupPath);
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             return _tail;

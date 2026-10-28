@@ -41,6 +41,7 @@ internal static class Program
             await Check("Unrecoverable JSON does not overwrite either snapshot", () => BrokenRecoveryAsync(root));
             await Check("Oversized JSON writes preserve primary and backup snapshots", () => OversizedJsonWritesAsync(root));
             await Check("Queued writes preserve order and independent snapshots", () => QueueAsync(root));
+            await Check("Queued writes support filenames without directory components", () => QueueRelativePathAsync(root));
             await Check("A failed queued write is reported and does not block retries", () => QueueRetryAsync(root));
             await Check("Project action writers serialize revision check and replacement", () => ActionsAsync(root));
             await Check("Project actions reject oversized valid JSON during load and save", () => ActionsSizeAsync(root));
@@ -1686,6 +1687,23 @@ internal static class Program
         Require(JsonSerializer.Deserialize<int[]>(File.ReadAllText(path))![0] == 2, "Latest snapshot was mutated or reordered");
         Require(JsonSerializer.Deserialize<int[]>(File.ReadAllText(path + ".bak"))![0] == 1, "First snapshot was mutated or reordered");
         Require(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp").Length == 0, "Temporary files leaked");
+    }
+
+    private static async Task QueueRelativePathAsync(string root)
+    {
+        var originalDirectory = Environment.CurrentDirectory;
+        try
+        {
+            Directory.SetCurrentDirectory(root);
+            var writer = new SerializedJsonWriter();
+            await writer.Enqueue("relative-state.json", JsonSerializer.SerializeToElement(new[] { 7 }));
+            Require(File.ReadAllText("relative-state.json") == "[7]",
+                "Queued JSON write rejected a relative filename without a directory");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+        }
     }
 
     private static async Task QueueRetryAsync(string root)
