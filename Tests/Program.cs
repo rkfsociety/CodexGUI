@@ -89,6 +89,7 @@ internal static class Program
             await Check("Agent Git context detects potentially sensitive files", GitSecretsAsync);
             await Check("Staged secret preflight preserves NUL-delimited filenames", StagedSecretsAsync);
             await Check("Worktree setup configuration rejects oversized files", () => WorktreeConfigSizeAsync(root));
+            await Check("Worktree setup rejects paths outside the repository and linked roots", () => WorktreePathConfinementAsync(root));
             await Check("Local agent discovers project verification entry points without reading files", () => ProjectInventoryAsync(root));
             await Check("Agent Git context escapes terminal and Unicode formatting characters", GitContextEscapingAsync);
             await Check("Git status parsing handles large repositories and renamed paths", GitStatusScaleAsync);
@@ -1307,6 +1308,41 @@ internal static class Program
             throw new InvalidOperationException("Oversized worktree setup configuration was accepted");
         }
         catch (InvalidDataException) { }
+        return Task.CompletedTask;
+    }
+
+    private static Task WorktreePathConfinementAsync(string root)
+    {
+        var repository = Path.Combine(root, "worktree-path-confinement");
+        Directory.CreateDirectory(repository);
+        var outside = Path.Combine(root, "worktree-path-outside");
+        Directory.CreateDirectory(outside);
+
+        try
+        {
+            WorktreeSetupConfiguration.EnsureNoReparsePoints(repository, outside);
+            throw new InvalidOperationException("Worktree setup accepted a path outside the repository");
+        }
+        catch (IOException) { }
+
+        // The repository root itself may be a junction or symbolic link.
+        var linkedRoot = Path.Combine(root, "worktree-linked-root");
+        try
+        {
+            Directory.CreateSymbolicLink(linkedRoot, repository);
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            WorktreeSetupConfiguration.EnsureNoReparsePoints(linkedRoot, Path.Combine(linkedRoot, "setup.ps1"));
+            throw new InvalidOperationException("Worktree setup accepted a linked repository root");
+        }
+        catch (IOException) { }
+
         return Task.CompletedTask;
     }
 

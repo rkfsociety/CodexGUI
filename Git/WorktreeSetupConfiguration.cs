@@ -90,8 +90,19 @@ internal static class WorktreeSetupConfiguration
 
     internal static void EnsureNoReparsePoints(string root, string targetPath)
     {
-        var relative = Path.GetRelativePath(root, targetPath);
-        var current = Path.GetFullPath(root);
+        var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var fullTarget = Path.GetFullPath(targetPath);
+        var relative = Path.GetRelativePath(fullRoot, fullTarget);
+        if (relative == ".." || Path.IsPathRooted(relative)
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new IOException("Путь setup-сценария выходит за пределы репозитория.");
+
+        // A junction or symlink at the repository root must not bypass the child checks.
+        if ((File.Exists(fullRoot) || Directory.Exists(fullRoot))
+            && (File.GetAttributes(fullRoot) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Путь setup-сценария содержит junction или symbolic link.");
+
+        var current = fullRoot;
         foreach (var segment in relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
