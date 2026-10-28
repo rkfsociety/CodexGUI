@@ -76,7 +76,12 @@ internal static class CodexAutomationStore
 
     internal static List<CodexAutomationDefinition> LoadDefinitions(string definitionsPath)
     {
-        if (!File.Exists(definitionsPath) && !File.Exists(definitionsPath + ".bak")) return [];
+        if (!File.Exists(definitionsPath) && !File.Exists(definitionsPath + ".bak"))
+        {
+            // Removing both unreadable snapshots is an explicit reset: allow new schedules to be saved.
+            _definitionsSaveBlocked = false;
+            return [];
+        }
         try
         {
             var definitions = AtomicJsonFile.ReadWithBackup<List<CodexAutomationDefinition>>(
@@ -177,7 +182,9 @@ internal static class CodexAutomationStore
             try
             {
                 // Persisted run files may be corrupt or unexpectedly large; never read one without a bound.
-                using var stream = File.OpenRead(path);
+                // Run results are replaced atomically; readers must not block the rename on Windows.
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.Read | FileShare.Delete, 81920, FileOptions.SequentialScan);
                 if (stream.Length > MaximumRunFileBytes)
                 {
                     System.Diagnostics.Trace.TraceWarning("Пропущен слишком большой результат автоматизации: {0}", path);
