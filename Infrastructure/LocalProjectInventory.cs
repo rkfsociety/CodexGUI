@@ -34,37 +34,51 @@ internal static class LocalProjectInventory
             void Include(string relativePath)
             {
                 if (!seen.Add(relativePath)) return;
-                var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                // Checking only the final file misses linked parent folders such as .codex.
-                // Do not follow a directory link when collecting project instruction names.
-                for (var parent = Path.GetDirectoryName(fullPath);
-                     parent is not null && !string.Equals(parent, root, StringComparison.OrdinalIgnoreCase);
-                     parent = Path.GetDirectoryName(parent))
+                try
                 {
-                    if (!Directory.Exists(parent) || (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
-                        return;
-                }
+                    var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                    // Checking only the final file misses linked parent folders such as .codex.
+                    // Do not follow a directory link when collecting project instruction names.
+                    for (var parent = Path.GetDirectoryName(fullPath);
+                         parent is not null && !string.Equals(parent, root, StringComparison.OrdinalIgnoreCase);
+                         parent = Path.GetDirectoryName(parent))
+                    {
+                        if (!Directory.Exists(parent) || (File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                            return;
+                    }
 
-                if (File.Exists(fullPath) && (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) == 0)
-                    files.Add(relativePath);
+                    if (File.Exists(fullPath) && (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) == 0)
+                        files.Add(relativePath);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    // One inaccessible marker must not hide other project instructions.
+                }
             }
 
             foreach (var marker in Markers) Include(marker);
             foreach (var subdirectory in new[] { "", "Build", "Tests", "src" })
             {
                 if (files.Count > maximumFiles) break;
-                var folder = Path.Combine(root, subdirectory);
-                if (!Directory.Exists(folder) || (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
-                    continue;
-
-                foreach (var pattern in new[] { "*.sln", "*.slnx", "*.csproj" })
+                try
                 {
-                    foreach (var path in Directory.EnumerateFiles(folder, pattern, SearchOption.TopDirectoryOnly))
+                    var folder = Path.Combine(root, subdirectory);
+                    if (!Directory.Exists(folder) || (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
+                        continue;
+
+                    foreach (var pattern in new[] { "*.sln", "*.slnx", "*.csproj" })
                     {
-                        Include(Path.GetRelativePath(root, path).Replace('\\', '/'));
+                        foreach (var path in Directory.EnumerateFiles(folder, pattern, SearchOption.TopDirectoryOnly))
+                        {
+                            Include(Path.GetRelativePath(root, path).Replace('\\', '/'));
+                            if (files.Count > maximumFiles) break;
+                        }
                         if (files.Count > maximumFiles) break;
                     }
-                    if (files.Count > maximumFiles) break;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    // Continue scanning other folders instead of discarding valid hints.
                 }
             }
         }
