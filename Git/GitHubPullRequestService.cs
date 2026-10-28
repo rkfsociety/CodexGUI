@@ -11,6 +11,7 @@ namespace CodexGUI;
 internal static class GitHubPullRequestService
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(2);
+    private const int MaximumCapturedCharactersPerStream = 1024 * 1024;
 
     public static bool TryGetRepositorySlug(string? remoteUrl, out string repositorySlug)
     {
@@ -69,8 +70,9 @@ internal static class GitHubPullRequestService
 
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start()) throw new InvalidOperationException("Не удалось запустить GitHub CLI (gh).");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
+        // Drain both pipes without retaining unbounded output from a stuck or noisy gh process.
+        var outputTask = CodexCliService.ReadBoundedOutputAsync(process.StandardOutput, MaximumCapturedCharactersPerStream);
+        var errorTask = CodexCliService.ReadBoundedOutputAsync(process.StandardError, MaximumCapturedCharactersPerStream);
         try
         {
             await process.WaitForExitAsync(cancellationToken).WaitAsync(CommandTimeout);
@@ -91,17 +93,26 @@ internal static class GitHubPullRequestService
         {
             throw new TimeoutException("GitHub CLI завершился, но не закрыл потоки вывода.", timeoutError);
         }
-        var output = await outputTask;
-        var error = await errorTask;
-        if (process.ExitCode != 0)
+        return ParseCreateOutput(await outputTask, await errorTask, process.ExitCode, repositorySlug);
+    }
+
+    internal static string ParseCreateOutput(
+        (string Text, bool ExceededLimit) output, (string Text, bool ExceededLimit) error,
+        int exitCode, string repositorySlug)
+    {
+        if (output.ExceededLimit || error.ExceededLimit)
+            throw new InvalidDataException("Вывод GitHub CLI превысил допустимый размер 1 МиБ на поток.");
+
+        if (exitCode != 0)
         {
-            var detail = string.Join(Environment.NewLine, new[] { error.Trim(), output.Trim() }.Where(value => value.Length > 0));
+            var detail = string.Join(Environment.NewLine,
+                new[] { error.Text.Trim(), output.Text.Trim() }.Where(value => value.Length > 0));
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
                 ? "GitHub CLI не смог создать Pull Request. Проверьте gh auth status."
                 : detail);
         }
 
-        var pullRequestUrl = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+        var pullRequestUrl = output.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
             .LastOrDefault(line => IsPullRequestUrl(line, repositorySlug));
         return pullRequestUrl ?? throw new InvalidDataException("GitHub CLI сообщил об успехе, но не вернул ссылку на Pull Request.");

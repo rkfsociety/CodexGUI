@@ -1487,6 +1487,24 @@ internal static class Program
                 "Unrelated or malformed PR URL was accepted: " + url);
         }
 
+        const string validPrUrl = "https://github.com/rkfsociety/CodexGUI/pull/123";
+        Require(GitHubPullRequestService.ParseCreateOutput((validPrUrl + "\n", false), ("", false),
+            0, "rkfsociety/CodexGUI") == validPrUrl, "A normal gh response was not accepted");
+
+        void RequireOversizedOutputRejected(bool oversizedStdout, bool oversizedStderr)
+        {
+            try
+            {
+                _ = GitHubPullRequestService.ParseCreateOutput(
+                    (validPrUrl, oversizedStdout), ("", oversizedStderr), 0, "rkfsociety/CodexGUI");
+                throw new InvalidOperationException("An oversized gh response was accepted");
+            }
+            catch (InvalidDataException) { }
+        }
+
+        RequireOversizedOutputRejected(oversizedStdout: true, oversizedStderr: false);
+        RequireOversizedOutputRejected(oversizedStdout: false, oversizedStderr: true);
+
         return Task.CompletedTask;
     }
 
