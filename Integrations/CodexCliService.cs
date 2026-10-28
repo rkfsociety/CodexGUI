@@ -18,11 +18,22 @@ internal static class CodexCliService
     public static string ResolveExecutable()
     {
         const string executableName = "codex.exe";
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "")
+        foreach (var entry in (Environment.GetEnvironmentVariable("PATH") ?? "")
                      .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var candidate = Path.Combine(directory.Trim('"'), executableName);
-            if (File.Exists(candidate)) return candidate;
+            try
+            {
+                var directory = entry.Trim('"').Trim();
+                // A relative or empty PATH entry could resolve codex.exe from the active project.
+                // Only search absolute directories for an executable that can run commands.
+                if (!Path.IsPathFullyQualified(directory)) continue;
+                var candidate = Path.Combine(directory, executableName);
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Ignore malformed PATH entries and keep searching valid installations.
+            }
         }
 
         var codexBin = Path.Combine(
