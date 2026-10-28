@@ -265,7 +265,7 @@ internal static class GitRepositoryInspector
         {
             return EmptySnapshot(directory, error.Message);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or System.ComponentModel.Win32Exception)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or FormatException or System.ComponentModel.Win32Exception)
         {
             return EmptySnapshot(directory, error.Message);
         }
