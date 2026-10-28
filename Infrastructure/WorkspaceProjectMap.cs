@@ -70,7 +70,17 @@ internal static class WorkspaceProjectMap
                 .OrderByDescending(group => group.Count()).Take(6)
                 .Select(group => new WorkspaceMapNode($"{(group.Key.Length == 0 ? "без типа" : group.Key)} · {group.Count()}", group.First())).ToArray();
         }
-        var nodes = new List<WorkspaceMapNode>();
+        // Only six distinct labels can be displayed. Stop scanning once the map is full
+        // instead of accumulating every dependency from large solution manifests.
+        var nodes = new List<WorkspaceMapNode>(6);
+        var seenLabels = new HashSet<string>(StringComparer.Ordinal);
+        bool AddNode(string label, string path)
+        {
+            if (seenLabels.Add(label))
+                nodes.Add(new WorkspaceMapNode(label, path));
+            return nodes.Count == 6;
+        }
+
         foreach (var directory in candidates)
         {
             foreach (var manifest in EnumerateFilesSafely(directory, "*.csproj", 12))
@@ -91,14 +101,16 @@ internal static class WorkspaceProjectMap
                     foreach (var reference in document.Descendants().Where(element => element.Name.LocalName is "PackageReference" or "ProjectReference"))
                     {
                         var name = (string?)reference.Attribute("Include");
-                        if (!string.IsNullOrWhiteSpace(name)) nodes.Add(new WorkspaceMapNode(
-                            reference.Name.LocalName == "ProjectReference" ? System.IO.Path.GetFileNameWithoutExtension(name) : name, manifest));
+                        if (!string.IsNullOrWhiteSpace(name) && AddNode(
+                            reference.Name.LocalName == "ProjectReference" ? System.IO.Path.GetFileNameWithoutExtension(name) : name, manifest))
+                            return nodes;
                     }
                     // A framework reference is a real dependency even when no NuGet package is used.
                     foreach (var framework in document.Descendants().Where(element => element.Name.LocalName is "TargetFramework" or "TargetFrameworks"))
-                        if (!string.IsNullOrWhiteSpace(framework.Value)) nodes.Add(new WorkspaceMapNode(framework.Value, manifest));
+                        if (!string.IsNullOrWhiteSpace(framework.Value) && AddNode(framework.Value, manifest))
+                            return nodes;
                 }
-                catch (System.Xml.XmlException) { nodes.Add(new WorkspaceMapNode("Ошибка XML", manifest)); }
+                catch (System.Xml.XmlException) { if (AddNode("Ошибка XML", manifest)) return nodes; }
                 // A manifest can be removed, locked or become inaccessible during refresh.
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
@@ -113,17 +125,18 @@ internal static class WorkspaceProjectMap
                 using var document = JsonDocument.Parse(File.ReadAllText(package));
                 if (document.RootElement.ValueKind != JsonValueKind.Object)
                 {
-                    nodes.Add(new WorkspaceMapNode("Ошибка JSON", package));
+                    if (AddNode("Ошибка JSON", package)) return nodes;
                     continue;
                 }
                 foreach (var key in new[] { "dependencies", "devDependencies" })
                     if (document.RootElement.TryGetProperty(key, out var dependencies) && dependencies.ValueKind == JsonValueKind.Object)
-                        foreach (var dependency in dependencies.EnumerateObject()) nodes.Add(new WorkspaceMapNode(dependency.Name, package));
+                        foreach (var dependency in dependencies.EnumerateObject())
+                            if (AddNode(dependency.Name, package)) return nodes;
             }
-            catch (JsonException) { nodes.Add(new WorkspaceMapNode("Ошибка JSON", package)); }
+            catch (JsonException) { if (AddNode("Ошибка JSON", package)) return nodes; }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-        return nodes.DistinctBy(node => node.Label).Take(6).ToArray();
+        return nodes;
     }
 }
