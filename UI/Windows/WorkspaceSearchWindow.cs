@@ -88,18 +88,36 @@ internal static class WorkspaceFileSearch
             var directory = pending.Pop(); directories++;
             try
             {
-                foreach (var child in Directory.EnumerateDirectories(directory))
+                // A broken or inaccessible child directory must not prevent searching
+                // readable files in its parent.
+                try
                 {
-                    cancellation.ThrowIfCancellationRequested();
-                    if (discoveredDirectories >= maximumDirectories)
+                    foreach (var child in Directory.EnumerateDirectories(directory))
                     {
-                        directoryLimitReached = true;
-                        break;
+                        cancellation.ThrowIfCancellationRequested();
+                        if (discoveredDirectories >= maximumDirectories)
+                        {
+                            directoryLimitReached = true;
+                            break;
+                        }
+                        discoveredDirectories++;
+                        if (new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) continue;
+                        try
+                        {
+                            if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0)
+                                pending.Push(child);
+                        }
+                        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                        {
+                            skipped++;
+                        }
                     }
-                    discoveredDirectories++;
-                    if (new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) continue;
-                    if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
                 }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    skipped++;
+                }
+
                 foreach (var file in Directory.EnumerateFiles(directory))
                 {
                     cancellation.ThrowIfCancellationRequested();
