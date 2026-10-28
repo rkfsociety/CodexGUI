@@ -22,8 +22,9 @@ internal static class WorktreeSetupConfiguration
         if (!File.Exists(path)) return null;
 
         // Repository-controlled configuration must not cause unbounded memory allocation.
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            4096, FileOptions.SequentialScan);
+        // A read-only snapshot must not block an atomic update on Windows.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read | FileShare.Delete, 4096, FileOptions.SequentialScan);
         if (stream.Length > MaximumConfigurationBytes)
             throw new InvalidDataException("Файл настройки worktree превышает допустимый размер 64 КиБ.");
         using var reader = new StreamReader(stream);

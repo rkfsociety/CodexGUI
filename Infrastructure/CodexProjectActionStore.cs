@@ -69,8 +69,9 @@ internal static class CodexProjectActionStore
     private static string ReadConfiguration(string path)
     {
         // Project-controlled JSON must not cause unbounded allocations during load or revision checks.
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            81920, FileOptions.SequentialScan);
+        // Allow a concurrent atomic save to replace the file while a reader holds its snapshot.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read | FileShare.Delete, 81920, FileOptions.SequentialScan);
         if (stream.Length > MaximumConfigurationBytes)
             throw new InvalidDataException("Файл действий проекта превышает допустимый размер 8 МиБ.");
 
