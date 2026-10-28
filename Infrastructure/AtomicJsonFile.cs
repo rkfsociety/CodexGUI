@@ -34,8 +34,9 @@ internal static class AtomicJsonFile
     {
         T Read(string candidate)
         {
-            using var stream = new FileStream(candidate, FileMode.Open, FileAccess.Read, FileShare.Read,
-                81920, FileOptions.SequentialScan);
+            // Allow atomic replacement while a snapshot is being read.
+            using var stream = new FileStream(candidate, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete, 81920, FileOptions.SequentialScan);
             if (stream.Length > MaximumJsonBytes)
                 throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
             var value = JsonSerializer.Deserialize<T>(stream)
@@ -45,7 +46,8 @@ internal static class AtomicJsonFile
         }
 
         try { return Read(path); }
-        catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
+        // Only recover missing or corrupt state; transient access/I/O failures must not roll back a valid primary.
+        catch (Exception error) when (error is FileNotFoundException or JsonException or InvalidDataException)
         {
             // Validate the backup before touching either file. Preserve the unreadable primary for recovery.
             T recovered;
