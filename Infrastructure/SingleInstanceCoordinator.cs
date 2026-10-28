@@ -22,7 +22,16 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     public static SingleInstanceCoordinator? TryAcquire()
     {
         var mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+        var acquired = createdNew;
         if (!createdNew)
+        {
+            // The name can survive while another process still has a handle even if
+            // its former owner has exited. Check ownership rather than existence.
+            try { acquired = mutex.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+        }
+
+        if (!acquired)
         {
             mutex.Dispose();
             SignalPrimaryInstance();
@@ -37,6 +46,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         }
         catch
         {
+            mutex.ReleaseMutex();
             mutex.Dispose();
             throw;
         }
