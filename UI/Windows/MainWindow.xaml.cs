@@ -2784,6 +2784,32 @@ public partial class MainWindow : Window
             while (_repositoryRefreshPending && !_isClosing);
         }
         catch (OperationCanceledException) when (_isClosing) { }
+        catch (Exception error)
+        {
+            // A failed refresh must not leave stale Git actions enabled or crash an async timer callback.
+            _repositoryRefreshPending = false;
+            if (!_isClosing)
+            {
+                _repositorySnapshot = null;
+                _snapshotProjectPath = null;
+                if (Control<TextBlock>("WorkspaceBranch") is { } workspaceBranch)
+                    workspaceBranch.Text = "Git недоступен";
+                if (Control<TextBlock>("RepositoryBranch") is { } branch)
+                    branch.Text = "Не удалось прочитать Git";
+                if (Control<TextBlock>("RepositorySummary") is { } summary)
+                    summary.Text = "Состояние репозитория недоступно";
+                if (Control<StackPanel>("RepositoryChangesPanel") is { } changesPanel)
+                    changesPanel.Children.Clear();
+                if (Control<Button>("RepositoryRemoteButton") is { } remoteButton)
+                    remoteButton.Visibility = Visibility.Collapsed;
+                if (Control<Button>("InsertGitContextButton") is { } contextButton)
+                    contextButton.IsEnabled = false;
+                if (Control<Button>("ReviewChangesButton") is { } reviewButton)
+                    reviewButton.Visibility = Visibility.Collapsed;
+                UpdateReviewChangesButton();
+                SetStatus("Не удалось обновить Git", error.Message, isError: true);
+            }
+        }
         finally
         {
             _isRefreshingRepository = false;
