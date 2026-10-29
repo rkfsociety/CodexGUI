@@ -53,13 +53,20 @@ internal sealed class WorkspaceSearchWindow : Window
             catch (OperationCanceledException) { }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                status.Text = "Не удалось выполнить поиск: " + error.Message;
+                // A cancelled search must not overwrite the status of a newer request.
+                if (!cancellation.IsCancellationRequested)
+                    status.Text = "Не удалось выполнить поиск: " + error.Message;
             }
             finally { if (ReferenceEquals(_search, cancellation)) _search = null; }
         };
         async Task OpenSelection()
         {
-            if (list.SelectedItem is WorkspaceSearchHit hit) await open(hit.Path, hit.Line);
+            if (list.SelectedItem is not WorkspaceSearchHit hit) return;
+            try { await open(hit.Path, hit.Line); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                status.Text = "Не удалось открыть файл: " + error.Message;
+            }
         }
         list.MouseDoubleClick += async (_, _) => await OpenSelection();
         list.KeyDown += async (_, args) =>
