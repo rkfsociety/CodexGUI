@@ -200,6 +200,17 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
             {
                 System.Diagnostics.Trace.TraceWarning("Не удалось очистить потерянное соединение терминала: {0}", error.Message);
             }
+
+            // The old connection can no longer deliver exit notifications. Release every
+            // orphaned session so its UI is not left permanently in the running state.
+            // ObserveSessionAsync may finish concurrently; TryRemove makes the exit
+            // notification happen exactly once.
+            foreach (var processId in _sessions.Keys)
+            {
+                if (_sessions.TryRemove(processId, out _))
+                    PublishSessionExit(new CodexTerminalExit(processId, -1,
+                        "Соединение с App Server потеряно. Терминал остановлен."));
+            }
         }
         finally { _startLock.Release(); }
     }
@@ -272,9 +283,17 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         }
         finally
         {
-            _sessions.TryRemove(processId, out _);
-            try { SessionExited?.Invoke(new CodexTerminalExit(processId, exitCode, error)); }
-            catch (Exception exception) { System.Diagnostics.Trace.TraceWarning("Terminal UI update failed: {0}", exception.Message); }
+            if (_sessions.TryRemove(processId, out _))
+                PublishSessionExit(new CodexTerminalExit(processId, exitCode, error));
+        }
+    }
+
+    private void PublishSessionExit(CodexTerminalExit exit)
+    {
+        try { SessionExited?.Invoke(exit); }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Trace.TraceWarning("Terminal UI update failed: {0}", exception.Message);
         }
     }
 
