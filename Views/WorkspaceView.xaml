@@ -365,7 +365,8 @@
             <TextBlock Grid.Column="1" x:Name="WorkspaceProjectPrefix" Text="Проект" Margin="9,0,10,0"
                        Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
             <TextBlock Grid.Column="2" x:Name="WorkspaceProjectName" Text="CodexGUI"
-                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,7,0" />
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,7,0"
+                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
             <Path Grid.Column="3" Width="10" Height="10" Stretch="Uniform" Stroke="{StaticResource TextMuted}"
                   StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                   StrokeLineJoin="Round" Data="M2,4 L6,8 L10,4" VerticalAlignment="Center" />
@@ -389,7 +390,8 @@
                   StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                   Data="M6,9 V15 C6,17 8,19 10,19 H15 M6,3 A3,3 0 1 0 6,9 A3,3 0 1 0 6,3 M18,16 A3,3 0 1 0 18,22 A3,3 0 1 0 18,16" />
             <TextBlock Grid.Column="1" x:Name="WorkspaceBranch" Text="Git" Margin="7,0,0,0"
-                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
           </Grid>
         </Button>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0" x:Name="WorkspaceAgentStatus">

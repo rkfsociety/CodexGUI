@@ -68,7 +68,15 @@ internal sealed class WorkspaceSearchWindow : Window
                 status.Text = "Не удалось открыть файл: " + error.Message;
             }
         }
-        list.MouseDoubleClick += async (_, _) => await OpenSelection();
+        list.MouseDoubleClick += async (_, args) =>
+        {
+            // A double-click in blank list space must not reopen the previously selected hit.
+            if (args.OriginalSource is not DependencyObject source
+                || ItemsControl.ContainerFromElement(list, source) is not ListBoxItem item
+                || !ReferenceEquals(item, list.SelectedItem))
+                return;
+            await OpenSelection();
+        };
         list.KeyDown += async (_, args) =>
         {
             if (args.Key != Key.Enter) return;
