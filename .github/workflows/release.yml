@@ -164,6 +164,167 @@ jobs:
           }
           $history = git log --no-merges '--format=%H%x1f%s%x1f%b%x1e' $range | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'Could not read the release commit history.' }
+          # A later annotated commit can cover an earlier unannotated change without rewriting history.
+          # Its regular release notes still supply the user-facing description.
+          $coveredCommits = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          foreach ($line in ($history -split '\r?\n')) {
+            if ($line -match '^Release-Note-Covers:\s*([0-9a-f]{40})\s*
+            $fields = $record.Trim() -split ([char]0x1f), 3
+            if ($fields.Count -ne 3) { continue }
+            $commit = $fields[0].Trim()
+            $subject = $fields[1].Trim()
+            $body = $fields[2]
+            if ($subject -match '^Bump version to [0-9]+\.[0-9]+\.[0-9]+$') { continue }
+            $changedPaths = @(git diff-tree --no-commit-id --name-only -r $commit)
+            if ($LASTEXITCODE -ne 0) { throw "Could not inspect files changed by commit '$subject'." }
+            $productPaths = @($changedPaths | Where-Object {
+              $_ -notmatch '^(?:\.github/|\.codex/|Tests/|AGENTS\.md$|README\.md$|Scripts/Test-PortablePackage\.ps1$)'
+            })
+            $hasProductChanges = $productPaths.Count -gt 0
+            if ($productPaths.Count -eq 1 -and $productPaths[0] -eq 'Build/CodexGUI.csproj') {
+              $projectDiff = @(git diff --unified=0 "$commit^" $commit -- Build/CodexGUI.csproj)
+              if ($LASTEXITCODE -ne 0) { throw "Could not inspect project version changes in commit '$subject'." }
+              $projectChanges = @($projectDiff | Where-Object {
+                $_ -match '^[+-]' -and $_ -notmatch '^(?:\+\+\+|---)'
+              })
+              $isVersionOnly = $projectChanges.Count -gt 0 -and @($projectChanges | Where-Object {
+                $_ -notmatch '^[+-]\s*<Version>[0-9]+\.[0-9]+\.[0-9]+</Version>\s*$'
+              }).Count -eq 0
+              if ($isVersionOnly) { $hasProductChanges = $false }
+            }
+            if (-not $hasProductChanges) { continue }
+            $noteCount = 0
+            foreach ($line in ($body -split '\r?\n')) {
+              if ($line -match '^Release-Note-(Added|Changed|Fixed):\s*(.+)$') {
+                $category = $Matches[1]
+                $note = $Matches[2].Trim()
+                if ($note -notmatch '\p{IsCyrillic}') {
+                  throw "Release note in commit '$subject' must be written in Russian."
+                }
+                $notes[$category].Add($note)
+                $noteCount++
+              }
+            }
+            if ($noteCount -eq 0 -and -not $coveredCommits.Contains($commit)) {
+              throw "Commit '$subject' has no Release-Note-Added, Release-Note-Changed, or Release-Note-Fixed trailer. Add a concise user-facing release note or use a version-bump commit."
+            }
+          }
+
+          $sections = [ordered]@{
+            Added = '✨ Новое'
+            Changed = '🎨 Улучшения'
+            Fixed = '🛠 Исправления'
+          }
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("# CodexGUI v$env:RELEASE_VERSION")
+          $lines.Add('')
+          $lines.Add('Главное в этом обновлении:')
+          foreach ($category in $sections.Keys) {
+            if ($notes[$category].Count -eq 0) { continue }
+            $lines.Add('')
+            $lines.Add("## $($sections[$category])")
+            foreach ($item in $notes[$category]) { $lines.Add("- $item") }
+          }
+          if (($notes.Added.Count + $notes.Changed.Count + $notes.Fixed.Count) -eq 0) {
+            $lines.Add('')
+            $lines.Add('В этом выпуске нет пользовательских изменений.')
+          }
+          if ($previousTag) {
+            $lines.Add('')
+            $lines.Add("_Список изменений: $previousTag → v$env:RELEASE_VERSION._")
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          [System.IO.File]::WriteAllLines('artifacts/release-notes.md', $lines, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          $releaseJson = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect existing releases for $tag." }
+          $existing = @($releaseJson | ConvertFrom-Json | Where-Object { $_.tag_name -eq $tag })
+          if ($existing.Count -gt 0) {
+            if ($existing.Count -ne 1 -or -not $existing[0].draft) {
+              throw "Release $tag already exists and is not a recoverable draft."
+            }
+            # A failed create/upload can leave an incomplete draft with no tag.
+            # Remove only the unpublished draft for this exact version, then retry.
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$($existing[0].id)"
+            if ($LASTEXITCODE -ne 0) { throw "Could not remove incomplete draft $tag." }
+          }
+          gh release create $tag `
+            "artifacts/single-file/CodexGUI.exe" `
+            "artifacts/CodexGUI.exe.sha256" `
+            "artifacts/CodexGUI-win-x64.zip" `
+            "artifacts/CodexGUI-win-x64.zip.sha256" `
+            "artifacts/CodexGUI-win-x64.zip.sig" `
+            --target $env:TARGET_SHA `
+            --title $tag `
+            --notes-file "artifacts/release-notes.md"
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish release $tag." }
+
+      - name: Delete older releases and tags
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          function Get-VersionParts([string]$tag) {
+            if ($tag -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)$') { return $null }
+            return @($Matches[1], $Matches[2], $Matches[3])
+          }
+
+          function Compare-VersionTags([string]$left, [string]$right) {
+            $leftParts = Get-VersionParts $left
+            $rightParts = Get-VersionParts $right
+            for ($index = 0; $index -lt 3; $index++) {
+              $leftNumber = $leftParts[$index] -replace '^0+', ''
+              $rightNumber = $rightParts[$index] -replace '^0+', ''
+              if ($leftNumber.Length -eq 0) { $leftNumber = '0' }
+              if ($rightNumber.Length -eq 0) { $rightNumber = '0' }
+              if ($leftNumber.Length -ne $rightNumber.Length) {
+                return [Math]::Sign($leftNumber.Length - $rightNumber.Length)
+              }
+              $comparison = [string]::CompareOrdinal($leftNumber, $rightNumber)
+              if ($comparison -ne 0) { return $comparison }
+            }
+            return 0
+          }
+
+          $currentTag = "v$env:RELEASE_VERSION"
+          if ($null -eq (Get-VersionParts $currentTag)) { throw "Invalid release tag: $currentTag" }
+          $releaseJson = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
+          $releaseTags = @($releaseJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+
+          foreach ($oldTag in $releaseTags) {
+            if ($null -eq (Get-VersionParts $oldTag)) { continue }
+            if ($oldTag -eq $currentTag -or (Compare-VersionTags $oldTag $currentTag) -ge 0) { continue }
+            gh release delete $oldTag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete older release $oldTag." }
+          }
+
+          $remoteTags = git ls-remote --refs origin 'refs/tags/v*'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list remote version tags.' }
+
+          foreach ($line in $remoteTags) {
+            $remoteRef = ($line -split "`t")[1]
+            $oldTag = $remoteRef.Substring('refs/tags/'.Length)
+            if ($null -eq (Get-VersionParts $oldTag)) { continue }
+            if ($oldTag -eq $currentTag -or (Compare-VersionTags $oldTag $currentTag) -ge 0) { continue }
+            git push origin --delete $oldTag
+            if ($LASTEXITCODE -ne 0) { throw "Could not delete older tag $oldTag." }
+          }
+) {
+              [void]$coveredCommits.Add($Matches[1])
+            }
+          }
           foreach ($record in $history.Split([char]0x1e, [StringSplitOptions]::RemoveEmptyEntries)) {
             $fields = $record.Trim() -split ([char]0x1f), 3
             if ($fields.Count -ne 3) { continue }

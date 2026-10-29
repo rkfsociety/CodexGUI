@@ -557,24 +557,24 @@ public partial class MainWindow : Window
 
         _viewWatcher = new FileSystemWatcher(folder, Path.GetFileName(path))
         {
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-            EnableRaisingEvents = true
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
         };
-        _viewWatcher.Changed += (_, _) => Dispatcher.BeginInvoke(() =>
+        void QueueReload()
         {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
-        _viewWatcher.Created += (_, _) => Dispatcher.BeginInvoke(() =>
-        {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
-        _viewWatcher.Renamed += (_, _) => Dispatcher.BeginInvoke(() =>
-        {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing) return;
+                _reloadDebounce.Stop();
+                _reloadDebounce.Start();
+            }));
+        }
+
+        _viewWatcher.Changed += (_, _) => QueueReload();
+        _viewWatcher.Created += (_, _) => QueueReload();
+        _viewWatcher.Deleted += (_, _) => QueueReload();
+        _viewWatcher.Renamed += (_, _) => QueueReload();
+        _viewWatcher.EnableRaisingEvents = true;
     }
 
     private void ReloadView()
