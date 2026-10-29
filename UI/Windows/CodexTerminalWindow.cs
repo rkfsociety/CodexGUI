@@ -279,12 +279,9 @@ internal sealed class CodexTerminalWindow : Window
     private void OnOutputReceived(CodexTerminalOutput output)
     {
         if (_isClosing || Dispatcher.HasShutdownStarted) return;
-        var truncated = output.Text.Length > TerminalOutputBatchBuffer.DefaultMaximumCharacters;
-        var boundedText = truncated
-            ? output.Text[^TerminalOutputBatchBuffer.DefaultMaximumCharacters..]
-            : output.Text;
-        var sanitizedText = StripTerminalSequences(boundedText);
-        if (!_terminalOutputBuffer.Enqueue(new CodexTerminalOutput(output.ProcessId, sanitizedText), truncated)) return;
+        // Keep raw chunks in order: ANSI escape sequences can span several notifications.
+        // The bounded buffer also trims oversized chunks without splitting surrogate pairs.
+        if (!_terminalOutputBuffer.Enqueue(output)) return;
 
         try { _ = Dispatcher.BeginInvoke((Action)FlushPendingTerminalOutput); }
         catch (InvalidOperationException) { _terminalOutputBuffer.Clear(); }
@@ -304,8 +301,17 @@ internal sealed class CodexTerminalWindow : Window
         }
 
         foreach (var truncatedProcessId in batch.TruncatedProcessIds)
+        {
+            // After dropped bytes, a previously incomplete escape sequence is no longer reliable.
+            if (_sessions.TryGetValue(truncatedProcessId, out var truncatedTab))
+                truncatedTab.SequenceFilter.Reset();
             Append(truncatedProcessId, "\r\n[часть terminal output пропущена из-за переполнения буфера]\r\n");
-        foreach (var output in batch.Items) Append(output.ProcessId, output.Text);
+        }
+        foreach (var output in batch.Items)
+        {
+            if (_sessions.TryGetValue(output.ProcessId, out var tab))
+                Append(output.ProcessId, tab.SequenceFilter.Strip(output.Text));
+        }
 
         foreach (var (processId, text) in outputByProcess)
             if (_sessions.TryGetValue(processId, out var tab)) AppendOutput(tab, text.ToString());
@@ -335,39 +341,51 @@ internal sealed class CodexTerminalWindow : Window
         tab.Output.ScrollToEnd();
     }
 
-    private static string StripTerminalSequences(string text)
+    // One filter per terminal, used only by the UI dispatcher while draining output.
+    // State must survive chunk boundaries (including an OSC terminator split after ESC).
+    private sealed class TerminalSequenceFilter
     {
-        var output = new StringBuilder(text.Length);
-        var escape = false;
-        var csi = false;
-        var osc = false;
-        var oscEscape = false;
-        foreach (var ch in text)
+        private bool _escape;
+        private bool _csi;
+        private bool _osc;
+        private bool _oscEscape;
+
+        public void Reset()
         {
-            if (osc)
-            {
-                if (ch == '\a') { osc = false; oscEscape = false; }
-                else if (oscEscape && ch == '\\') { osc = false; oscEscape = false; }
-                else oscEscape = ch == '\x1b';
-                continue;
-            }
-            if (csi)
-            {
-                if (ch is >= '\x40' and <= '\x7e') csi = false;
-                continue;
-            }
-            if (escape)
-            {
-                escape = false;
-                if (ch == '[') csi = true;
-                else if (ch == ']') osc = true;
-                continue;
-            }
-            if (ch == '\x1b') { escape = true; continue; }
-            if (ch == '\0' || ch < ' ' && ch is not ('\r' or '\n' or '\t' or '\b')) continue;
-            output.Append(ch);
+            _escape = _csi = _osc = _oscEscape = false;
         }
-        return output.ToString();
+
+        public string Strip(string text)
+        {
+            var output = new StringBuilder(text.Length);
+            foreach (var ch in text)
+            {
+                if (_osc)
+                {
+                    if (ch == '\a') { _osc = false; _oscEscape = false; }
+                    else if (_oscEscape && ch == '\\') { _osc = false; _oscEscape = false; }
+                    else _oscEscape = ch == '\x1b';
+                    continue;
+                }
+                if (_csi)
+                {
+                    if (ch is >= '\x40' and <= '\x7e') _csi = false;
+                    continue;
+                }
+                if (_escape)
+                {
+                    _escape = false;
+                    if (ch == '[') _csi = true;
+                    else if (ch == ']') _osc = true;
+                    continue;
+                }
+                if (ch == '\x1b') { _escape = true; continue; }
+                if (ch == '\0' || ch < ' ' && ch is not ('\r' or '\n' or '\t' or '\b')) continue;
+                output.Append(ch);
+            }
+            return output.ToString();
+        }
+
     }
 
     private static Button MakeButton(string label, bool accent = false) => new()
@@ -391,6 +409,7 @@ internal sealed class CodexTerminalWindow : Window
         public TextBox Output { get; set; } = null!;
         public TextBox Input { get; set; } = null!;
         public bool IsRunning { get; set; }
+        public TerminalSequenceFilter SequenceFilter { get; } = new();
         public List<string> History { get; } = [];
         public int HistoryIndex { get; set; }
     }
