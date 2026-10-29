@@ -658,9 +658,12 @@
               <ToggleButton Focusable="False" Background="Transparent" BorderThickness="0" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                 <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
               </ToggleButton>
-              <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                <Border Margin="0,5,0,0" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="4">
-                  <ScrollViewer MaxHeight="280" CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=ComboChrome}"
+                     IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                <Border Margin="0,5,0,0" MinWidth="{Binding ActualWidth, ElementName=ComboChrome}"
+                        Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="4">
+                  <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="True"
+                                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
                   </ScrollViewer>
                 </Border>
@@ -669,19 +672,12 @@
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="#486173" /></Trigger>
               <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
+              <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboChrome" Property="Opacity" Value="0.5" /></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
-    </Style>
-    <Style TargetType="ToolTip">
-      <Setter Property="Background" Value="{StaticResource Surface}" />
-      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
-      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
-      <Setter Property="Padding" Value="10,7" />
-      <Setter Property="FontSize" Value="12" />
     </Style>
   </Application.Resources>
 </Application>
