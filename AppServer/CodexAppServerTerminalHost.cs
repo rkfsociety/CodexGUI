@@ -220,9 +220,9 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                     try
                     {
                         var text = Encoding.UTF8.GetString(Convert.FromBase64String(deltaBase64));
-                        OutputReceived?.Invoke(new CodexTerminalOutput(processId, text));
+                        PublishOutput(processId, text);
                         if (parameters.TryGetProperty("capReached", out var capReached) && capReached.ValueKind == JsonValueKind.True)
-                            OutputReceived?.Invoke(new CodexTerminalOutput(processId, "\r\n[вывод достиг лимита захвата]\r\n"));
+                            PublishOutput(processId, "\r\n[вывод достиг лимита захвата]\r\n");
                     }
                     catch (FormatException error)
                     {
@@ -241,6 +241,16 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         {
             if (!cancellationToken.IsCancellationRequested)
                 await ResetDisconnectedConnectionAsync(connection, cancellationToken);
+        }
+    }
+
+    private void PublishOutput(string processId, string text)
+    {
+        try { OutputReceived?.Invoke(new CodexTerminalOutput(processId, text)); }
+        catch (Exception error)
+        {
+            // A failing UI subscriber must not disconnect all terminal sessions.
+            System.Diagnostics.Trace.TraceWarning("Не удалось показать вывод терминала {0}: {1}", processId, error.Message);
         }
     }
 
