@@ -50,11 +50,13 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     {
         await EnsureConnectedAsync();
         await _startLock.WaitAsync();
+        var sessionRegistered = false;
         try
         {
             if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
             var connection = _connection ?? throw new InvalidOperationException("Codex terminal не подключён к App Server.");
             if (!_sessions.TryAdd(processId, 0)) throw new InvalidOperationException("Терминал с таким идентификатором уже запущен.");
+            sessionRegistered = true;
             object sandboxPolicy = fullAccess
                 ? new { type = "dangerFullAccess" }
                 : new { type = "workspaceWrite", networkAccess = false };
@@ -75,7 +77,8 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         }
         catch
         {
-            _sessions.TryRemove(processId, out _);
+            // A duplicate process ID belongs to an existing session; never remove it.
+            if (sessionRegistered) _sessions.TryRemove(processId, out _);
             throw;
         }
         finally { _startLock.Release(); }
