@@ -23,7 +23,9 @@ internal static class CodexCliService
         {
             try
             {
-                var directory = entry.Trim('"').Trim();
+                // PATH entries may be quoted and surrounded by whitespace.
+                // Remove whitespace before quotes so a valid absolute directory is not skipped.
+                var directory = entry.Trim().Trim('"').Trim();
                 // A relative or empty PATH entry could resolve codex.exe from the active project.
                 // Only search absolute directories for an executable that can run commands.
                 if (!Path.IsPathFullyQualified(directory)) continue;
@@ -43,12 +45,20 @@ internal static class CodexCliService
 
         if (Directory.Exists(codexBin))
         {
-            var versionedCandidate = Directory.EnumerateDirectories(codexBin)
-                .Select(directory => Path.Combine(directory, executableName))
-                .Where(File.Exists)
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-            if (versionedCandidate is not null) return versionedCandidate;
+            try
+            {
+                var versionedCandidate = Directory.EnumerateDirectories(codexBin)
+                    .Select(directory => Path.Combine(directory, executableName))
+                    .Where(File.Exists)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+                if (versionedCandidate is not null) return versionedCandidate;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // An inaccessible or disappearing runtime cache should not mask
+                // the normal missing-CLI guidance.
+            }
         }
 
         throw new FileNotFoundException(
