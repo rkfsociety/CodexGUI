@@ -46,6 +46,26 @@ internal static class GitHubPullRequestService
     public static async Task<string> CreateAsync(string repositoryRoot, string repositorySlug,
         string branch, string title, string body, bool draft, CancellationToken cancellationToken)
     {
+        // Keep potentially long or sensitive PR descriptions out of the process command line.
+        // gh reads the UTF-8 file synchronously before the command exits.
+        var bodyFilePath = Path.Combine(Path.GetTempPath(), "CodexGUI-pr-body-" + Guid.NewGuid().ToString("N") + ".md");
+        try
+        {
+            await File.WriteAllTextAsync(bodyFilePath, body, new System.Text.UTF8Encoding(false), cancellationToken);
+            return await CreateWithBodyFileAsync(repositoryRoot, repositorySlug, branch, title,
+                bodyFilePath, draft, cancellationToken);
+        }
+        finally
+        {
+            try { File.Delete(bodyFilePath); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static async Task<string> CreateWithBodyFileAsync(string repositoryRoot, string repositorySlug,
+        string branch, string title, string bodyFilePath, bool draft, CancellationToken cancellationToken)
+    {
         var startInfo = new ProcessStartInfo("gh")
         {
             WorkingDirectory = Path.GetFullPath(repositoryRoot),
@@ -64,8 +84,8 @@ internal static class GitHubPullRequestService
         startInfo.ArgumentList.Add(branch);
         startInfo.ArgumentList.Add("--title");
         startInfo.ArgumentList.Add(title);
-        startInfo.ArgumentList.Add("--body");
-        startInfo.ArgumentList.Add(body);
+        startInfo.ArgumentList.Add("--body-file");
+        startInfo.ArgumentList.Add(bodyFilePath);
         if (draft) startInfo.ArgumentList.Add("--draft");
 
         using var process = new Process { StartInfo = startInfo };
