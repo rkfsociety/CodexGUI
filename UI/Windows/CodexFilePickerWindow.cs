@@ -201,7 +201,15 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetColumn(fileNameBorder, 1);
         fileNamePanel.Children.Add(fileNameBorder);
         _fileName.Text = fileName;
-        _fileName.TextChanged += (_, _) => UpdateConfirmButton();
+        _fileName.TextChanged += (_, _) =>
+        {
+            // A typed file name takes precedence over a previously highlighted folder.
+            // Otherwise ConfirmSelection navigates into that folder instead of opening the file.
+            if (_mode == PickerMode.OpenFile
+                && _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } })
+                _entries.SelectedItem = null;
+            UpdateConfirmButton();
+        };
         _fileName.PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
