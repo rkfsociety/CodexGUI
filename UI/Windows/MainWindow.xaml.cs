@@ -574,6 +574,27 @@ public partial class MainWindow : Window
         _viewWatcher.Created += (_, _) => QueueReload();
         _viewWatcher.Deleted += (_, _) => QueueReload();
         _viewWatcher.Renamed += (_, _) => QueueReload();
+        var watcher = _viewWatcher;
+        watcher.Error += (_, _) =>
+        {
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing || !ReferenceEquals(_viewWatcher, watcher)) return;
+                watcher.Dispose();
+                _viewWatcher = null;
+                try
+                {
+                    StartViewWatcher();
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    SetStatus("Ошибка оформления", error.Message, isError: true);
+                }
+                _reloadDebounce.Stop();
+                _reloadDebounce.Start();
+            }));
+        };
         _viewWatcher.EnableRaisingEvents = true;
     }
 
