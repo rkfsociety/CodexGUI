@@ -95,17 +95,19 @@ internal static class WorkspaceFileSearch
                     foreach (var child in Directory.EnumerateDirectories(directory))
                     {
                         cancellation.ThrowIfCancellationRequested();
-                        if (discoveredDirectories >= maximumDirectories)
-                        {
-                            directoryLimitReached = true;
-                            break;
-                        }
-                        discoveredDirectories++;
+                        // Excluded and linked folders are not search candidates and must not
+                        // consume the traversal budget before eligible folders are discovered.
                         if (new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) continue;
                         try
                         {
-                            if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0)
-                                pending.Push(child);
+                            if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) continue;
+                            if (discoveredDirectories >= maximumDirectories)
+                            {
+                                directoryLimitReached = true;
+                                break;
+                            }
+                            discoveredDirectories++;
+                            pending.Push(child);
                         }
                         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                         {
