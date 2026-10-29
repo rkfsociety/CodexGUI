@@ -168,7 +168,15 @@ internal sealed class CodexFilePickerWindow : Window
         _entries.BorderThickness = new Thickness(1);
         _entries.Padding = new Thickness(6);
         _entries.SelectionChanged += (_, _) => SelectionChanged();
-        _entries.MouseDoubleClick += (_, _) => OpenSelectedEntry();
+        _entries.MouseDoubleClick += (_, e) =>
+        {
+            // A double-click on empty list space must not activate a previously selected entry.
+            if (e.OriginalSource is not DependencyObject source
+                || ItemsControl.ContainerFromElement(_entries, source) is not ListBoxItem item
+                || !ReferenceEquals(item, _entries.SelectedItem))
+                return;
+            OpenSelectedEntry();
+        };
         _entries.PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -382,8 +390,10 @@ internal sealed class CodexFilePickerWindow : Window
         }
         else if (_mode == PickerMode.OpenFile)
         {
-            SelectedPath = entry.Path;
-            DialogResult = true;
+            // Route double-click through the same existence/type checks as the Open button.
+            // The file may have been removed since the directory was listed.
+            _fileName.Text = entry.Name;
+            ConfirmSelection();
         }
         else
         {
