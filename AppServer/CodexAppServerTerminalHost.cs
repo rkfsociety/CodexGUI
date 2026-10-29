@@ -165,6 +165,9 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
             {
                 _connection = null;
                 _notificationTask = null;
+                // The notification reader may not have reset this connection yet.
+                // Clear its sessions before replacing it, otherwise their UI stays running.
+                NotifyOrphanedSessions();
                 await disconnectedConnection.DisposeAsync();
             }
 
@@ -201,18 +204,20 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                 System.Diagnostics.Trace.TraceWarning("Не удалось очистить потерянное соединение терминала: {0}", error.Message);
             }
 
-            // The old connection can no longer deliver exit notifications. Release every
-            // orphaned session so its UI is not left permanently in the running state.
-            // ObserveSessionAsync may finish concurrently; TryRemove makes the exit
-            // notification happen exactly once.
-            foreach (var processId in _sessions.Keys)
-            {
-                if (_sessions.TryRemove(processId, out _))
-                    PublishSessionExit(new CodexTerminalExit(processId, -1,
-                        "Соединение с App Server потеряно. Терминал остановлен."));
-            }
+            NotifyOrphanedSessions();
         }
         finally { _startLock.Release(); }
+    }
+
+    private void NotifyOrphanedSessions()
+    {
+        // ObserveSessionAsync can finish concurrently; only one path may publish an exit.
+        foreach (var processId in _sessions.Keys)
+        {
+            if (_sessions.TryRemove(processId, out _))
+                PublishSessionExit(new CodexTerminalExit(processId, -1,
+                    "Соединение с App Server потеряно. Терминал остановлен."));
+        }
     }
 
     private async Task ReadNotificationsAsync(CodexAppServerConnection connection, CancellationToken cancellationToken)
