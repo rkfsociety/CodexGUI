@@ -31,10 +31,16 @@ internal sealed class WorkspaceSearchWindow : Window
         search.Click += async (_, _) =>
         {
             _search?.Cancel();
-            if (string.IsNullOrWhiteSpace(input.Text)) return;
+            // Do not leave results from a previous query visible while a new one is running.
+            list.ItemsSource = null;
+            var query = input.Text.Trim();
+            if (query.Length == 0)
+            {
+                status.Text = "Введите текст или имя файла для поиска.";
+                return;
+            }
             using var cancellation = new CancellationTokenSource();
             _search = cancellation;
-            var query = input.Text.Trim();
             status.Text = "Поиск…";
             try
             {
@@ -130,7 +136,11 @@ internal static class WorkspaceFileSearch
                         if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) { skipped++; continue; }
                         var relative = Path.GetRelativePath(root, file);
                         if (relative.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        {
                             hits.Add(new WorkspaceSearchHit(file, 1, relative));
+                            // The result limit may be reached by filename matches alone.
+                            if (hits.Count >= 200) break;
+                        }
                         if (new FileInfo(file).Length > 1024 * 1024) { skipped++; continue; }
                         var content = File.ReadAllText(file);
                         if (content.Contains('\0')) { skipped++; continue; }
