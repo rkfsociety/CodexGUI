@@ -2821,7 +2821,7 @@ public partial class MainWindow : Window
     private void RenderRepositoryInfo(GitRepositorySnapshot snapshot)
     {
         if (Control<TextBlock>("WorkspaceBranch") is { } workspaceBranch)
-            workspaceBranch.Text = snapshot.IsRepository ? "⑂  " + snapshot.Branch : "Без Git";
+            workspaceBranch.Text = snapshot.IsRepository ? snapshot.Branch : "Без Git";
         if (Control<TextBlock>("RepositoryBranch") is not { } branch ||
             Control<TextBlock>("RepositorySummary") is not { } summary ||
             Control<StackPanel>("RepositoryChangesPanel") is not { } changesPanel ||

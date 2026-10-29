@@ -46,6 +46,81 @@
         </Setter.Value>
       </Setter>
     </Style>
+
+    <!-- Consistent chrome and vector-only icons for workspace header actions. -->
+    <Style x:Key="WorkspaceHeaderButton" TargetType="Button">
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+      <Setter Property="Background" Value="#0C151A" />
+      <Setter Property="BorderBrush" Value="#324A56" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="10" SnapsToDevicePixels="True">
+              <ContentPresenter Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                RecognizesAccessKey="True" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#14252E" />
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="#50717E" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#102029" />
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="WorkspaceCaptionButton" TargetType="Button">
+      <Setter Property="Width" Value="46" />
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#1C323A" />
+                <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#27434B" />
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#25443E" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="ComposerControlButton" TargetType="Button">
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="BorderBrush" Value="#3B4049" />
@@ -276,16 +351,46 @@
         <TextBlock x:Name="WorkspaceTagline" Text="Локальный ИИ-ассистент для разработчиков" Foreground="{StaticResource TextFaint}" FontSize="12" Margin="17,0,0,0" VerticalAlignment="Center" />
       </StackPanel>
       <StackPanel WindowChrome.IsHitTestVisibleInChrome="True" x:Name="WorkspaceHeaderControls" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" Margin="30,0,0,0" VerticalAlignment="Center">
-        <Button x:Name="WorkspaceProjectButton" BorderBrush="{StaticResource Line}" BorderThickness="1" ToolTip="Выбрать проект" Width="196" Height="38">
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Text="▧  Проект   " Foreground="{StaticResource TextMuted}" x:Name="WorkspaceProjectPrefix" />
-            <TextBlock x:Name="WorkspaceProjectName" Text="CodexGUI" MaxWidth="100" TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="  ⌄" />
-          </StackPanel>
+        <Button x:Name="WorkspaceProjectButton" Style="{StaticResource WorkspaceHeaderButton}" ToolTip="Выбрать проект" Width="196">
+          <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="16" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="10" />
+            </Grid.ColumnDefinitions>
+            <Path Grid.Column="0" Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource TextMuted}"
+                  StrokeThickness="1.6" StrokeLineJoin="Round"
+                  Data="M2,2 H9 V9 H2 Z M13,2 H20 V9 H13 Z M2,13 H9 V20 H2 Z M13,13 H20 V20 H13 Z" />
+            <TextBlock Grid.Column="1" x:Name="WorkspaceProjectPrefix" Text="Проект" Margin="9,0,10,0"
+                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="2" x:Name="WorkspaceProjectName" Text="CodexGUI"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,7,0" />
+            <Path Grid.Column="3" Width="10" Height="10" Stretch="Uniform" Stroke="{StaticResource TextMuted}"
+                  StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                  StrokeLineJoin="Round" Data="M2,4 L6,8 L10,4" VerticalAlignment="Center" />
+          </Grid>
         </Button>
-        <Button x:Name="WorkspaceFolderButton" Content="▱" Margin="12,0" BorderBrush="{StaticResource Line}" BorderThickness="1" ToolTip="Открыть папку проекта" Width="40" Height="38" />
-        <Button x:Name="WorkspaceBranchButton" ToolTip="Состояние Git" BorderBrush="{StaticResource Line}" BorderThickness="1" Width="104" Height="38">
-          <TextBlock x:Name="WorkspaceBranch" Text="⑂  Git" />
+        <Button x:Name="WorkspaceFolderButton" Style="{StaticResource WorkspaceHeaderButton}"
+                Margin="10,0" ToolTip="Открыть папку проекта" Width="40" Padding="0"
+                HorizontalContentAlignment="Center">
+          <Path Width="18" Height="18" Stretch="Uniform" Stroke="{StaticResource TextMuted}"
+                StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round"
+                Data="M3,6 H9 L11,8 H21 V19 H3 Z" />
+        </Button>
+        <Button x:Name="WorkspaceBranchButton" Style="{StaticResource WorkspaceHeaderButton}"
+                ToolTip="Состояние Git" Width="104">
+          <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="17" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Path Grid.Column="0" Width="17" Height="17" Stretch="Uniform" Stroke="{StaticResource TextMuted}"
+                  StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                  Data="M6,9 V15 C6,17 8,19 10,19 H15 M6,3 A3,3 0 1 0 6,9 A3,3 0 1 0 6,3 M18,16 A3,3 0 1 0 18,22 A3,3 0 1 0 18,16" />
+            <TextBlock Grid.Column="1" x:Name="WorkspaceBranch" Text="Git" Margin="7,0,0,0"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+          </Grid>
         </Button>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0" x:Name="WorkspaceAgentStatus">
           <Ellipse Width="7" Height="7" Fill="{Binding Fill, ElementName=StatusDot}" Margin="0,0,8,0" />
@@ -318,9 +423,21 @@
         </Grid>
       </Button>
       <UniformGrid WindowChrome.IsHitTestVisibleInChrome="True" Grid.Column="4" Columns="3" VerticalAlignment="Center" Margin="0,0,-12,0">
-        <Button x:Name="WindowMinimizeButton" Content="—" Width="46" ToolTip="Свернуть" />
-        <Button x:Name="WindowMaximizeButton" Content="□" Width="46" ToolTip="Развернуть / восстановить" FontSize="18" />
-        <Button x:Name="WindowCloseButton" Content="×" Width="46" FontSize="18" ToolTip="Закрыть" />
+        <Button x:Name="WindowMinimizeButton" Style="{StaticResource WorkspaceCaptionButton}" ToolTip="Свернуть">
+          <Path Data="M3,12 H21" Width="14" Height="14" Stretch="Uniform"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+        </Button>
+        <Button x:Name="WindowMaximizeButton" Style="{StaticResource WorkspaceCaptionButton}" ToolTip="Развернуть / восстановить">
+          <Path Data="M4,4 H20 V20 H4 Z" Width="14" Height="14" Stretch="Uniform"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                StrokeThickness="1.7" StrokeLineJoin="Round" />
+        </Button>
+        <Button x:Name="WindowCloseButton" Style="{StaticResource WorkspaceCaptionButton}" ToolTip="Закрыть">
+          <Path Data="M5,5 L19,19 M19,5 L5,19" Width="14" Height="14" Stretch="Uniform"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+        </Button>
       </UniformGrid>
     </Grid>
   </Border>
