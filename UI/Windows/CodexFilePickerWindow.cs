@@ -413,9 +413,15 @@ internal sealed class CodexFilePickerWindow : Window
     {
         if (_mode == PickerMode.Folder)
         {
-            SelectedPath = _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } entry }
+            var selectedDirectory = _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } entry }
                 ? entry.Path
                 : _currentDirectory;
+            if (!Directory.Exists(selectedDirectory))
+            {
+                ShowError("Выбранная папка больше не существует или недоступна.");
+                return;
+            }
+            SelectedPath = selectedDirectory;
             DialogResult = true;
             return;
         }
