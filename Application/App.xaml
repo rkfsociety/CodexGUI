@@ -21,6 +21,42 @@
     <SolidColorBrush x:Key="TextFaint" Color="#8D95A2" />
     <SolidColorBrush x:Key="Accent" Color="#92E5C7" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
+    <Style TargetType="ContextMenu">
+      <Setter Property="Background" Value="{StaticResource Surface}" />
+      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="HasDropShadow" Value="True" />
+    </Style>
+    <Style TargetType="MenuItem">
+      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="FontFamily" Value="Segoe UI" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="MenuItem">
+            <Border x:Name="ItemChrome" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <Grid>
+                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" />
+                <Popup x:Name="SubmenuPopup" AllowsTransparency="True" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}" Placement="Right" PopupAnimation="Fade">
+                  <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="4">
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+                  </Border>
+                </Popup>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SurfaceHover}" /></Trigger>
+              <Trigger Property="IsChecked" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="#203A34" /></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48" /></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="{x:Type Window}">
       <Setter Property="Background" Value="{StaticResource Canvas}" />
       <Setter Property="Foreground" Value="{StaticResource TextMain}" />
