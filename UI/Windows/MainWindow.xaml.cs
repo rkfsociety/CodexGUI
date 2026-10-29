@@ -5915,7 +5915,12 @@ public partial class MainWindow : Window
                 menu.Items.Add(item);
             }
         }
-        menu.PlacementTarget = Control<Button>("WorkspaceProjectButton") ?? Control<Button>("AddProjectButton");
+        var anchor = Control<Button>("WorkspaceProjectButton") ?? Control<Button>("AddProjectButton");
+        menu.PlacementTarget = anchor;
+        menu.Placement = PlacementMode.Bottom;
+        menu.VerticalOffset = 6;
+        if (anchor is not null)
+            menu.MinWidth = anchor.ActualWidth;
         menu.IsOpen = true;
     }
 
