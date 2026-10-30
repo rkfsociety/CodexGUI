@@ -689,7 +689,6 @@ public partial class MainWindow : Window
         Click("EffortButton", async (_, _) => await ShowEffortMenuAsync());
         Click("WorktreeButton", async (_, _) => await ToggleWorktreeModeAsync());
         Click("AddContextButton", (_, _) => AddFileContext());
-        Click("ScreenshotButton", async (_, _) => await CaptureScreenshotAsync());
         Click("SkillsButton", (_, _) => ShowExtensions(showSkills: true));
         Click("ThreadGoalButton", async (_, _) => { if (_currentThread is null) NewChat(); await ShowThreadGoalAsync(); });
         Click("ActionsButton", (_, _) => ShowActionsWindow());

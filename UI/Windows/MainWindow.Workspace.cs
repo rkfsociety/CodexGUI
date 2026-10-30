@@ -42,7 +42,6 @@ public partial class MainWindow
         Click("AddGoalStepButton", (_, _) => AddWorkspaceGoalStep());
         Click("WorkspaceAttachButton", (_, _) => AddFileContext());
         Click("WorkspaceContextButton", async (_, _) => await InsertRepositoryContextAsync());
-        Click("WorkspaceWebButton", (_, _) => ShowWorkspaceWebSearch());
         Click("WorkspaceChatsButton", (_, _) => FocusWorkspaceComposer());
         Click("WorkspaceAgentButton", async (_, _) => await ShowSubagentsAsync());
         Click("WorkspaceToolsButton", (_, _) => ToggleWorkspaceQuickTools());

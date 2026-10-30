@@ -1067,19 +1067,7 @@
                     </StackPanel>
                   </Button>
                   <Button x:Name="ActionsButton" Visibility="Collapsed" Content="Действия" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" FontSize="12" ToolTip="Вставить сохранённый шаблон в черновик" />
-                  <Button x:Name="ScreenshotButton" Height="38" Padding="10,0" Margin="0,0,10,0" Background="Transparent" Foreground="#D8E3E9" ToolTip="Выбрать область экрана и добавить снимок в контекст" Width="100" HorizontalContentAlignment="Left">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                      <Path Data="M4,3 H20 V21 H4 Z M7,6 H17 V17 H7 Z M7,15 L10,11 L13,14 L15,12 L17,15 M12,8 H13" Width="14" Height="14" Stretch="Uniform" Stroke="#ACC4D6" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,6,0" />
-                      <TextBlock Text="Скриншот" FontSize="11" Foreground="#BCCCD9" VerticalAlignment="Center" />
-                    </StackPanel>
-                  </Button>
                   <Button x:Name="SkillsButton" Content="Скиллы" Visibility="Collapsed" Height="34" Padding="11,0" Margin="8,0,0,0" Background="{StaticResource Surface}" Foreground="#D8E3E9" FontSize="12" ToolTip="Добавить скилл в запрос: imagegen, computer-use и другие" />
-                  <Button x:Name="WorkspaceWebButton" FontSize="11" Width="100" Height="38" Padding="10,0" Margin="0,0,0,0" Background="Transparent" HorizontalContentAlignment="Left">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                      <Path Data="M10,2 A8,8 0 1 1 9.99,2 M2,10 H18 M10,2 C5,6 5,14 10,18 M10,2 C14,5 15,10 12,15 M14,14 A4,4 0 1 1 13.99,14 M20,20 L23,23" Width="14" Height="14" Stretch="Uniform" Stroke="#ACC4D6" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,6,0" />
-                      <TextBlock Text="Веб-поиск" FontSize="11" Foreground="#BCCCD9" VerticalAlignment="Center" />
-                    </StackPanel>
-                  </Button>
                 </WrapPanel>
               </StackPanel>
               <Border x:Name="UsageLimitsPanel" Grid.Column="0" Width="260" Height="34" Margin="8,0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="#11191F" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="8,0">
