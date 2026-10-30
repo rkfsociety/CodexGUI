@@ -28,6 +28,7 @@ internal sealed class CodexBrowserWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "browser");
     private Task<CoreWebView2Environment>? _environmentTask;
     private readonly Dictionary<TabItem, Uri> _pendingNavigation = new();
+    private readonly LinkedList<string> _recentlyClosedTabs = new();
 
     public CodexBrowserWindow()
     {
@@ -60,6 +61,7 @@ internal sealed class CodexBrowserWindow : Window
                 (tab.Tag as WebView2)?.Dispose();
             _tabs.Items.Clear();
             _pendingNavigation.Clear();
+            _recentlyClosedTabs.Clear();
         };
     }
 
@@ -273,7 +275,20 @@ internal sealed class CodexBrowserWindow : Window
             if (index >= 0 && index < _tabs.Items.Count)
                 _tabs.SelectedIndex = index;
         }
-        else if (control && e.Key == Key.T) { e.Handled = true; _ = CreateTabAsync(HomeUrl); }
+        else if (control && e.Key == Key.T)
+        {
+            e.Handled = true;
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                // Reopen the most recently closed tab without persisting browsing history.
+                if (_recentlyClosedTabs.First is { } previous)
+                {
+                    _recentlyClosedTabs.RemoveFirst();
+                    _ = CreateTabAsync(previous.Value);
+                }
+            }
+            else _ = CreateTabAsync(HomeUrl);
+        }
         else if (control && e.Key == Key.W) { e.Handled = true; CloseCurrentTab(); }
         else if (control && e.Key == Key.L) { e.Handled = true; _addressBar.Focus(); _addressBar.SelectAll(); }
         else if (control && e.Key == Key.R || e.Key == Key.F5) { e.Handled = true; ReloadCurrentTab(); }
@@ -307,6 +322,15 @@ internal sealed class CodexBrowserWindow : Window
     {
         if (!_tabs.Items.Contains(tab)) return;
         var browser = tab.Tag as WebView2;
+        // Preserve the requested address even when the tab is closed before WebView2 starts.
+        var lastUrl = _pendingNavigation.TryGetValue(tab, out var queued)
+            ? queued.AbsoluteUri : browser?.CoreWebView2?.Source;
+        if (string.IsNullOrWhiteSpace(lastUrl)) lastUrl = HomeUrl;
+        if (IsAllowedNavigation(lastUrl))
+        {
+            _recentlyClosedTabs.AddFirst(lastUrl);
+            if (_recentlyClosedTabs.Count > 10) _recentlyClosedTabs.RemoveLast();
+        }
         _pendingNavigation.Remove(tab);
         _tabs.Items.Remove(tab);
         browser?.Dispose();
