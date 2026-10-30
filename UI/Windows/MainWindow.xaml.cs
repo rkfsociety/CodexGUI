@@ -557,24 +557,45 @@ public partial class MainWindow : Window
 
         _viewWatcher = new FileSystemWatcher(folder, Path.GetFileName(path))
         {
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-            EnableRaisingEvents = true
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
         };
-        _viewWatcher.Changed += (_, _) => Dispatcher.BeginInvoke(() =>
+        void QueueReload()
         {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
-        _viewWatcher.Created += (_, _) => Dispatcher.BeginInvoke(() =>
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing) return;
+                _reloadDebounce.Stop();
+                _reloadDebounce.Start();
+            }));
+        }
+
+        _viewWatcher.Changed += (_, _) => QueueReload();
+        _viewWatcher.Created += (_, _) => QueueReload();
+        _viewWatcher.Deleted += (_, _) => QueueReload();
+        _viewWatcher.Renamed += (_, _) => QueueReload();
+        var watcher = _viewWatcher;
+        watcher.Error += (_, _) =>
         {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
-        _viewWatcher.Renamed += (_, _) => Dispatcher.BeginInvoke(() =>
-        {
-            _reloadDebounce.Stop();
-            _reloadDebounce.Start();
-        });
+            if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_isClosing || !ReferenceEquals(_viewWatcher, watcher)) return;
+                watcher.Dispose();
+                _viewWatcher = null;
+                try
+                {
+                    StartViewWatcher();
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    SetStatus("Ошибка оформления", error.Message, isError: true);
+                }
+                _reloadDebounce.Stop();
+                _reloadDebounce.Start();
+            }));
+        };
+        _viewWatcher.EnableRaisingEvents = true;
     }
 
     private void ReloadView()
@@ -5915,7 +5936,12 @@ public partial class MainWindow : Window
                 menu.Items.Add(item);
             }
         }
-        menu.PlacementTarget = Control<Button>("WorkspaceProjectButton") ?? Control<Button>("AddProjectButton");
+        var anchor = Control<Button>("WorkspaceProjectButton") ?? Control<Button>("AddProjectButton");
+        menu.PlacementTarget = anchor;
+        menu.Placement = PlacementMode.Bottom;
+        menu.VerticalOffset = 6;
+        if (anchor is not null)
+            menu.MinWidth = anchor.ActualWidth;
         menu.IsOpen = true;
     }
 

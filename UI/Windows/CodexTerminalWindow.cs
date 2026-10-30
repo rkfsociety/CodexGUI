@@ -198,10 +198,24 @@ internal sealed class CodexTerminalWindow : Window
             if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
             {
                 e.Handled = true;
-                await SendInputAsync(tab, tab.Input.Text + "\r");
-                tab.History.Add(tab.Input.Text);
+                if (!tab.IsRunning)
+                {
+                    // A stopped or not-yet-started session must not discard the user's draft.
+                    _status.Text = "Терминал не запущен; введённая команда сохранена.";
+                    return;
+                }
+                // Capture and clear before awaiting I/O: later typing belongs to the next command.
+                var command = tab.Input.Text;
                 tab.Input.Clear();
+                tab.HistoryDraft = "";
+                if (!string.IsNullOrWhiteSpace(command))
+                {
+                    tab.History.Add(command);
+                    // Keep long-lived terminal tabs from retaining an unlimited command history.
+                    if (tab.History.Count > 200) tab.History.RemoveAt(0);
+                }
                 tab.HistoryIndex = tab.History.Count;
+                await SendInputAsync(tab, command + "\r");
             }
             else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.C)
             {
@@ -219,6 +233,9 @@ internal sealed class CodexTerminalWindow : Window
             else if (e.Key == Key.Up && tab.HistoryIndex > 0)
             {
                 e.Handled = true;
+                // Preserve the unfinished command while browsing earlier entries.
+                if (tab.HistoryIndex == tab.History.Count)
+                    tab.HistoryDraft = tab.Input.Text;
                 tab.HistoryIndex--;
                 tab.Input.Text = tab.History[tab.HistoryIndex];
                 tab.Input.CaretIndex = tab.Input.Text.Length;
@@ -227,7 +244,8 @@ internal sealed class CodexTerminalWindow : Window
             {
                 e.Handled = true;
                 tab.HistoryIndex++;
-                tab.Input.Text = tab.HistoryIndex == tab.History.Count ? "" : tab.History[tab.HistoryIndex];
+                tab.Input.Text = tab.HistoryIndex == tab.History.Count
+                    ? tab.HistoryDraft : tab.History[tab.HistoryIndex];
                 tab.Input.CaretIndex = tab.Input.Text.Length;
             }
         };
@@ -412,5 +430,6 @@ internal sealed class CodexTerminalWindow : Window
         public TerminalSequenceFilter SequenceFilter { get; } = new();
         public List<string> History { get; } = [];
         public int HistoryIndex { get; set; }
+        public string HistoryDraft { get; set; } = "";
     }
 }

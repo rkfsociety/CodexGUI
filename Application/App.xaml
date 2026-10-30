@@ -21,38 +21,133 @@
     <SolidColorBrush x:Key="TextFaint" Color="#8D95A2" />
     <SolidColorBrush x:Key="Accent" Color="#92E5C7" />
     <SolidColorBrush x:Key="Green" Color="#92E5C7" />
-    <Style TargetType="ContextMenu">
+    <!-- Every popup uses the same dark surface as the application, including
+         menus created in code that have no logical parent until opened. -->
+    <Style TargetType="{x:Type ContextMenu}">
       <Setter Property="Background" Value="{StaticResource Surface}" />
       <Setter Property="Foreground" Value="{StaticResource TextMain}" />
       <Setter Property="BorderBrush" Value="{StaticResource Line}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="4" />
+      <Setter Property="FontFamily" Value="Segoe UI" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="5" />
       <Setter Property="HasDropShadow" Value="True" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type ContextMenu}">
+            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                            MaxHeight="520" CanContentScroll="True" Focusable="False">
+                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+              </ScrollViewer>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
-    <Style TargetType="MenuItem">
+    <Style TargetType="{x:Type MenuItem}">
       <Setter Property="Foreground" Value="{StaticResource TextMain}" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Padding" Value="10,7" />
       <Setter Property="FontFamily" Value="Segoe UI" />
       <Setter Property="FontSize" Value="13" />
+      <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="MenuItem">
-            <Border x:Name="ItemChrome" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-              <Grid>
-                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" />
-                <Popup x:Name="SubmenuPopup" AllowsTransparency="True" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}" Placement="Right" PopupAnimation="Fade">
-                  <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="4">
+          <ControlTemplate TargetType="{x:Type MenuItem}">
+            <Grid>
+              <Border x:Name="ItemChrome" Background="{TemplateBinding Background}" CornerRadius="6"
+                      Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                <Grid MinWidth="142">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="14" />
+                  </Grid.ColumnDefinitions>
+                  <Path x:Name="CheckMark" Grid.Column="0" Width="14" Height="14" Stretch="Uniform"
+                        Data="M2,7 L6,11 L13,3" Stroke="{StaticResource Accent}" StrokeThickness="2"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                        Visibility="Collapsed" VerticalAlignment="Center" />
+                  <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                    VerticalAlignment="Center" Margin="3,0,10,0" />
+                  <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                             Foreground="{StaticResource TextFaint}" FontSize="11"
+                             VerticalAlignment="Center" Margin="8,0,0,0" />
+                  <Path x:Name="SubmenuArrow" Grid.Column="3" Width="9" Height="9" Stretch="Uniform"
+                        Data="M3,2 L7,6 L3,10" Stroke="{StaticResource TextMuted}" StrokeThickness="1.5"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                        Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                </Grid>
+              </Border>
+              <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
+                     Placement="Right" PlacementTarget="{Binding ElementName=ItemChrome}"
+                     HorizontalOffset="-2" VerticalOffset="-5" PopupAnimation="Fade"
+                     IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}"
+                        BorderThickness="1" CornerRadius="10" Padding="5" SnapsToDevicePixels="True">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                MaxHeight="520" CanContentScroll="True" Focusable="False">
                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
-                  </Border>
-                </Popup>
-              </Grid>
-            </Border>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SurfaceHover}" /></Trigger>
-              <Trigger Property="IsChecked" Value="True"><Setter TargetName="ItemChrome" Property="Background" Value="#203A34" /></Trigger>
-              <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48" /></Trigger>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SurfaceHover}" />
+              </Trigger>
+              <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SurfaceHover}" />
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                <Setter TargetName="ItemChrome" Property="Background" Value="#203A34" />
+              </Trigger>
+              <Trigger Property="HasItems" Value="True">
+                <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.48" />
+                <Setter Property="Cursor" Value="Arrow" />
+              </Trigger>
             </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="{x:Type Separator}">
+      <Setter Property="Margin" Value="7,5" />
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="{StaticResource Line}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type Separator}">
+            <Border Height="{TemplateBinding Height}" Background="{TemplateBinding Background}"
+                    SnapsToDevicePixels="True" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="{x:Type ToolTip}">
+      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
+      <Setter Property="Background" Value="{StaticResource Surface}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="FontFamily" Value="Segoe UI" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MaxWidth" Value="380" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type ToolTip}">
+            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter />
+            </Border>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -563,9 +658,12 @@
               <ToggleButton Focusable="False" Background="Transparent" BorderThickness="0" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                 <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
               </ToggleButton>
-              <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                <Border Margin="0,5,0,0" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="4">
-                  <ScrollViewer MaxHeight="280" CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=ComboChrome}"
+                     IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                <Border Margin="0,5,0,0" MinWidth="{Binding ActualWidth, ElementName=ComboChrome}"
+                        Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="4">
+                  <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="True"
+                                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
                   </ScrollViewer>
                 </Border>
@@ -574,19 +672,12 @@
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="#486173" /></Trigger>
               <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
+              <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboChrome" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboChrome" Property="Opacity" Value="0.5" /></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
-    </Style>
-    <Style TargetType="ToolTip">
-      <Setter Property="Background" Value="{StaticResource Surface}" />
-      <Setter Property="Foreground" Value="{StaticResource TextMain}" />
-      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
-      <Setter Property="Padding" Value="10,7" />
-      <Setter Property="FontSize" Value="12" />
     </Style>
   </Application.Resources>
 </Application>

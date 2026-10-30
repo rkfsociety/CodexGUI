@@ -201,7 +201,15 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetColumn(fileNameBorder, 1);
         fileNamePanel.Children.Add(fileNameBorder);
         _fileName.Text = fileName;
-        _fileName.TextChanged += (_, _) => UpdateConfirmButton();
+        _fileName.TextChanged += (_, _) =>
+        {
+            // A typed file name takes precedence over a previously highlighted folder.
+            // Otherwise ConfirmSelection navigates into that folder instead of opening the file.
+            if (_mode == PickerMode.OpenFile
+                && _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } })
+                _entries.SelectedItem = null;
+            UpdateConfirmButton();
+        };
         _fileName.PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -353,14 +361,20 @@ internal sealed class CodexFilePickerWindow : Window
 
     private void NavigateToLocation()
     {
-        var path = _location.Text.Trim();
-        if (!Directory.Exists(path))
+        // Resolve relative paths against the folder shown in the picker, not the app's working directory.
+        string path;
+        try { path = Path.GetFullPath(_location.Text.Trim(), _currentDirectory); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _status.Foreground = Brush("#F28B82");
-            _status.Text = "Папка не найдена.";
+            ShowError("Укажите корректный путь к папке.");
             return;
         }
-        _currentDirectory = Path.GetFullPath(path);
+        if (!Directory.Exists(path))
+        {
+            ShowError("Папка не найдена.");
+            return;
+        }
+        _currentDirectory = path;
         RefreshEntries();
     }
 
@@ -405,9 +419,15 @@ internal sealed class CodexFilePickerWindow : Window
     {
         if (_mode == PickerMode.Folder)
         {
-            SelectedPath = _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } entry }
+            var selectedDirectory = _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } entry }
                 ? entry.Path
                 : _currentDirectory;
+            if (!Directory.Exists(selectedDirectory))
+            {
+                ShowError("Выбранная папка больше не существует или недоступна.");
+                return;
+            }
+            SelectedPath = selectedDirectory;
             DialogResult = true;
             return;
         }

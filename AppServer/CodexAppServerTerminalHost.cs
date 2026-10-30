@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -225,6 +226,9 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
 
     private async Task ReadNotificationsAsync(CodexAppServerConnection connection, CancellationToken cancellationToken)
     {
+        // Each process emits a byte stream; UTF-8 characters can cross notification boundaries.
+        // Keep decoders separate so interleaved terminal output cannot corrupt Cyrillic text.
+        var decoders = new Dictionary<string, Decoder>(StringComparer.Ordinal);
         try
         {
             while (await connection.WaitForIncomingAsync(cancellationToken))
@@ -238,8 +242,13 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                         continue;
                     try
                     {
-                        var text = Encoding.UTF8.GetString(Convert.FromBase64String(deltaBase64));
-                        PublishOutput(processId, text);
+                        var bytes = Convert.FromBase64String(deltaBase64);
+                        if (!decoders.TryGetValue(processId, out var decoder))
+                            decoders[processId] = decoder = Encoding.UTF8.GetDecoder();
+                        var characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
+                        var count = decoder.GetChars(bytes, 0, bytes.Length, characters, 0, flush: false);
+                        if (count > 0)
+                            PublishOutput(processId, new string(characters, 0, count));
                         if (parameters.TryGetProperty("capReached", out var capReached) && capReached.ValueKind == JsonValueKind.True)
                             PublishOutput(processId, "\r\n[вывод достиг лимита захвата]\r\n");
                     }

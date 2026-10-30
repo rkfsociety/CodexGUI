@@ -163,9 +163,19 @@ internal static class WorkspaceFileSearch
                         for (var i = 0; i < lines.Length && hits.Count < 200; i++)
                         {
                             cancellation.ThrowIfCancellationRequested();
-                            if (!lines[i].Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
-                            var preview = lines[i].Trim();
-                            if (preview.Length > 180) preview = preview[..180] + "…";
+                            var line = lines[i].Trim();
+                            var matchIndex = line.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                            if (matchIndex < 0) continue;
+                            var preview = line;
+                            if (line.Length > 180)
+                            {
+                                // Keep the matching text visible even when it occurs far into a long line.
+                                var start = Math.Max(0, matchIndex - 60);
+                                if (start + 180 > line.Length) start = line.Length - 180;
+                                var end = start + 180;
+                                preview = (start > 0 ? "…" : "") + line[start..end]
+                                    + (end < line.Length ? "…" : "");
+                            }
                             hits.Add(new WorkspaceSearchHit(file, i + 1, $"{relative}:{i + 1}   {preview}"));
                         }
                     }
