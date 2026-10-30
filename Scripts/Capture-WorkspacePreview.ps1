@@ -1039,8 +1039,8 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($Width -eq 1585 -and $Height -eq 992 -and $ComposerState -eq 'Empty') {
         $anchors = @{
-            ProjectStructureCard = @(16, 80, 384, 378)
-            ProjectMapCard = @(16, 468, 384, 390)
+            ProjectStructureCard = @(16, 80, 384, 368)
+            ProjectMapCard = @(16, 458, 384, 380)
             GoalCard = @(1187, 81, 386, 280)
             ContextMemoryCard = @(1187, 373, 386, 214)
             QuickToolsCard = @(1187, 598, 386, 226)

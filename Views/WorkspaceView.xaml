@@ -443,7 +443,7 @@
       </UniformGrid>
     </Grid>
   </Border>
-  <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="1" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" Grid.RowSpan="2" Margin="0,0,0,122">
+  <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="1" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" Grid.RowSpan="2" Margin="0,0,0,142">
     <Grid Margin="16,12,0,12">
       <Grid.RowDefinitions>
         <RowDefinition Height="48.6*" />
