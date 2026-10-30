@@ -198,6 +198,12 @@ internal sealed class CodexTerminalWindow : Window
             if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
             {
                 e.Handled = true;
+                if (!tab.IsRunning)
+                {
+                    // A stopped or not-yet-started session must not discard the user's draft.
+                    _status.Text = "Терминал не запущен; введённая команда сохранена.";
+                    return;
+                }
                 // Capture and clear before awaiting I/O: later typing belongs to the next command.
                 var command = tab.Input.Text;
                 tab.Input.Clear();
