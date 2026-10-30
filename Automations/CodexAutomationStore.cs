@@ -176,11 +176,24 @@ internal static class CodexAutomationStore
     internal static List<CodexAutomationRun> LoadRuns(string runsDirectory)
     {
         if (!Directory.Exists(runsDirectory)) return [];
+        try
+        {
+            // Do not follow a linked runs directory into unrelated user files.
+            if ((File.GetAttributes(runsDirectory) & FileAttributes.ReparsePoint) != 0)
+                return [];
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
         var runs = new List<CodexAutomationRun>();
         foreach (var path in Directory.EnumerateFiles(runsDirectory, "*.json"))
         {
             try
             {
+                // A linked JSON file can redirect the history reader outside its own storage.
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    continue;
                 // Persisted run files may be corrupt or unexpectedly large; never read one without a bound.
                 // Run results are replaced atomically; readers must not block the rename on Windows.
                 using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
