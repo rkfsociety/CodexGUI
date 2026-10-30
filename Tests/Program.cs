@@ -31,6 +31,7 @@ internal static class Program
         try
         {
             await Check("Workspace search finds names and text with correct line numbers", () => WorkspaceSearchAsync(root));
+            await Check("Browser navigation accepts web addresses and searches while rejecting unsafe schemes", BrowserNavigation);
             await Check("Workspace search is bounded and honors cancellation", () => WorkspaceSearchLimitsAsync(root));
             await Check("Workspace search bounds queued directories before visiting them", () => WorkspaceSearchDirectoryBudgetAsync(root));
             await Check("Workspace map reads real folders, frameworks and package dependencies", () => WorkspaceMapAsync(root));
@@ -157,6 +158,23 @@ internal static class Program
         }
         catch (OperationCanceledException) { }
 
+        return Task.CompletedTask;
+    }
+
+    private static Task BrowserNavigation()
+    {
+        Require(CodexBrowserWindow.CreateNavigationUri("example.com")?.AbsoluteUri == "https://example.com/",
+            "A bare host should default to HTTPS");
+        Require(CodexBrowserWindow.CreateNavigationUri("localhost:5173")?.AbsoluteUri == "http://localhost:5173/",
+            "A localhost development address should use HTTP by default");
+        Require(CodexBrowserWindow.CreateNavigationUri("search words")?.Host == "www.google.com",
+            "A search query should use the browser search provider");
+        Require(CodexBrowserWindow.CreateNavigationUri("javascript:alert(1)") is null,
+            "Non-web URI schemes must not navigate");
+        Require(CodexBrowserWindow.CreateNavigationUri("mailto:user@example.com") is null,
+            "External URI schemes must not navigate");
+        Require(CodexBrowserWindow.CreateNavigationUri("file:///C:/Windows/win.ini") is null,
+            "Local file URLs must not navigate");
         return Task.CompletedTask;
     }
 

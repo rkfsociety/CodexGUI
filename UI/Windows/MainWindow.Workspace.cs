@@ -14,6 +14,7 @@ public partial class MainWindow
     private string WorkspaceDirectory => _currentThread?.WorktreePath ?? _projectPath;
     private int _workspaceMapMode;
     private double _workspaceMapZoom = 1;
+    private CodexBrowserWindow? _browserWindow;
 
     private void BindWorkspaceEvents()
     {
@@ -30,6 +31,7 @@ public partial class MainWindow
         Click("QuickFindButton", (_, _) => ShowWorkspaceSearch());
         Click("QuickFileButton", async (_, _) => await PickWorkspaceFileAsync());
         Click("QuickTerminalButton", (_, _) => ShowTerminalWindow());
+        Click("QuickBrowserButton", (_, _) => ShowBrowserWindow());
         Click("QuickDiffButton", (_, _) => ShowWorkspaceGit());
         Click("QuickCreateButton", (_, _) => CreateWorkspaceFile());
         Click("QuickExplainButton", (_, _) =>
@@ -51,6 +53,19 @@ public partial class MainWindow
         Click("MapZoomOutButton", (_, _) => { _workspaceMapZoom = Math.Max(0.6, _workspaceMapZoom - 0.2); RenderWorkspaceMap(); });
         Click("MapResetButton", (_, _) => { _workspaceMapZoom = 1; RenderWorkspaceMap(); });
         Click("MapFullButton", (_, _) => ShowFullWorkspaceMap());
+    }
+
+    private void ShowBrowserWindow()
+    {
+        if (_browserWindow is { IsLoaded: true })
+        {
+            _browserWindow.Activate();
+            return;
+        }
+
+        _browserWindow = new CodexBrowserWindow { Owner = this };
+        _browserWindow.Closed += (_, _) => _browserWindow = null;
+        _browserWindow.Show();
     }
 
     private void ShowWorkspaceProjectTools()

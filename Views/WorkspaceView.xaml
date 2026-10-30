@@ -769,6 +769,10 @@
                     <Path Data="M13,1 L4,14 H11 L9,23 L21,9 H14 Z" Width="18" Height="18" Stretch="Uniform" Stroke="#F2BE58" StrokeThickness="0.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,13,0" Fill="#F2BE58" />
                     <TextBlock Text="Быстрые инструменты" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                   </StackPanel>
+                  <Button x:Name="QuickBrowserButton" Grid.Column="1" Content="🌐  Браузер" Padding="9,5" FontSize="11"
+                          Background="#14232C" Foreground="#D8E3E9" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                          ToolTip="Открыть браузер CodexGUI (окно доступно для @computer-use)"
+                          AutomationProperties.Name="Открыть встроенный браузер" />
                 </Grid>
               </Border>
               <UniformGrid Columns="2" Height="165" Margin="10,0,10,13">
