@@ -311,7 +311,8 @@ internal static class GitRepositoryInspector
                 try
                 {
                     var fullPath = Path.GetFullPath(Path.Combine(root, file.Path));
-                    if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return;
+                    if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                        || HasLinkedParentDirectory(root, fullPath)) return;
                     var lineCount = await CountTextLinesAsync(fullPath, token);
                     if (lineCount is { } count) Interlocked.Add(ref added, count);
                 }
@@ -320,6 +321,21 @@ internal static class GitRepositoryInspector
                 catch (ArgumentException) { }
             });
         return (added, removed);
+    }
+
+    // Do not read through a junction or symbolic-link directory when Git reports a file.
+    // A lexical path check alone does not prevent a linked parent from leaving the worktree.
+    private static bool HasLinkedParentDirectory(string root, string fullPath)
+    {
+        var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        for (var parent = Path.GetDirectoryName(fullPath);
+             parent is not null && !string.Equals(parent, normalizedRoot, StringComparison.OrdinalIgnoreCase);
+             parent = Path.GetDirectoryName(parent))
+        {
+            if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                return true;
+        }
+        return false;
     }
 
     // Git -z separates records with NULs, not newlines. A rename has a blank path field
@@ -399,6 +415,8 @@ internal static class GitRepositoryInspector
         if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Путь файла выходит за пределы репозитория.");
         var gitPath = ValidateRepositoryRelativePath(root, file.Path);
+        if (file.IsUntracked && HasLinkedParentDirectory(root, fullPath))
+            throw new InvalidDataException("Нельзя просмотреть файл через связанную папку.");
 
         GitCommandResult result;
         if (file.IsUntracked)
