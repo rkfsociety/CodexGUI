@@ -432,9 +432,9 @@ internal sealed class CodexFilePickerWindow : Window
             return;
         }
 
-        if (_mode == PickerMode.OpenFile && _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } selectedDirectory })
+        if (_mode == PickerMode.OpenFile && _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } selectedFolder })
         {
-            _currentDirectory = selectedDirectory.Path;
+            _currentDirectory = selectedFolder.Path;
             RefreshEntries();
             return;
         }
