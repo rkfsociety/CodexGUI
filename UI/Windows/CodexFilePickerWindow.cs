@@ -19,6 +19,9 @@ internal sealed class CodexFilePickerWindow : Window
         SaveFile
     }
 
+    private const int MaximumVisibleEntries = 1000;
+    private const int MaximumScannedFiles = 5000;
+
     private sealed record PickerEntry(string Name, string Path, bool IsDirectory, string Details);
 
     private readonly PickerMode _mode;
@@ -290,13 +293,24 @@ internal sealed class CodexFilePickerWindow : Window
         _upButton.IsEnabled = Directory.GetParent(_currentDirectory) is not null;
         try
         {
-            var entries = Directory.EnumerateDirectories(_currentDirectory)
+            // A huge folder must not allocate thousands of WPF controls or block the picker.
+            var directoryPaths = Directory.EnumerateDirectories(_currentDirectory)
+                .Take(MaximumVisibleEntries + 1).ToList();
+            var truncated = directoryPaths.Count > MaximumVisibleEntries;
+            var entries = directoryPaths.Take(MaximumVisibleEntries)
                 .Select(path => new PickerEntry(Path.GetFileName(path), path, true, "Папка"))
                 .ToList();
-            if (_mode != PickerMode.Folder)
+            if (_mode != PickerMode.Folder && !truncated)
             {
-                entries.AddRange(Directory.EnumerateFiles(_currentDirectory)
-                    .Where(IsAllowedFile)
+                var remaining = MaximumVisibleEntries - entries.Count;
+                // Bound the scan even if most files do not match the extension filter.
+                var filePaths = Directory.EnumerateFiles(_currentDirectory)
+                    .Take(MaximumScannedFiles + 1).ToList();
+                if (filePaths.Count > MaximumScannedFiles) truncated = true;
+                var matchingFiles = filePaths.Take(MaximumScannedFiles)
+                    .Where(IsAllowedFile).Take(remaining + 1).ToList();
+                if (matchingFiles.Count > remaining) truncated = true;
+                entries.AddRange(matchingFiles.Take(remaining)
                     .Select(path => new PickerEntry(Path.GetFileName(path), path, false, DescribeFile(path))));
             }
 
@@ -305,8 +319,10 @@ internal sealed class CodexFilePickerWindow : Window
                 _entries.Items.Add(CreateEntryItem(entry));
 
             _status.Foreground = Brush("#8D95A2");
-            _status.Text = entries.Count == 1 ? "1 элемент" : $"Элементов: {entries.Count}";
-            _status.ToolTip = _currentDirectory;
+            _status.Text = truncated
+                ? $"Показано: {entries.Count}. Список неполный — укажите путь вручную."
+                : entries.Count == 1 ? "1 элемент" : $"Элементов: {entries.Count}";
+            _status.ToolTip = truncated ? _status.Text + "\n" + _currentDirectory : _currentDirectory;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
         {
