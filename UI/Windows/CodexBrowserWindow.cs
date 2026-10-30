@@ -126,7 +126,11 @@ internal sealed class CodexBrowserWindow : Window
         {
             Directory.CreateDirectory(_userDataFolder);
             _environmentTask ??= CoreWebView2Environment.CreateAsync(null, _userDataFolder);
-            await browser.EnsureCoreWebView2Async(await _environmentTask);
+            var environment = await _environmentTask;
+            // The user may close this tab while WebView2 is still starting.
+            if (!_tabs.Items.Contains(tab)) return;
+            await browser.EnsureCoreWebView2Async(environment);
+            if (!_tabs.Items.Contains(tab)) return;
             var core = browser.CoreWebView2;
             core.NewWindowRequested += async (_, e) =>
             {
@@ -158,6 +162,8 @@ internal sealed class CodexBrowserWindow : Window
         catch (Exception ex)
         {
             if (_environmentTask?.IsFaulted == true) _environmentTask = null;
+            // A disposed tab must not be updated after its asynchronous startup fails.
+            if (!_tabs.Items.Contains(tab)) return;
             _status.Text = $"WebView2 не удалось запустить: {ex.Message}";
             browser.Visibility = Visibility.Collapsed;
             var message = new TextBlock
