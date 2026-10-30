@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -26,6 +27,7 @@ internal sealed class CodexBrowserWindow : Window
     private readonly string _userDataFolder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexGUI", "browser");
     private Task<CoreWebView2Environment>? _environmentTask;
+    private readonly Dictionary<TabItem, Uri> _pendingNavigation = new();
 
     public CodexBrowserWindow()
     {
@@ -57,6 +59,7 @@ internal sealed class CodexBrowserWindow : Window
             foreach (var tab in _tabs.Items.OfType<TabItem>())
                 (tab.Tag as WebView2)?.Dispose();
             _tabs.Items.Clear();
+            _pendingNavigation.Clear();
         };
     }
 
@@ -155,13 +158,18 @@ internal sealed class CodexBrowserWindow : Window
             {
                 if (ReferenceEquals(ActiveBrowser, browser)) _status.Text = $"Ошибка WebView2: {e.ProcessFailedKind}";
             };
-            if (initialUrl is not null) core.Navigate(initialUrl);
-            _status.Text = "Готово";
+            // An address entered while WebView2 was starting takes precedence over the home page.
+            var destination = _pendingNavigation.Remove(tab, out var queuedAddress)
+                ? queuedAddress.AbsoluteUri : initialUrl;
+            if (destination is not null) core.Navigate(destination);
+            if (ReferenceEquals(ActiveBrowser, browser))
+                _status.Text = destination is null ? "Готово" : "Загрузка страницы…";
             UpdateToolbar();
         }
         catch (Exception ex)
         {
             if (_environmentTask?.IsFaulted == true) _environmentTask = null;
+            _pendingNavigation.Remove(tab);
             // A disposed tab must not be updated after its asynchronous startup fails.
             if (!_tabs.Items.Contains(tab)) return;
             _status.Text = $"WebView2 не удалось запустить: {ex.Message}";
@@ -188,8 +196,22 @@ internal sealed class CodexBrowserWindow : Window
             _status.Text = "Введите адрес http(s) или поисковый запрос.";
             return;
         }
+        if (_tabs.SelectedItem is not TabItem tab || tab.Content is not WebView2 browser)
+        {
+            _status.Text = "Браузер недоступен. Закройте вкладку и попробуйте снова.";
+            return;
+        }
         _addressBar.Text = uri.AbsoluteUri;
-        ActiveBrowser?.CoreWebView2?.Navigate(uri.AbsoluteUri);
+        if (browser.CoreWebView2 is { } core)
+        {
+            _pendingNavigation.Remove(tab);
+            core.Navigate(uri.AbsoluteUri);
+        }
+        else
+        {
+            _pendingNavigation[tab] = uri;
+            _status.Text = "Адрес откроется после запуска браузера…";
+        }
     }
 
     internal static Uri? CreateNavigationUri(string? value)
@@ -273,6 +295,7 @@ internal sealed class CodexBrowserWindow : Window
     {
         if (!_tabs.Items.Contains(tab)) return;
         var browser = tab.Tag as WebView2;
+        _pendingNavigation.Remove(tab);
         _tabs.Items.Remove(tab);
         browser?.Dispose();
         if (_tabs.Items.Count == 0) Close();
