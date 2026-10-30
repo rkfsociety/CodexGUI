@@ -98,17 +98,22 @@ internal static class WorkspaceProjectMap
                         MaxCharactersInDocument = 1024 * 1024
                     });
                     var document = XDocument.Load(reader);
-                    foreach (var reference in document.Descendants().Where(element => element.Name.LocalName is "PackageReference" or "ProjectReference"))
+                    foreach (var reference in document.Descendants().Where(element => element.Name.LocalName is "PackageReference" or "ProjectReference" or "FrameworkReference"))
                     {
                         var name = (string?)reference.Attribute("Include");
+                        // Central package management can declare an existing dependency with Update.
+                        if (string.IsNullOrWhiteSpace(name) && reference.Name.LocalName == "PackageReference")
+                            name = (string?)reference.Attribute("Update");
                         if (!string.IsNullOrWhiteSpace(name) && AddNode(
                             reference.Name.LocalName == "ProjectReference" ? System.IO.Path.GetFileNameWithoutExtension(name) : name, manifest))
                             return nodes;
                     }
-                    // A framework reference is a real dependency even when no NuGet package is used.
+                    // Multi-targeted projects list frameworks separated by semicolons.
+                    // Display each target separately rather than as one unreadable label.
                     foreach (var framework in document.Descendants().Where(element => element.Name.LocalName is "TargetFramework" or "TargetFrameworks"))
-                        if (!string.IsNullOrWhiteSpace(framework.Value) && AddNode(framework.Value, manifest))
-                            return nodes;
+                        foreach (var target in framework.Value.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                            if (AddNode(target, manifest))
+                                return nodes;
                 }
                 catch (System.Xml.XmlException) { if (AddNode("Ошибка XML", manifest)) return nodes; }
                 // A manifest can be removed, locked or become inaccessible during refresh.
