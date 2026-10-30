@@ -228,7 +228,18 @@ internal sealed class CodexBrowserWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         var control = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-        if (control && e.Key == Key.T) { e.Handled = true; _ = CreateTabAsync(HomeUrl); }
+        if (control && e.Key == Key.Tab)
+        {
+            // Cycle through tabs with the standard browser shortcuts, including wraparound.
+            e.Handled = true;
+            if (_tabs.Items.Count > 1)
+            {
+                var direction = (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? -1 : 1;
+                var current = Math.Max(0, _tabs.SelectedIndex);
+                _tabs.SelectedIndex = (current + direction + _tabs.Items.Count) % _tabs.Items.Count;
+            }
+        }
+        else if (control && e.Key == Key.T) { e.Handled = true; _ = CreateTabAsync(HomeUrl); }
         else if (control && e.Key == Key.W) { e.Handled = true; CloseCurrentTab(); }
         else if (control && e.Key == Key.L) { e.Handled = true; _addressBar.Focus(); _addressBar.SelectAll(); }
         else if (control && e.Key == Key.R || e.Key == Key.F5) { e.Handled = true; ActiveBrowser?.Reload(); }
