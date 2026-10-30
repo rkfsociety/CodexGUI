@@ -131,16 +131,22 @@ internal static class ChatMarkdownRenderer
                 block.Inlines.Add(new Run(match.Value[2..^2]) { FontWeight = FontWeights.SemiBold });
             else if (match.Groups["italic"].Success)
                 block.Inlines.Add(new Run(match.Value[1..^1]) { FontStyle = FontStyles.Italic });
-            else
+            else if (Uri.TryCreate(match.Groups["url"].Value, UriKind.Absolute, out var uri)
+                     && uri.Scheme is ("http" or "https"))
             {
                 var link = new Hyperlink(new Run(match.Groups["label"].Value))
                 {
-                    NavigateUri = new Uri(match.Groups["url"].Value, UriKind.Absolute),
+                    NavigateUri = uri,
                     Foreground = Brush("#92E5C7"),
                     TextDecorations = TextDecorations.Underline
                 };
                 link.RequestNavigate += (_, args) => OpenLink(block, args);
                 block.Inlines.Add(link);
+            }
+            else
+            {
+                // A malformed URL from chat content must not prevent the message from rendering.
+                block.Inlines.Add(new Run(match.Value));
             }
             offset = match.Index + match.Length;
         }
