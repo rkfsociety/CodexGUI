@@ -73,7 +73,7 @@ internal sealed class WorkspaceSearchWindow : Window
             // A double-click in blank list space must not reopen the previously selected hit.
             if (args.OriginalSource is not DependencyObject source
                 || ItemsControl.ContainerFromElement(list, source) is not ListBoxItem item
-                || !ReferenceEquals(item, list.SelectedItem))
+                || !ReferenceEquals(item.Content, list.SelectedItem))
                 return;
             await OpenSelection();
         };
