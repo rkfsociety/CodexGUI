@@ -38,9 +38,9 @@ internal sealed class CodexBrowserWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
 
-        _backButton.Click += (_, _) => ActiveBrowser?.GoBack();
-        _forwardButton.Click += (_, _) => ActiveBrowser?.GoForward();
-        _reloadButton.Click += (_, _) => ActiveBrowser?.Reload();
+        _backButton.Click += (_, _) => NavigateBack();
+        _forwardButton.Click += (_, _) => NavigateForward();
+        _reloadButton.Click += (_, _) => ReloadCurrentTab();
         _stopButton.Click += (_, _) => ActiveBrowser?.CoreWebView2?.Stop();
         _newTabButton.Click += async (_, _) => await CreateTabAsync(HomeUrl);
         _tabs.SelectionChanged += (_, _) => UpdateToolbar();
@@ -242,11 +242,27 @@ internal sealed class CodexBrowserWindow : Window
         else if (control && e.Key == Key.T) { e.Handled = true; _ = CreateTabAsync(HomeUrl); }
         else if (control && e.Key == Key.W) { e.Handled = true; CloseCurrentTab(); }
         else if (control && e.Key == Key.L) { e.Handled = true; _addressBar.Focus(); _addressBar.SelectAll(); }
-        else if (control && e.Key == Key.R || e.Key == Key.F5) { e.Handled = true; ActiveBrowser?.Reload(); }
+        else if (control && e.Key == Key.R || e.Key == Key.F5) { e.Handled = true; ReloadCurrentTab(); }
         else if (e.Key == Key.Escape) { ActiveBrowser?.CoreWebView2?.Stop(); }
-        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Left) { e.Handled = true; ActiveBrowser?.GoBack(); }
-        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Right) { e.Handled = true; ActiveBrowser?.GoForward(); }
+        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Left) { e.Handled = true; NavigateBack(); }
+        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Right) { e.Handled = true; NavigateForward(); }
     }
+
+    // Keyboard shortcuts can run before WebView2 has initialized, or with no history.
+    // Use the same availability rules as the toolbar buttons.
+    private void NavigateBack()
+    {
+        var core = ActiveBrowser?.CoreWebView2;
+        if (core?.CanGoBack == true) core.GoBack();
+    }
+
+    private void NavigateForward()
+    {
+        var core = ActiveBrowser?.CoreWebView2;
+        if (core?.CanGoForward == true) core.GoForward();
+    }
+
+    private void ReloadCurrentTab() => ActiveBrowser?.CoreWebView2?.Reload();
 
     private void CloseCurrentTab()
     {
