@@ -361,14 +361,20 @@ internal sealed class CodexFilePickerWindow : Window
 
     private void NavigateToLocation()
     {
-        var path = _location.Text.Trim();
-        if (!Directory.Exists(path))
+        // Resolve relative paths against the folder shown in the picker, not the app's working directory.
+        string path;
+        try { path = Path.GetFullPath(_location.Text.Trim(), _currentDirectory); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _status.Foreground = Brush("#F28B82");
-            _status.Text = "Папка не найдена.";
+            ShowError("Укажите корректный путь к папке.");
             return;
         }
-        _currentDirectory = Path.GetFullPath(path);
+        if (!Directory.Exists(path))
+        {
+            ShowError("Папка не найдена.");
+            return;
+        }
+        _currentDirectory = path;
         RefreshEntries();
     }
 
