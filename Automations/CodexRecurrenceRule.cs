@@ -133,7 +133,9 @@ internal static class CodexRecurrenceRule
         foreach (var key in parts.Keys)
             if (!IsSupportedPart(key)) throw new InvalidDataException($"Часть RRULE {key} пока не поддерживается.");
         if (!parts.TryGetValue("FREQ", out var frequencyText)
-            || !Enum.TryParse<Frequency>(frequencyText, ignoreCase: true, out var frequency))
+            || !frequencyText.All(char.IsAsciiLetter)
+            || !Enum.TryParse<Frequency>(frequencyText, ignoreCase: true, out var frequency)
+            || !Enum.IsDefined(frequency))
             throw new InvalidDataException("RRULE должен содержать FREQ со значением SECONDLY, MINUTELY, HOURLY, DAILY, WEEKLY, MONTHLY или YEARLY.");
 
         var interval = ParseSingleInt(parts, "INTERVAL", defaultValue: 1, minimum: 1, maximum: int.MaxValue);
