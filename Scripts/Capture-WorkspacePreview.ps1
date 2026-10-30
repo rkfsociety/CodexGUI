@@ -1070,12 +1070,17 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
         }
     }
     $composer = Get-PreviewBounds 'ComposerBorder'
+    $projectMap = Get-PreviewBounds 'ProjectMapCard'
+    $workspaceDock = Get-PreviewBounds 'WorkspaceDock'
     $input = Get-PreviewBounds 'PromptInput'
     $send = Get-PreviewBounds 'SendButton'
+    if ($projectMap.IntersectsWith($workspaceDock)) {
+        throw "Project map overlaps the composer dock: map=$projectMap dock=$workspaceDock"
+    }
     if (-not $composer.Contains($input) -or -not $composer.Contains($send)) {
         throw "Composer controls overflow their panel: input=$input send=$send composer=$composer"
     }
-    foreach ($name in @('ModelButton', 'ModeButton', 'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton', 'ScreenshotButton', 'WorkspaceWebButton', 'WorkspaceComposerSettings')) {
+    foreach ($name in @('ModelButton', 'ModeButton', 'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton', 'WorkspaceComposerSettings')) {
         if (-not $composer.Contains((Get-PreviewBounds $name))) { throw "Composer control overflows its surface: $name" }
     }
     foreach ($name in @('WorkspaceSearchButton', 'WindowCloseButton')) {
@@ -1085,10 +1090,6 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($visual.FindName('UsageLimitsPanel').Visibility -eq 'Visible') {
         $limitsBounds = Get-PreviewBounds 'UsageLimitsPanel'
-        $webSearchBounds = Get-PreviewBounds 'WorkspaceWebButton'
-        if ($webSearchBounds.Right -gt $limitsBounds.Left) {
-            throw "Account limits overlap composer actions: web=$webSearchBounds limits=$limitsBounds"
-        }
         if (-not $limitsBounds.Contains((Get-PreviewBounds 'UsageLimitsLabel'))) {
             throw 'Account limits text overflows its composer panel.'
         }
@@ -1099,9 +1100,9 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($ReportLayout) {
         $layoutNames = @(
-            'ComposerBorder', 'PromptInput', 'ModelButton', 'EffortButton', 'ModeButton',
+            'SidebarPanel', 'ProjectMapCard', 'WorkspaceDock', 'ComposerBorder', 'PromptInput', 'ModelButton', 'EffortButton', 'ModeButton',
             'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton',
-            'ScreenshotButton', 'WorkspaceWebButton', 'UsageLimitsPanel', 'UsageLimitsLabel',
+            'UsageLimitsPanel', 'UsageLimitsLabel',
             'WorkspaceComposerSettings', 'SendButton'
         )
         $layoutReport = foreach ($name in $layoutNames) {
