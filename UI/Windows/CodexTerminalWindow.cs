@@ -337,16 +337,25 @@ internal sealed class CodexTerminalWindow : Window
 
     private void OnSessionExited(CodexTerminalExit exit)
     {
-        if (_isClosing || Dispatcher.HasShutdownStarted) return;
-        _ = Dispatcher.BeginInvoke(() =>
+        if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        try
         {
-            if (!_sessions.TryGetValue(exit.ProcessId, out var tab)) return;
-            tab.IsRunning = false;
-            tab.HeaderLabel.Text = tab.Title + " · завершён";
-            if (!string.IsNullOrWhiteSpace(exit.Error)) AppendOutput(tab, "\r\n[ошибка терминала: " + exit.Error + "]\r\n");
-            else AppendOutput(tab, $"\r\n[PowerShell завершён, код {exit.ExitCode}]\r\n");
-            _status.Text = "Командная оболочка завершена";
-        });
+            _ = Dispatcher.BeginInvoke((Action)(() =>
+            {
+                // The notification can be queued before the window closes and delivered afterward.
+                if (_isClosing || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished
+                    || !_sessions.TryGetValue(exit.ProcessId, out var tab)) return;
+                tab.IsRunning = false;
+                tab.HeaderLabel.Text = tab.Title + " · завершён";
+                if (!string.IsNullOrWhiteSpace(exit.Error)) AppendOutput(tab, "\r\n[ошибка терминала: " + exit.Error + "]\r\n");
+                else AppendOutput(tab, $"\r\n[PowerShell завершён, код {exit.ExitCode}]\r\n");
+                _status.Text = "Командная оболочка завершена";
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            // The dispatcher may shut down between checking its state and scheduling the callback.
+        }
     }
 
     private static void AppendOutput(TerminalTab tab, string text)
