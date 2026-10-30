@@ -256,8 +256,7 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
     $workspace.ColumnDefinitions[1].Width = [System.Windows.GridLength]::new($(if ($Width -lt 1260) { 0 } elseif ($Width -ge 1400) { 400 } else { 300 }))
     $workspace.ColumnDefinitions[3].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1400) { 398 } else { 310 }))
     if ($Width -lt 1260) { $workspace.FindName('SidebarPanel').Visibility = 'Collapsed' }
-    $dockMargin = if ($Width -ge 1400) { 148 } else { 12 }
-    $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new($dockMargin, 0, $dockMargin, 4)
+    $workspace.FindName('WorkspaceDock').Margin = [System.Windows.Thickness]::new(0, 0, 0, 4)
     $workspace.FindName('WorkspaceDockGrid').ColumnDefinitions[0].Width = [System.Windows.GridLength]::new($(if ($Width -ge 1100) { 190 } else { 130 }))
     if ($Width -lt 1100) {
         $workspace.FindName('WorkspaceProjectButton').Width = 150
@@ -265,9 +264,9 @@ if ($View -in @('Workspace', 'Welcome', 'Reference')) {
         $workspace.FindName('WorkspaceProjectPrefix').Visibility = 'Collapsed'
         $workspace.FindName('WorkspaceAgentStatus').Visibility = 'Collapsed'
         foreach ($name in @('WorkspaceChatsButton', 'WorkspaceAgentButton', 'WorkspaceToolsButton')) { $workspace.FindName($name).Margin = [System.Windows.Thickness]::new(0) }
-        [System.Windows.Controls.Grid]::SetColumn($workspace.FindName('ComposerSettings'), 0)
-        [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), 1)
     }
+    [System.Windows.Controls.Grid]::SetColumn($workspace.FindName('ComposerSettings'), $(if ($Width -ge 1800) { 1 } else { 0 }))
+    [System.Windows.Controls.Grid]::SetRow($workspace.FindName('ComposerSettings'), $(if ($Width -ge 1800) { 0 } else { 1 }))
     $workspace.FindName('WorkspaceTagline').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
     $workspace.FindName('UsageLimitsPanel').Visibility = if ($Width -ge 1450) { 'Visible' } else { 'Collapsed' }
     $compactLimits = $Width -ge 1400
@@ -1039,8 +1038,6 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($Width -eq 1585 -and $Height -eq 992 -and $ComposerState -eq 'Empty') {
         $anchors = @{
-            ProjectStructureCard = @(16, 80, 384, 368)
-            ProjectMapCard = @(16, 458, 384, 380)
             GoalCard = @(1187, 81, 386, 280)
             ContextMemoryCard = @(1187, 373, 386, 214)
             QuickToolsCard = @(1187, 598, 386, 226)
@@ -1050,14 +1047,6 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
             QuickDiffButton = @(1384, 704, 174, 47)
             QuickCreateButton = @(1202, 759, 174, 47)
             QuickExplainButton = @(1384, 759, 174, 47)
-            WorkspaceDock = @(148, 853, 1289, 135)
-            ComposerBorder = @(366, 867, 1041, 106)
-            WorkspaceChatsButton = @(196, 867, 170, 36)
-            ModelButton = @(904, 873, 160, 36)
-            ModeButton = @(1218, 873, 162, 36)
-            AddContextButton = @(388, 929, 38, 38)
-            WorkspaceComposerSettings = @(1150, 929, 42, 38)
-            SendButton = @(1224, 929, 164, 38)
         }
         foreach ($entry in $anchors.GetEnumerator()) {
             $actual = Get-PreviewBounds $entry.Key
@@ -1072,9 +1061,20 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     $composer = Get-PreviewBounds 'ComposerBorder'
     $projectMap = Get-PreviewBounds 'ProjectMapCard'
     $workspaceDock = Get-PreviewBounds 'WorkspaceDock'
+    $sidebar = Get-PreviewBounds 'SidebarPanel'
+    $contextPanel = Get-PreviewBounds 'ContextPanel'
     $input = Get-PreviewBounds 'PromptInput'
     $send = Get-PreviewBounds 'SendButton'
-    if ($projectMap.IntersectsWith($workspaceDock)) {
+    if ($visual.FindName('SidebarPanel').Visibility -eq 'Visible' -and
+        ($sidebar.Right -gt $workspaceDock.Left -or $sidebar.Bottom -le $workspaceDock.Top)) {
+        throw "Project panel is not beside the composer dock: panel=$sidebar dock=$workspaceDock"
+    }
+    if ($visual.FindName('ContextPanel').Visibility -eq 'Visible' -and
+        ($contextPanel.Left -lt $workspaceDock.Right -or $contextPanel.Bottom -le $workspaceDock.Top)) {
+        throw "Context panel is not beside the composer dock: panel=$contextPanel dock=$workspaceDock"
+    }
+    if ($projectMap.Right -gt $workspaceDock.Left -and $projectMap.Left -lt $workspaceDock.Right -and
+        $projectMap.Bottom -gt $workspaceDock.Top -and $projectMap.Top -lt $workspaceDock.Bottom) {
         throw "Project map overlaps the composer dock: map=$projectMap dock=$workspaceDock"
     }
     if (-not $composer.Contains($input) -or -not $composer.Contains($send)) {
@@ -1100,7 +1100,7 @@ if ($VerifyLayout -and $View -in @('Workspace', 'Welcome', 'Reference')) {
     }
     if ($ReportLayout) {
         $layoutNames = @(
-            'SidebarPanel', 'ProjectMapCard', 'WorkspaceDock', 'ComposerBorder', 'PromptInput', 'ModelButton', 'EffortButton', 'ModeButton',
+            'SidebarPanel', 'ProjectMapCard', 'ContextPanel', 'WorkspaceDock', 'ComposerBorder', 'PromptInput', 'ModelButton', 'EffortButton', 'ModeButton',
             'AddContextButton', 'WorkspaceAttachButton', 'WorkspaceContextButton',
             'UsageLimitsPanel', 'UsageLimitsLabel',
             'WorkspaceComposerSettings', 'SendButton'

@@ -5589,13 +5589,14 @@ public partial class MainWindow : Window
         if (Control<StackPanel>("WorkspaceHeaderControls") is { } headerControls)
             headerControls.Margin = new Thickness(view.ActualWidth >= 1450 ? 30 : 16, 0, 0, 0);
         if (Control<Border>("WorkspaceDock") is { } dock)
-            dock.Margin = new Thickness(view.ActualWidth >= 1400 ? 148 : 12, 0, view.ActualWidth >= 1400 ? 148 : 12, 4);
+            dock.Margin = new Thickness(0, 0, 0, 4);
         if (Control<Grid>("WorkspaceDockGrid") is { } dockGrid)
             dockGrid.ColumnDefinitions[0].Width = new GridLength(view.ActualWidth >= 1100 ? 190 : 130);
         if (Control<StackPanel>("ComposerSettings") is { } settings)
         {
-            Grid.SetColumn(settings, view.ActualWidth >= 1100 ? 1 : 0);
-            Grid.SetRow(settings, view.ActualWidth >= 1100 ? 0 : 1);
+            var keepSettingsBesidePrompt = view.ActualWidth >= 1800;
+            Grid.SetColumn(settings, keepSettingsBesidePrompt ? 1 : 0);
+            Grid.SetRow(settings, keepSettingsBesidePrompt ? 0 : 1);
         }
         view.ColumnDefinitions[1].Width = new GridLength(hideSidebar ? 0 : (view.ActualWidth >= 1400 ? 400 : 300));
         if (Control<Border>("SidebarPanel") is { } sidebar)

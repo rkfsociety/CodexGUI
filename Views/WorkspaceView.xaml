@@ -443,7 +443,7 @@
       </UniformGrid>
     </Grid>
   </Border>
-  <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="1" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" Margin="0,0,0,3">
+  <Border x:Name="SidebarPanel" Grid.Row="1" Grid.Column="1" Grid.RowSpan="2" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" Margin="0,0,0,12">
     <Grid Margin="16,12,0,12">
       <Grid.RowDefinitions>
         <RowDefinition Height="48.6*" />
@@ -637,7 +637,7 @@
       </ScrollViewer>
     </Grid>
   </Grid>
-  <Border x:Name="ContextPanel" Grid.Row="1" Grid.Column="3" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" CornerRadius="14" Margin="0,13,12,0" Visibility="Visible">
+  <Border x:Name="ContextPanel" Grid.Row="1" Grid.Column="3" Grid.RowSpan="2" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="0" CornerRadius="14" Margin="0,13,12,12" Visibility="Visible">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <Grid Margin="0">
         <Grid.RowDefinitions>
@@ -847,7 +847,7 @@
       </Grid>
     </ScrollViewer>
   </Border>
-  <Border x:Name="WorkspaceDock" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" BorderBrush="#326C70" BorderThickness="0" Background="Transparent" Margin="148,0,148,4" Padding="18,12,30,12" MinHeight="135" TextOptions.TextRenderingMode="Grayscale">
+  <Border x:Name="WorkspaceDock" Grid.Row="2" Grid.Column="2" BorderBrush="#326C70" BorderThickness="0" Background="Transparent" Margin="0,0,0,4" Padding="18,12,30,12" MinHeight="135" TextOptions.TextRenderingMode="Grayscale">
     <Grid x:Name="WorkspaceDockGrid">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="190" />
