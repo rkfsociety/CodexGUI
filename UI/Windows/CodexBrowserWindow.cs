@@ -261,6 +261,18 @@ internal sealed class CodexBrowserWindow : Window
                 _tabs.SelectedIndex = (current + direction + _tabs.Items.Count) % _tabs.Items.Count;
             }
         }
+        else if (Keyboard.Modifiers == ModifierKeys.Control &&
+                 (e.Key is >= Key.D1 and <= Key.D9 || e.Key is >= Key.NumPad1 and <= Key.NumPad9))
+        {
+            // Ctrl+1..8 selects a numbered tab; Ctrl+9 jumps to the last tab.
+            e.Handled = true;
+            var number = e.Key is >= Key.NumPad1 and <= Key.NumPad9
+                ? (int)e.Key - (int)Key.NumPad1 + 1
+                : (int)e.Key - (int)Key.D1 + 1;
+            var index = number == 9 ? _tabs.Items.Count - 1 : number - 1;
+            if (index >= 0 && index < _tabs.Items.Count)
+                _tabs.SelectedIndex = index;
+        }
         else if (control && e.Key == Key.T) { e.Handled = true; _ = CreateTabAsync(HomeUrl); }
         else if (control && e.Key == Key.W) { e.Handled = true; CloseCurrentTab(); }
         else if (control && e.Key == Key.L) { e.Handled = true; _addressBar.Focus(); _addressBar.SelectAll(); }
