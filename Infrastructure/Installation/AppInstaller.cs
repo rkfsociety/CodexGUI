@@ -100,7 +100,9 @@ internal static class AppInstaller
         var directory = new DirectoryInfo(Path.GetDirectoryName(executablePath)!);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "CodexGUI.csproj"))) return true;
+            if (File.Exists(Path.Combine(directory.FullName, "CodexGUI.csproj"))
+                || File.Exists(Path.Combine(directory.FullName, "Build", "CodexGUI.csproj")))
+                return true;
             directory = directory.Parent;
         }
 
