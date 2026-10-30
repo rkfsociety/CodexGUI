@@ -42,7 +42,7 @@ internal static class AppInstaller
 
             Directory.CreateDirectory(installDirectory);
             if (IsSingleFileApplication())
-                File.Copy(sourceExecutable, installedExecutable, overwrite: true);
+                InstallSingleFileAtomically(sourceExecutable, installedExecutable);
             else
                 CopyApplicationDirectory(Path.GetDirectoryName(sourceExecutable)!, installDirectory);
 
@@ -111,6 +111,24 @@ internal static class AppInstaller
         string.Equals(Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
             Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
             StringComparison.OrdinalIgnoreCase);
+
+    private static void InstallSingleFileAtomically(string sourceExecutable, string installedExecutable)
+    {
+        // Copy into the destination folder first so a failed transfer cannot corrupt
+        // an already installed executable. The final rename stays on one volume.
+        var temporaryExecutable = installedExecutable + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.Copy(sourceExecutable, temporaryExecutable);
+            File.Move(temporaryExecutable, installedExecutable, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temporaryExecutable); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
 
     private static void CopyApplicationDirectory(string sourceDirectory, string destinationDirectory)
     {
