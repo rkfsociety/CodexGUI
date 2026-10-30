@@ -27,9 +27,11 @@ internal static class CodexRecurrenceRule
     {
         var rule = Parse(ruleText);
         startAtLocal = DateTime.SpecifyKind(startAtLocal, DateTimeKind.Unspecified);
-        var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, TimeZoneInfo.Local).DateTime;
+        // A clock rollback must not make an already handled occurrence eligible again.
+        var effectiveNowUtc = previousOccurrenceUtc is { } lastRun && lastRun > nowUtc ? lastRun : nowUtc;
+        var nowLocal = TimeZoneInfo.ConvertTime(effectiveNowUtc, TimeZoneInfo.Local).DateTime;
         var searchLocal = previousOccurrenceUtc?.ToLocalTime().DateTime ?? nowLocal;
-        if (rule.Until is { Utc: { } untilUtc } && nowUtc > untilUtc
+        if (rule.Until is { Utc: { } untilUtc } && effectiveNowUtc > untilUtc
             || rule.Until is { Local: { } untilLocal } && nowLocal > untilLocal)
             return new CodexRecurrenceCalculation(null, occurrencesBeforeNext);
 
@@ -77,7 +79,7 @@ internal static class CodexRecurrenceRule
                 if (IsAfterUntil(candidateLocal, candidateUtc, rule.Until))
                     return new CodexRecurrenceCalculation(null, count);
 
-                if (candidateUtc <= nowUtc)
+                if (candidateUtc <= effectiveNowUtc)
                 {
                     if (rule.Count is { } maxCount)
                     {
