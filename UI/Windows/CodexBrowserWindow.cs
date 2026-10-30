@@ -194,9 +194,13 @@ internal sealed class CodexBrowserWindow : Window
             return Uri.TryCreate(input, UriKind.Absolute, out var explicitUri) && IsAllowedNavigation(explicitUri.AbsoluteUri)
                 ? explicitUri : null;
         if (input.Any(char.IsWhiteSpace)) return SearchUri(input);
-        var isLocalHost = input.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) ||
-                          input.StartsWith("127.", StringComparison.Ordinal) ||
-                          input.StartsWith("[::1]", StringComparison.OrdinalIgnoreCase);
+        // Determine loopback status from the complete host, not a textual prefix:
+        // "localhost.example.com" and "127.example.com" must use HTTPS.
+        var hasCandidate = Uri.TryCreate("https://" + input, UriKind.Absolute, out var candidate);
+        var host = hasCandidate ? candidate!.Host.Trim('[', ']') : string.Empty;
+        var isLocalHost = host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                          (System.Net.IPAddress.TryParse(host, out var address) &&
+                           System.Net.IPAddress.IsLoopback(address));
         if (input.Contains(':') && !isLocalHost)
         {
             var schemeOrHost = input[..input.IndexOf(':')];
