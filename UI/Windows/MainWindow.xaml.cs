@@ -746,7 +746,12 @@ public partial class MainWindow : Window
         if (!string.Equals(prompt.Language.IetfLanguageTag, languageTag, StringComparison.OrdinalIgnoreCase))
             prompt.Language = XmlLanguage.GetLanguage(languageTag);
 
-        var enabled = prompt.Text != PromptPlaceholder;
+        var primaryLanguage = languageTag.Split('-', 2)[0];
+        var hasDefaultSpellCheckDictionary = primaryLanguage.Equals("en", StringComparison.OrdinalIgnoreCase)
+            || primaryLanguage.Equals("fr", StringComparison.OrdinalIgnoreCase)
+            || primaryLanguage.Equals("de", StringComparison.OrdinalIgnoreCase)
+            || primaryLanguage.Equals("es", StringComparison.OrdinalIgnoreCase);
+        var enabled = prompt.Text != PromptPlaceholder && hasDefaultSpellCheckDictionary;
         if (SpellCheck.GetIsEnabled(prompt) != enabled)
             SpellCheck.SetIsEnabled(prompt, enabled);
     }
