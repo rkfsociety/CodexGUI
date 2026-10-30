@@ -315,7 +315,9 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     }
 
     private static string? GetString(JsonElement element, string property) =>
-        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     public async ValueTask DisposeAsync()
     {
