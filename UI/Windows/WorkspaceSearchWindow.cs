@@ -128,7 +128,7 @@ internal static class WorkspaceFileSearch
         ".mp3", ".mp4", ".mov", ".wav", ".woff", ".woff2", ".ttf", ".otf",
         ".sqlite", ".db3", ".jar", ".class", ".wasm", ".glb"
     };
-    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
+    // Unknown extensions may still contain binary data or invalid UTF-8.\n    // Do not show accidental text matches from those files; filename matches remain available.\n    private static bool ContainsBinaryCharacters(string content)\n    {\n        foreach (var character in content)\n        {\n            if (character == '\\uFFFD' ||\n                (char.IsControl(character) && character is not ('\\r' or '\\n' or '\\t' or '\\f')))\n                return true;\n        }\n        return false;\n    }\n\n    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
         int maximumDirectories = 10000)
     {
         if (maximumDirectories < 1) throw new ArgumentOutOfRangeException(nameof(maximumDirectories));
@@ -195,7 +195,7 @@ internal static class WorkspaceFileSearch
                         if (BinaryExtensions.Contains(Path.GetExtension(file))) { skipped++; continue; }
                         if (new FileInfo(file).Length > 1024 * 1024) { skipped++; continue; }
                         var content = File.ReadAllText(file);
-                        if (content.Contains('\0')) { skipped++; continue; }
+                        if (ContainsBinaryCharacters(content)) { skipped++; continue; }
                         var lines = content.Split('\n');
                         for (var i = 0; i < lines.Length && hits.Count < 200; i++)
                         {
