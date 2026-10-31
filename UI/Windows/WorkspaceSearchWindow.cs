@@ -202,6 +202,9 @@ internal static class WorkspaceFileSearch
                 {
                     cancellation.ThrowIfCancellationRequested();
                     if (hits.Count >= 200 || scanned >= 5000) break;
+                    // Linked Git worktrees store their private gitdir path in a .git file,
+                    // not a directory. Exclude that metadata just like .git directories.
+                    if (string.Equals(Path.GetFileName(file), ".git", StringComparison.OrdinalIgnoreCase)) continue;
                     scanned++;
                     try
                     {
