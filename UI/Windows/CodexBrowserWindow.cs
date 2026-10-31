@@ -257,7 +257,10 @@ internal sealed class CodexBrowserWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        var control = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        // AltGr sends Ctrl+Alt on many keyboard layouts; it must not trigger browser shortcuts.
+        var modifiers = Keyboard.Modifiers;
+        var control = modifiers == ModifierKeys.Control ||
+                      modifiers == (ModifierKeys.Control | ModifierKeys.Shift);
         if (control && e.Key == Key.Tab)
         {
             // Cycle through tabs with the standard browser shortcuts, including wraparound.
@@ -297,10 +300,12 @@ internal sealed class CodexBrowserWindow : Window
         }
         else if (control && e.Key == Key.W) { e.Handled = true; CloseCurrentTab(); }
         else if (control && e.Key == Key.L) { e.Handled = true; _addressBar.Focus(); _addressBar.SelectAll(); }
-        else if (control && e.Key == Key.R || e.Key == Key.F5) { e.Handled = true; ReloadCurrentTab(); }
-        else if (e.Key == Key.Escape) { ActiveBrowser?.CoreWebView2?.Stop(); }
-        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Left) { e.Handled = true; NavigateBack(); }
-        else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.Right) { e.Handled = true; NavigateForward(); }
+        else if ((control && e.Key == Key.R) ||
+                 (e.Key == Key.F5 && (modifiers & (ModifierKeys.Alt | ModifierKeys.Windows)) == 0))
+        { e.Handled = true; ReloadCurrentTab(); }
+        else if (modifiers == ModifierKeys.None && e.Key == Key.Escape) { ActiveBrowser?.CoreWebView2?.Stop(); }
+        else if (modifiers == ModifierKeys.Alt && e.Key == Key.Left) { e.Handled = true; NavigateBack(); }
+        else if (modifiers == ModifierKeys.Alt && e.Key == Key.Right) { e.Handled = true; NavigateForward(); }
     }
 
     // Keyboard shortcuts can run before WebView2 has initialized, or with no history.
