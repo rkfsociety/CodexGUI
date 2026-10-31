@@ -46,7 +46,11 @@ internal sealed class CodexBrowserWindow : Window
         _reloadButton.Click += (_, _) => ReloadCurrentTab();
         _stopButton.Click += (_, _) => ActiveBrowser?.CoreWebView2?.Stop();
         _newTabButton.Click += async (_, _) => await CreateTabAsync(HomeUrl);
-        _tabs.SelectionChanged += (_, _) => UpdateToolbar();
+        _tabs.SelectionChanged += (_, e) =>
+        {
+            if (ReferenceEquals(e.Source, _tabs))
+                UpdateToolbar(forceAddressUpdate: true);
+        };
         _addressBar.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -340,19 +344,22 @@ internal sealed class CodexBrowserWindow : Window
         else UpdateToolbar();
     }
 
-    private void UpdateToolbar()
+    private void UpdateToolbar(bool forceAddressUpdate = false)
     {
         var core = ActiveBrowser?.CoreWebView2;
         _backButton.IsEnabled = core?.CanGoBack == true;
         _forwardButton.IsEnabled = core?.CanGoForward == true;
         _reloadButton.IsEnabled = core is not null;
         _stopButton.IsEnabled = core is not null;
-        UpdateAddress(ActiveBrowser);
+        UpdateAddress(ActiveBrowser, forceAddressUpdate);
     }
 
-    private void UpdateAddress(WebView2? browser)
+    private void UpdateAddress(WebView2? browser, bool forceAddressUpdate = false)
     {
-        if (browser is null || !ReferenceEquals(ActiveBrowser, browser) || _addressBar.IsKeyboardFocused) return;
+        // Switching tabs must replace the previous tab's address even when Ctrl+Tab
+        // leaves keyboard focus in the address field. Other updates preserve drafts.
+        if (browser is null || !ReferenceEquals(ActiveBrowser, browser)
+            || (_addressBar.IsKeyboardFocused && !forceAddressUpdate)) return;
         // Keep an address queued during WebView2 startup visible when switching tabs.
         var selectedTab = _tabs.SelectedItem as TabItem;
         _addressBar.Text = selectedTab is not null && _pendingNavigation.TryGetValue(selectedTab, out var pending)
