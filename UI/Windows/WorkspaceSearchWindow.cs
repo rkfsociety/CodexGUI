@@ -22,15 +22,20 @@ internal sealed class WorkspaceSearchWindow : Window
         var panel = new DockPanel { Margin = new Thickness(18) };
         var header = new StackPanel();
         var input = new TextBox { MinHeight = 32, ToolTip = "Текст или имя файла" };
-        var search = new Button { Content = "Найти", IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 8) };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 8) };
+        var search = new Button { Content = "Найти", IsDefault = true };
+        var cancel = new Button { Content = "Остановить", IsEnabled = false, Margin = new Thickness(8, 0, 0, 0) };
+        actions.Children.Add(search);
+        actions.Children.Add(cancel);
         var status = new TextBlock { Text = "Поиск текста и имён файлов. До 200 результатов; регистр не учитывается.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
-        header.Children.Add(input); header.Children.Add(search); header.Children.Add(status);
+        header.Children.Add(input); header.Children.Add(actions); header.Children.Add(status);
         DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header);
         var list = new ListBox { DisplayMemberPath = nameof(WorkspaceSearchHit.Display) };
         panel.Children.Add(list); Content = panel;
         search.Click += async (_, _) =>
         {
             _search?.Cancel();
+            cancel.IsEnabled = false;
             // Do not leave results from a previous query visible while a new one is running.
             list.ItemsSource = null;
             var query = input.Text.Trim();
@@ -41,6 +46,7 @@ internal sealed class WorkspaceSearchWindow : Window
             }
             using var cancellation = new CancellationTokenSource();
             _search = cancellation;
+            cancel.IsEnabled = true;
             status.Text = "Поиск…";
             try
             {
@@ -57,7 +63,21 @@ internal sealed class WorkspaceSearchWindow : Window
                 if (!cancellation.IsCancellationRequested)
                     status.Text = "Не удалось выполнить поиск: " + error.Message;
             }
-            finally { if (ReferenceEquals(_search, cancellation)) _search = null; }
+            finally
+            {
+                if (ReferenceEquals(_search, cancellation))
+                {
+                    _search = null;
+                    cancel.IsEnabled = false;
+                }
+            }
+        };
+        cancel.Click += (_, _) =>
+        {
+            if (_search is null) return;
+            _search.Cancel();
+            cancel.IsEnabled = false;
+            status.Text = "Поиск остановлен.";
         };
         async Task OpenSelection()
         {
