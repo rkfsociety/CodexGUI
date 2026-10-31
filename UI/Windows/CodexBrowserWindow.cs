@@ -303,7 +303,20 @@ internal sealed class CodexBrowserWindow : Window
         else if ((control && e.Key == Key.R) ||
                  (e.Key == Key.F5 && (modifiers & (ModifierKeys.Alt | ModifierKeys.Windows)) == 0))
         { e.Handled = true; ReloadCurrentTab(); }
-        else if (modifiers == ModifierKeys.None && e.Key == Key.Escape) { ActiveBrowser?.CoreWebView2?.Stop(); }
+        else if (modifiers == ModifierKeys.None && e.Key == Key.Escape)
+        {
+            if (_addressBar.IsKeyboardFocusWithin)
+            {
+                // Escape abandons an address draft without interrupting the current page.
+                UpdateAddress(ActiveBrowser, forceAddressUpdate: true);
+                _addressBar.SelectAll();
+                e.Handled = true;
+            }
+            else
+            {
+                ActiveBrowser?.CoreWebView2?.Stop();
+            }
+        }
         else if (modifiers == ModifierKeys.Alt && e.Key == Key.Left) { e.Handled = true; NavigateBack(); }
         else if (modifiers == ModifierKeys.Alt && e.Key == Key.Right) { e.Handled = true; NavigateForward(); }
     }
