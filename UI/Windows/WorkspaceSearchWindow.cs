@@ -72,12 +72,19 @@ internal sealed class WorkspaceSearchWindow : Window
                 }
             }
         };
-        cancel.Click += (_, _) =>
+        void StopActiveSearch()
         {
-            if (_search is null) return;
+            if (_search is null || _search.IsCancellationRequested) return;
             _search.Cancel();
             cancel.IsEnabled = false;
             status.Text = "Поиск остановлен.";
+        }
+        cancel.Click += (_, _) => StopActiveSearch();
+        PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key != Key.Escape || _search is null || _search.IsCancellationRequested) return;
+            args.Handled = true;
+            StopActiveSearch();
         };
         async Task OpenSelection()
         {
