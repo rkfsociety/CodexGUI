@@ -361,11 +361,35 @@ internal sealed class CodexTerminalWindow : Window
     private static void AppendOutput(TerminalTab tab, string text)
     {
         if (tab.Output is null || text.Length == 0) return;
-        tab.Output.AppendText(text);
-        if (tab.Output.Text.Length > 400_000)
-            tab.Output.Text = tab.Output.Text[^300_000..];
-        tab.Output.CaretIndex = tab.Output.Text.Length;
-        tab.Output.ScrollToEnd();
+        var output = tab.Output;
+        // Do not interrupt someone reading or selecting earlier terminal output.
+        var selectionStart = output.SelectionStart;
+        var selectionLength = output.SelectionLength;
+        var lastVisibleLine = output.GetLastVisibleLineIndex();
+        var followOutput = selectionLength == 0 &&
+            (!output.IsVisible || lastVisibleLine < 0 || lastVisibleLine >= output.LineCount - 2);
+        var verticalOffset = output.VerticalOffset;
+
+        output.AppendText(text);
+        var removed = 0;
+        if (output.Text.Length > 400_000)
+        {
+            removed = output.Text.Length - 300_000;
+            output.Text = output.Text[removed..];
+        }
+
+        if (followOutput)
+        {
+            output.CaretIndex = output.Text.Length;
+            output.ScrollToEnd();
+        }
+        else
+        {
+            // Trimming the bounded log shifts text indices, including an active selection.
+            var start = Math.Clamp(selectionStart - removed, 0, output.Text.Length);
+            output.Select(start, Math.Min(selectionLength, output.Text.Length - start));
+            output.ScrollToVerticalOffset(verticalOffset);
+        }
     }
 
     // One filter per terminal, used only by the UI dispatcher while draining output.
