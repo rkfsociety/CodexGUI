@@ -131,7 +131,20 @@ internal static class WorkspaceFileSearch
         ".heic", ".avif", ".webm", ".mkv", ".flac", ".ogg", ".iso",
         ".tar", ".bz2", ".xz", ".zst"
     };
-    // Unknown extensions may still contain binary data or invalid UTF-8.\n    // Do not show accidental text matches from those files; filename matches remain available.\n    private static bool ContainsBinaryCharacters(string content)\n    {\n        foreach (var character in content)\n        {\n            if (character == '\uFFFD' ||\n                (char.IsControl(character) && character is not ('\r' or '\n' or '\t' or '\f')))\n                return true;\n        }\n        return false;\n    }\n\n    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
+    // Unknown extensions may still contain binary data or invalid UTF-8.
+    // Do not show accidental text matches from those files; filename matches remain available.
+    private static bool ContainsBinaryCharacters(string content)
+    {
+        foreach (var character in content)
+        {
+            if (character == '\uFFFD' ||
+                (char.IsControl(character) && character is not ('\r' or '\n' or '\t' or '\f')))
+                return true;
+        }
+        return false;
+    }
+
+    internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
         int maximumDirectories = 10000)
     {
         if (maximumDirectories < 1) throw new ArgumentOutOfRangeException(nameof(maximumDirectories));
