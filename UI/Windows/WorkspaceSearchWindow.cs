@@ -212,7 +212,8 @@ internal static class WorkspaceFileSearch
                         if (new FileInfo(file).Length > 1024 * 1024) { skipped++; continue; }
                         var content = File.ReadAllText(file);
                         if (ContainsBinaryCharacters(content)) { skipped++; continue; }
-                        var lines = content.Split('\n');
+                        // Preserve accurate line numbers in files that use CR-only line endings.
+                        var lines = content.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
                         for (var i = 0; i < lines.Length && hits.Count < 200; i++)
                         {
                             cancellation.ThrowIfCancellationRequested();
