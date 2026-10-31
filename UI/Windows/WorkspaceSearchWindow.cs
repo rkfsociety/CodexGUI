@@ -119,6 +119,15 @@ internal sealed record WorkspaceSearchResult(IReadOnlyList<WorkspaceSearchHit> H
 
 internal static class WorkspaceFileSearch
 {
+    // Keep filename matches, but never decode common binary formats as source text.
+    // This avoids irrelevant previews and unnecessary reads of large binary files.
+    private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".pdf",
+        ".zip", ".7z", ".rar", ".gz", ".exe", ".dll", ".pdb",
+        ".mp3", ".mp4", ".mov", ".wav", ".woff", ".woff2", ".ttf", ".otf",
+        ".sqlite", ".db3", ".jar", ".class", ".wasm", ".glb"
+    };
     internal static WorkspaceSearchResult Find(string root, string query, CancellationToken cancellation,
         int maximumDirectories = 10000)
     {
@@ -183,6 +192,7 @@ internal static class WorkspaceFileSearch
                             // The result limit may be reached by filename matches alone.
                             if (hits.Count >= 200) break;
                         }
+                        if (BinaryExtensions.Contains(Path.GetExtension(file))) { skipped++; continue; }
                         if (new FileInfo(file).Length > 1024 * 1024) { skipped++; continue; }
                         var content = File.ReadAllText(file);
                         if (content.Contains('\0')) { skipped++; continue; }
