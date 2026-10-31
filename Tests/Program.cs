@@ -1179,8 +1179,14 @@ internal static class Program
                 var dock = (System.Windows.Controls.DockPanel)window.Content;
                 var header = (System.Windows.Controls.StackPanel)dock.Children[0];
                 var input = (System.Windows.Controls.TextBox)header.Children[0];
-                var search = (System.Windows.Controls.Button)header.Children[1];
-                var status = (System.Windows.Controls.TextBlock)header.Children[2];
+                var search = header.Children.OfType<System.Windows.Controls.Button>().FirstOrDefault()
+                    ?? header.Children.OfType<System.Windows.Controls.Panel>()
+                        .SelectMany(panel => panel.Children.OfType<System.Windows.Controls.Button>())
+                        .First();
+                var status = header.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault()
+                    ?? header.Children.OfType<System.Windows.Controls.Panel>()
+                        .SelectMany(panel => panel.Children.OfType<System.Windows.Controls.TextBlock>())
+                        .First();
                 input.Text = "needle";
                 search.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 var frame = new System.Windows.Threading.DispatcherFrame();
