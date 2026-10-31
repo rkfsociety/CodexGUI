@@ -140,7 +140,9 @@ internal sealed class CodexBrowserWindow : Window
             core.NewWindowRequested += async (_, e) =>
             {
                 e.Handled = true;
-                await CreateTabAsync(e.Uri);
+                // Unsupported popup schemes must not create unusable browser tabs.
+                if (IsAllowedNavigation(e.Uri))
+                    await CreateTabAsync(e.Uri);
             };
             core.NavigationStarting += (_, e) =>
             {
@@ -351,7 +353,10 @@ internal sealed class CodexBrowserWindow : Window
     private void UpdateAddress(WebView2? browser)
     {
         if (browser is null || !ReferenceEquals(ActiveBrowser, browser) || _addressBar.IsKeyboardFocused) return;
-        _addressBar.Text = browser.CoreWebView2?.Source ?? string.Empty;
+        // Keep an address queued during WebView2 startup visible when switching tabs.
+        var selectedTab = _tabs.SelectedItem as TabItem;
+        _addressBar.Text = selectedTab is not null && _pendingNavigation.TryGetValue(selectedTab, out var pending)
+            ? pending.AbsoluteUri : browser.CoreWebView2?.Source ?? string.Empty;
     }
 
     private void UpdateTabTitle(TabItem tab, WebView2 browser)
