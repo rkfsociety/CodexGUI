@@ -124,6 +124,8 @@ internal sealed record WorkspaceSearchResult(IReadOnlyList<WorkspaceSearchHit> H
 
 internal static class WorkspaceFileSearch
 {
+    // A file can grow after its size is checked; keep the actual read bounded too.
+    private const int MaximumTextBytes = 1024 * 1024;
     // Keep filename matches, but never decode common binary formats as source text.
     // This avoids irrelevant previews and unnecessary reads of large binary files.
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -160,6 +162,7 @@ internal static class WorkspaceFileSearch
         // cannot fill the pending stack before the traversal limit is checked.
         var discoveredDirectories = 1;
         var directoryLimitReached = false;
+        char[]? textBuffer = null;
         while (pending.Count > 0 && hits.Count < 200 && scanned < 5000 && directories < maximumDirectories)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -217,8 +220,28 @@ internal static class WorkspaceFileSearch
                             if (hits.Count >= 200) break;
                         }
                         if (BinaryExtensions.Contains(Path.GetExtension(file))) { skipped++; continue; }
-                        if (new FileInfo(file).Length > 1024 * 1024) { skipped++; continue; }
-                        var content = File.ReadAllText(file);
+                        // Share the file with editors and bound reads even if it grows during search.
+                        using var stream = new FileStream(file, FileMode.Open, FileAccess.Read,
+                            FileShare.ReadWrite | FileShare.Delete, 81920, FileOptions.SequentialScan);
+                        if (stream.Length > MaximumTextBytes) { skipped++; continue; }
+                        textBuffer ??= new char[MaximumTextBytes + 1];
+                        using var reader = new StreamReader(stream);
+                        var textLength = 0;
+                        while (textLength < textBuffer.Length)
+                        {
+                            cancellation.ThrowIfCancellationRequested();
+                            var read = reader.Read(textBuffer, textLength,
+                                Math.Min(8192, textBuffer.Length - textLength));
+                            if (read == 0) break;
+                            textLength += read;
+                            if (stream.Position > MaximumTextBytes) break;
+                        }
+                        if (textLength > MaximumTextBytes || stream.Position > MaximumTextBytes)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                        var content = new string(textBuffer, 0, textLength);
                         if (ContainsBinaryCharacters(content)) { skipped++; continue; }
                         // Preserve accurate line numbers in files that use CR-only line endings.
                         var lines = content.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
