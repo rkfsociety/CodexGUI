@@ -217,7 +217,7 @@ internal sealed class CodexTerminalWindow : Window
                 tab.HistoryIndex = tab.History.Count;
                 await SendInputAsync(tab, command + "\r");
             }
-            else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.C)
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
                 if (tab.Input.SelectionLength == 0)
                 {
@@ -225,12 +225,12 @@ internal sealed class CodexTerminalWindow : Window
                     await SendInputAsync(tab, "\x03");
                 }
             }
-            else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.D)
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.D)
             {
                 e.Handled = true;
                 await SendInputAsync(tab, "\x04");
             }
-            else if (e.Key == Key.Up && tab.HistoryIndex > 0)
+            else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Up && tab.HistoryIndex > 0)
             {
                 e.Handled = true;
                 // Preserve the unfinished command while browsing earlier entries.
@@ -240,7 +240,7 @@ internal sealed class CodexTerminalWindow : Window
                 tab.Input.Text = tab.History[tab.HistoryIndex];
                 tab.Input.CaretIndex = tab.Input.Text.Length;
             }
-            else if (e.Key == Key.Down && tab.HistoryIndex < tab.History.Count)
+            else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Down && tab.HistoryIndex < tab.History.Count)
             {
                 e.Handled = true;
                 tab.HistoryIndex++;
