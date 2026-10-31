@@ -384,10 +384,31 @@ internal sealed class CodexTerminalWindow : Window
 
         output.AppendText(text);
         var removed = 0;
+        var removedLines = 0;
         if (output.Text.Length > 400_000)
         {
-            removed = output.Text.Length - 300_000;
-            output.Text = output.Text[removed..];
+            var fullText = output.Text;
+            removed = fullText.Length - 300_000;
+            // Prefer a complete line at the beginning of the retained log.
+            // For exceptionally long lines, at least avoid splitting a UTF-16 character or CRLF.
+            var lineEnd = fullText.IndexOf('\n', removed);
+            if (lineEnd >= 0 && lineEnd - removed <= 4096)
+                removed = lineEnd + 1;
+            else
+            {
+                if (removed > 0 && removed < fullText.Length &&
+                    char.IsLowSurrogate(fullText[removed]) && char.IsHighSurrogate(fullText[removed - 1]))
+                    removed++;
+                if (removed > 0 && removed < fullText.Length &&
+                    fullText[removed] == '\n' && fullText[removed - 1] == '\r')
+                    removed++;
+            }
+
+            for (var i = 0; i < removed; i++)
+                if (fullText[i] == '\n' || (fullText[i] == '\r' &&
+                    (i + 1 >= fullText.Length || fullText[i + 1] != '\n')))
+                    removedLines++;
+            output.Text = fullText[removed..];
         }
 
         if (followOutput)
@@ -397,10 +418,13 @@ internal sealed class CodexTerminalWindow : Window
         }
         else
         {
-            // Trimming the bounded log shifts text indices, including an active selection.
+            // Preserve only the selected text that survives trimming, not unrelated new text.
             var start = Math.Clamp(selectionStart - removed, 0, output.Text.Length);
-            output.Select(start, Math.Min(selectionLength, output.Text.Length - start));
-            output.ScrollToVerticalOffset(verticalOffset);
+            var survivingSelection = Math.Max(0, selectionStart + selectionLength -
+                Math.Max(selectionStart, removed));
+            output.Select(start, Math.Min(survivingSelection, output.Text.Length - start));
+            // Vertical offsets are line-based with wrapping disabled; removed lines shift the view.
+            output.ScrollToVerticalOffset(Math.Max(0, verticalOffset - removedLines));
         }
     }
 
