@@ -127,7 +127,24 @@ internal static class WorkspaceProjectMap
                 var packageInfo = new FileInfo(package);
                 if ((packageInfo.Attributes & FileAttributes.ReparsePoint) != 0
                     || packageInfo.Length > 1024 * 1024) continue;
-                using var document = JsonDocument.Parse(File.ReadAllText(package));
+                // A package manifest can grow after FileInfo.Length was checked.
+                // Read at most one byte beyond the limit before parsing the snapshot.
+                using var stream = new FileStream(package, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete, 81920, FileOptions.SequentialScan);
+                if (stream.Length > 1024 * 1024) continue;
+                var bytes = new byte[1024 * 1024 + 1];
+                var length = 0;
+                while (length < bytes.Length)
+                {
+                    var count = stream.Read(bytes, length, bytes.Length - length);
+                    if (count == 0) break;
+                    length += count;
+                }
+                if (length > 1024 * 1024) continue;
+                // StreamReader retains the previous BOM handling (including UTF-16 manifests).
+                using var snapshot = new MemoryStream(bytes, 0, length, writable: false);
+                using var text = new StreamReader(snapshot);
+                using var document = JsonDocument.Parse(text.ReadToEnd());
                 if (document.RootElement.ValueKind != JsonValueKind.Object)
                 {
                     if (AddNode("Ошибка JSON", package)) return nodes;
