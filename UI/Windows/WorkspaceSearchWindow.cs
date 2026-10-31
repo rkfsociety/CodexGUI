@@ -82,16 +82,21 @@ internal sealed class WorkspaceSearchWindow : Window
         cancel.Click += (_, _) => StopActiveSearch();
         PreviewKeyDown += (_, args) =>
         {
-            if (args.Key != Key.Escape || _search is null || _search.IsCancellationRequested) return;
+            if (args.Key != Key.Escape) return;
             args.Handled = true;
-            StopActiveSearch();
+            if (_search is { IsCancellationRequested: false })
+                StopActiveSearch();
+            else
+                Close();
         };
         async Task OpenSelection()
         {
             if (list.SelectedItem is not WorkspaceSearchHit hit) return;
             try { await open(hit.Path, hit.Line); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            catch (OperationCanceledException) { }
+            catch (Exception error)
             {
+                // Exceptions from the caller must not escape the asynchronous UI event handler.
                 status.Text = "Не удалось открыть файл: " + error.Message;
             }
         }
