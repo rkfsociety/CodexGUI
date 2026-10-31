@@ -384,6 +384,13 @@ internal sealed class CodexBrowserWindow : Window
         var header = new DockPanel { LastChildFill = true, MinWidth = 100, MaxWidth = 240 };
         if (tab is not null)
         {
+            // A middle-click on the tab header closes that tab without targeting the close button.
+            header.PreviewMouseDown += (_, e) =>
+            {
+                if (e.ChangedButton != MouseButton.Middle) return;
+                e.Handled = true;
+                CloseTab(tab);
+            };
             var close = new Button
             {
                 Content = "×", Width = 22, Height = 22, Padding = new Thickness(0),
