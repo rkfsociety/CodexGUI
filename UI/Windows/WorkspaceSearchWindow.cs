@@ -57,8 +57,9 @@ internal sealed class WorkspaceSearchWindow : Window
                     + (result.Limited ? " Достигнут предел поиска; уточните запрос." : "");
             }
             catch (OperationCanceledException) { }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            catch (Exception error)
             {
+                // Any failure escaping this asynchronous UI handler could terminate the app.
                 // A cancelled search must not overwrite the status of a newer request.
                 if (!cancellation.IsCancellationRequested)
                     status.Text = "Не удалось выполнить поиск: " + error.Message;
