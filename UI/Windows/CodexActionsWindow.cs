@@ -95,7 +95,15 @@ internal sealed class CodexActionsWindow : Window
         _list.ItemContainerStyle = CreateActionItemStyle();
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateButtons();
-        _list.MouseDoubleClick += (_, _) => InvokeSelected();
+        _list.MouseDoubleClick += (_, e) =>
+        {
+            // Double-clicking blank space must not execute a previously selected action.
+            if (e.OriginalSource is not DependencyObject source
+                || ItemsControl.ContainerFromElement(_list, source) is not ListBoxItem item
+                || !ReferenceEquals(item, _list.SelectedItem))
+                return;
+            InvokeSelected();
+        };
         _search.TextChanged += (_, _) => RefreshList();
         RefreshList();
     }
