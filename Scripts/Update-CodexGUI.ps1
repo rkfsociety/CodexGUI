@@ -44,36 +44,7 @@ try {
         $tempDirectory = [System.IO.DirectoryInfo]::new([System.IO.Path]::GetTempPath())
         $downloadParent = $downloadDirectory.Parent.FullName.TrimEnd([char]92)
         $tempParent = $tempDirectory.FullName.TrimEnd([char]92)
-        if ($downloadDirectory.Name -notmatch '^CodexGUI-update-[0-9a-f]{32}
-}
-catch {
-    $failureMessage = $_.Exception.Message
-    if ($oldVersionMoved -and -not $updateInstalled -and (Test-Path -LiteralPath $backupDirectory)) {
-        try {
-            if (Test-Path -LiteralPath $TargetDirectory) {
-                Remove-Item -LiteralPath $TargetDirectory -Recurse -Force
-            }
-            Move-Item -LiteralPath $backupDirectory -Destination $TargetDirectory
-        }
-        catch {
-            $failureMessage += "`nRollback also failed: $($_.Exception.Message) The previous version is preserved at $backupDirectory."
-        }
-    }
-
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(
-        "Не удалось завершить обновление CodexGUI. Старую версию можно запустить вручную.`n`n$failureMessage",
-        'Обновление CodexGUI',
-        [System.Windows.MessageBoxButton]::OK,
-        [System.Windows.MessageBoxImage]::Error
-    ) | Out-Null
-}
-finally {
-    if (Test-Path -LiteralPath $stagingDirectory) {
-        Remove-Item -LiteralPath $stagingDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
- -or
+        if ($downloadDirectory.Name -notmatch '^CodexGUI-update-[0-9a-f]{32}$' -or
             -not [string]::Equals($downloadParent, $tempParent, [System.StringComparison]::OrdinalIgnoreCase) -or
             (Split-Path -Leaf $ArchivePath) -ne 'CodexGUI-win-x64.zip' -or
             ($downloadDirectory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
