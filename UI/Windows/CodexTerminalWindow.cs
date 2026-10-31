@@ -215,7 +215,14 @@ internal sealed class CodexTerminalWindow : Window
                     if (tab.History.Count > 200) tab.History.RemoveAt(0);
                 }
                 tab.HistoryIndex = tab.History.Count;
-                await SendInputAsync(tab, command + "\r");
+                if (!await SendInputAsync(tab, command + "\r") &&
+                    !_isClosing && tab.Input.Text.Length == 0)
+                {
+                    // Keep a failed command available for retry without overwriting a newer draft.
+                    tab.Input.Text = command;
+                    tab.Input.CaretIndex = command.Length;
+                    _status.Text = "Команда не отправлена; текст восстановлен для повторной отправки.";
+                }
             }
             else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
@@ -254,14 +261,19 @@ internal sealed class CodexTerminalWindow : Window
         return layout;
     }
 
-    private async Task SendInputAsync(TerminalTab tab, string input)
+    private async Task<bool> SendInputAsync(TerminalTab tab, string input)
     {
-        if (!tab.IsRunning) return;
-        try { await _host.WriteInputAsync(tab.ProcessId, input); }
-        catch (OperationCanceledException) when (_isClosing) { }
+        if (!tab.IsRunning) return false;
+        try
+        {
+            await _host.WriteInputAsync(tab.ProcessId, input);
+            return true;
+        }
+        catch (OperationCanceledException) when (_isClosing) { return false; }
         catch (Exception error)
         {
             if (!_isClosing) AppendOutput(tab, "\r\n[ввод не отправлен: " + error.Message + "]\r\n");
+            return false;
         }
     }
 
