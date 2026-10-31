@@ -90,8 +90,11 @@ internal static class WorkspaceProjectMap
                     var manifestInfo = new FileInfo(manifest);
                     if ((manifestInfo.Attributes & FileAttributes.ReparsePoint) != 0
                         || manifestInfo.Length > 1024 * 1024) continue;
+                    // Share project files with editors so refreshing the map does not block saves.
+                    using var stream = new FileStream(manifest, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete, 81920, FileOptions.SequentialScan);
                     // Project files are untrusted input: do not resolve DTDs or external entities.
-                    using var reader = XmlReader.Create(manifest, new XmlReaderSettings
+                    using var reader = XmlReader.Create(stream, new XmlReaderSettings
                     {
                         DtdProcessing = DtdProcessing.Prohibit,
                         XmlResolver = null,
