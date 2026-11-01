@@ -39,7 +39,7 @@ internal static class CodexExtensionCatalog
                 null, null, Flag(item, "installed"), Flag(item, "enabled"),
                 Text(item, "installPolicy") == "AVAILABLE"))
             .Where(item => item.Id.Length > 0)
-            .DistinctBy(item => item.Id)
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Installed)
             .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
@@ -78,7 +78,7 @@ internal static class CodexExtensionCatalog
                     path, plugin.Length > 0 ? plugin : null, true, Flag(item, "enabled"), false));
             }
         }
-        return (skills.DistinctBy(item => item.Id)
+        return (skills.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Name.Contains("imagegen", StringComparison.OrdinalIgnoreCase)
                 || item.Name.Contains("computer-use", StringComparison.OrdinalIgnoreCase))
             .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToArray(), errors);

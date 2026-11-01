@@ -271,6 +271,8 @@ internal sealed class CodexAppServerClient(
         return await RunWithSessionAsync(async send =>
         {
             var models = new List<ModelOption>();
+            var seenModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenCursors = new HashSet<string>(StringComparer.Ordinal);
             string? cursor = null;
             var page = 0;
             do
@@ -285,6 +287,7 @@ internal sealed class CodexAppServerClient(
                     if (slug.Length == 0) slug = Text(item, "model");
                     if (slug.Length == 0 || item.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
                         continue;
+                    if (!seenModels.Add(slug)) continue;
                     var effort = Text(item, "defaultReasoningEffort");
                     if (effort.Length == 0) effort = defaultEffort;
                     var reasoningLevels = item.TryGetProperty("supportedReasoningEfforts", out var efforts) && efforts.ValueKind == JsonValueKind.Array
@@ -301,6 +304,8 @@ internal sealed class CodexAppServerClient(
                 }
 
                 cursor = ReadCursor(response);
+                if (cursor is not null && !seenCursors.Add(cursor))
+                    throw new InvalidDataException("Codex App Server повторил курсор каталога моделей.");
                 if (++page >= 20 && !string.IsNullOrEmpty(cursor))
                     throw new InvalidDataException("Каталог моделей Codex App Server содержит слишком много страниц.");
             }

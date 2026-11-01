@@ -20,6 +20,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     private static readonly TimeSpan DefaultControlRequestTimeout = TimeSpan.FromSeconds(8);
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Decoder> _outputDecoders = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationTokenSource _startupCancellation = new();
     private readonly CancellationToken _lifetimeToken;
@@ -222,13 +223,13 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                 PublishSessionExit(new CodexTerminalExit(processId, -1,
                     "Соединение с App Server потеряно. Терминал остановлен."));
         }
+        _outputDecoders.Clear();
     }
 
     private async Task ReadNotificationsAsync(CodexAppServerConnection connection, CancellationToken cancellationToken)
     {
         // Each process emits a byte stream; UTF-8 characters can cross notification boundaries.
         // Keep decoders separate so interleaved terminal output cannot corrupt Cyrillic text.
-        var decoders = new Dictionary<string, Decoder>(StringComparer.Ordinal);
         try
         {
             while (await connection.WaitForIncomingAsync(cancellationToken))
@@ -237,18 +238,21 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                 {
                     if (GetString(message, "method") != "command/exec/outputDelta"
                         || !message.TryGetProperty("params", out var parameters)
-                        || GetString(parameters, "processId") is not { Length: > 0 } processId
-                        || GetString(parameters, "deltaBase64") is not { Length: > 0 } deltaBase64)
+                        || GetString(parameters, "processId") is not { Length: > 0 } processId)
                         continue;
                     try
                     {
-                        var bytes = Convert.FromBase64String(deltaBase64);
-                        if (!decoders.TryGetValue(processId, out var decoder))
-                            decoders[processId] = decoder = Encoding.UTF8.GetDecoder();
-                        var characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
-                        var count = decoder.GetChars(bytes, 0, bytes.Length, characters, 0, flush: false);
-                        if (count > 0)
-                            PublishOutput(processId, new string(characters, 0, count));
+                        var deltaBase64 = GetString(parameters, "deltaBase64");
+                        if (!string.IsNullOrEmpty(deltaBase64))
+                        {
+                            var bytes = Convert.FromBase64String(deltaBase64);
+                            var decoder = _outputDecoders.GetOrAdd(processId, static _ => Encoding.UTF8.GetDecoder());
+                            var characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
+                            var count = decoder.GetChars(bytes, 0, bytes.Length, characters, 0, flush: false);
+                            if (count > 0)
+                                PublishOutput(processId, new string(characters, 0, count));
+                        }
+                        // The server can signal truncation without sending another text chunk.
                         if (parameters.TryGetProperty("capReached", out var capReached) && capReached.ValueKind == JsonValueKind.True)
                             PublishOutput(processId, "\r\n[вывод достиг лимита захвата]\r\n");
                     }
@@ -300,6 +304,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
         }
         finally
         {
+            _outputDecoders.TryRemove(processId, out _);
             if (_sessions.TryRemove(processId, out _))
                 PublishSessionExit(new CodexTerminalExit(processId, exitCode, error));
         }
