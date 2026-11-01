@@ -29,7 +29,11 @@ internal static class LocalProjectInventory
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
         try
         {
-            if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0) return "";
+            // A linked ancestor can redirect the entire workspace even when the
+            // selected root itself is an ordinary directory.
+            for (var current = root; current is not null; current = Path.GetDirectoryName(current))
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return "";
 
             void Include(string relativePath)
             {

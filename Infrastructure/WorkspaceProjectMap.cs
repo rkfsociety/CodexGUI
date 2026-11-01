@@ -91,7 +91,7 @@ internal static class WorkspaceProjectMap
         // Only six distinct labels can be displayed. Stop scanning once the map is full
         // instead of accumulating every dependency from large solution manifests.
         var nodes = new List<WorkspaceMapNode>(6);
-        var seenLabels = new HashSet<string>(StringComparer.Ordinal);
+        var seenLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool AddNode(string label, string path)
         {
             if (seenLabels.Add(label))

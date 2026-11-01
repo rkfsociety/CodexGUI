@@ -14,7 +14,7 @@ namespace CodexGUI;
 
 internal static class ChatMarkdownRenderer
 {
-    private static readonly Regex InlineTokens = new(@"(?<code>`[^`]+`)|(?<bold>\*\*.+?\*\*)|(?<italic>(?<!\*)\*[^*]+\*(?!\*))|\[(?<label>[^\]]+)\]\((?<url>https?://[^)\s]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex InlineTokens = new(@"(?<code>`[^`]+`)|(?<bold>\*\*.+?\*\*)|(?<italic>(?<!\*)\*[^*]+\*(?!\*))|\[(?<label>[^\]]+)\]\((?<url>https?://[^)\s]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(150));
     private static readonly Regex Heading = new(@"^(#{1,3})\s+(.+)$", RegexOptions.Compiled);
     private static readonly Regex ListItem = new(@"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$", RegexOptions.Compiled);
     private static readonly Regex TableSeparatorCell = new(@"^\s*:?-{3,}:?\s*$", RegexOptions.Compiled);
@@ -33,7 +33,7 @@ internal static class ChatMarkdownRenderer
             {
                 if (inCode)
                 {
-                    AddCodeBlock(content, code.ToString().TrimEnd('\n'));
+                    AddCodeBlock(content, code.ToString().TrimEnd('\r', '\n'));
                     code.Clear();
                     inCode = false;
                 }
@@ -95,7 +95,7 @@ internal static class ChatMarkdownRenderer
         }
 
         if (inCode)
-            AddCodeBlock(content, code.ToString().TrimEnd('\n'));
+            AddCodeBlock(content, code.ToString().TrimEnd('\r', '\n'));
         return content;
     }
 
@@ -114,8 +114,10 @@ internal static class ChatMarkdownRenderer
     {
         block.Inlines.Clear();
         var offset = 0;
-        foreach (Match match in InlineTokens.Matches(text))
+        try
         {
+            foreach (Match match in InlineTokens.Matches(text))
+            {
             if (match.Index > offset)
                 block.Inlines.Add(new Run(text[offset..match.Index]));
 
@@ -148,7 +150,15 @@ internal static class ChatMarkdownRenderer
                 // A malformed URL from chat content must not prevent the message from rendering.
                 block.Inlines.Add(new Run(match.Value));
             }
-            offset = match.Index + match.Length;
+                offset = match.Index + match.Length;
+            }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // Untrusted chat text must remain readable even if inline parsing times out.
+            block.Inlines.Clear();
+            block.Inlines.Add(new Run(text));
+            return;
         }
         if (offset < text.Length)
             block.Inlines.Add(new Run(text[offset..]));

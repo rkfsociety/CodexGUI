@@ -127,6 +127,10 @@ internal static class WorkspaceFileSearch
 {
     // A file can grow after its size is checked; keep the actual read bounded too.
     private const int MaximumTextBytes = 1024 * 1024;
+    private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", "bin", "obj", "node_modules", ".vs"
+    };
     // Keep filename matches, but never decode common binary formats as source text.
     // This avoids irrelevant previews and unnecessary reads of large binary files.
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -141,7 +145,7 @@ internal static class WorkspaceFileSearch
     };
     // Unknown extensions may still contain binary data or invalid UTF-8.
     // Do not show accidental text matches from those files; filename matches remain available.
-    private static bool ContainsBinaryCharacters(string content)
+    private static bool ContainsBinaryCharacters(ReadOnlySpan<char> content)
     {
         foreach (var character in content)
         {
@@ -179,7 +183,7 @@ internal static class WorkspaceFileSearch
                         cancellation.ThrowIfCancellationRequested();
                         // Excluded and linked folders are not search candidates and must not
                         // consume the traversal budget before eligible folders are discovered.
-                        if (new[] { ".git", "bin", "obj", "node_modules", ".vs" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) continue;
+                        if (ExcludedDirectories.Contains(Path.GetFileName(child))) continue;
                         try
                         {
                             if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) continue;
@@ -242,13 +246,13 @@ internal static class WorkspaceFileSearch
                             skipped++;
                             continue;
                         }
-                        var content = new string(textBuffer, 0, textLength);
+                        // Search the reusable character buffer first: most files do not match,
+                        // so avoid allocating a full string or scanning for binary characters.
+                        var content = textBuffer.AsSpan(0, textLength);
+                        if (content.IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase) < 0) continue;
                         if (ContainsBinaryCharacters(content)) { skipped++; continue; }
-                        // Most files do not contain the query. Avoid allocating an array of
-                        // lines and trimmed previews unless a content match is possible.
-                        if (content.IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0) continue;
                         // Preserve accurate line numbers in files that use CR-only line endings.
-                        var lines = content.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
+                        var lines = new string(content).Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
                         for (var i = 0; i < lines.Length && hits.Count < 200; i++)
                         {
                             cancellation.ThrowIfCancellationRequested();
