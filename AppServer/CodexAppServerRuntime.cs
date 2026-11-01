@@ -29,7 +29,13 @@ internal static class CodexAppServerRuntime
     public static string RuntimeDirectory => Path.Combine(RuntimeRoot, $"{Version}-{PackageSha256[..8]}");
     public static string RuntimeExecutablePath => Path.Combine(RuntimeDirectory, "bin", "codex-app-server.exe");
 
-    public static bool IsInstalled => RequiredPackageFiles.All(relativePath => File.Exists(Path.Combine(RuntimeDirectory, relativePath)));
+    // A complete-looking cache must not be trusted when any of its files or parent
+    // folders are redirected through a junction or symbolic link.
+    public static bool IsInstalled => RequiredPackageFiles.All(relativePath =>
+    {
+        var file = Path.Combine(RuntimeDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        return !HasReparsePoint(file) && File.Exists(file);
+    });
 
     private static readonly string[] RequiredPackageFiles =
     [
@@ -87,6 +93,9 @@ internal static class CodexAppServerRuntime
         CancellationToken cancellationToken = default)
     {
         if (IsInstalled) return;
+        // Reject linked cache roots before downloading a large package or writing files.
+        if (HasReparsePoint(RuntimeRoot) || HasReparsePoint(RuntimeDirectory))
+            throw new IOException("Путь Codex App Server содержит junction или symbolic link.");
         var archivePath = Path.Combine(Path.GetTempPath(), $"CodexGUI-app-server-{Guid.NewGuid():N}.tar.gz");
         var stagingDirectory = RuntimeDirectory + ".stage-" + Guid.NewGuid().ToString("N");
         try
@@ -95,9 +104,11 @@ internal static class CodexAppServerRuntime
             await DownloadAndVerifyPackageAsync(archivePath, progress, cancellationToken);
 
             Directory.CreateDirectory(RuntimeRoot);
-            if ((new DirectoryInfo(RuntimeRoot).Attributes & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("Папка runtime CodexGUI не должна быть junction или symbolic link.");
+            if (HasReparsePoint(RuntimeRoot))
+                throw new IOException("Папка runtime CodexGUI не должна содержать junction или symbolic link.");
             Directory.CreateDirectory(stagingDirectory);
+            if (HasReparsePoint(stagingDirectory))
+                throw new IOException("Временная папка Codex App Server содержит junction или symbolic link.");
             progress?.Report(new AppServerRuntimeProgress("Распаковываю проверенный пакет…"));
             await Task.Run(() =>
             {
@@ -107,14 +118,20 @@ internal static class CodexAppServerRuntime
             }, cancellationToken);
 
             foreach (var relativePath in RequiredPackageFiles)
-                if (!File.Exists(Path.Combine(stagingDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar))))
-                    throw new InvalidDataException($"В официальном пакете отсутствует {relativePath}.");
+            {
+                var requiredPath = Path.Combine(stagingDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                if (HasReparsePoint(requiredPath) || !File.Exists(requiredPath))
+                    throw new InvalidDataException($"В официальном пакете отсутствует безопасный файл {relativePath}.");
+            }
+
+            // A cache directory may have been replaced while the archive was unpacked.
+            if (HasReparsePoint(RuntimeRoot) || HasReparsePoint(RuntimeDirectory)
+                || HasReparsePoint(stagingDirectory))
+                throw new IOException("Путь Codex App Server был перенаправлен через файловую ссылку.");
 
             // Preserve an incomplete installation until a verified replacement is ready.
             if (Directory.Exists(RuntimeDirectory) && !IsInstalled)
             {
-                if ((new DirectoryInfo(RuntimeDirectory).Attributes & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Повреждённый runtime Codex App Server не должен быть junction или symbolic link.");
                 Directory.Move(RuntimeDirectory, RuntimeDirectory + ".invalid-" + Guid.NewGuid().ToString("N"));
             }
 
@@ -185,6 +202,25 @@ internal static class CodexAppServerRuntime
         var actualHash = Convert.ToHexString(hash.GetHashAndReset());
         if (!actualHash.Equals(PackageSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"SHA-256 пакета Codex App Server не совпал: ожидается {PackageSha256}, получен {actualHash}.");
+    }
+
+    private static bool HasReparsePoint(string path)
+    {
+        // Include the user's profile and other existing ancestors, not only the
+        // final cache directory. Missing components are expected during installation.
+        for (string? current = Path.GetFullPath(path); current is not null;
+             current = Path.GetDirectoryName(current))
+        {
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return true;
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch (UnauthorizedAccessException) { return true; }
+        }
+        return false;
     }
 
     private static HttpClient CreateClient()
