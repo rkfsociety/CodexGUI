@@ -210,15 +210,19 @@ internal sealed class CodexTerminalWindow : Window
                 var command = tab.Input.Text;
                 tab.Input.Clear();
                 tab.HistoryDraft = "";
-                if (!string.IsNullOrWhiteSpace(command) && command.Length <= MaximumHistoryCommandCharacters)
+                var sent = await SendInputAsync(tab, command + "\r");
+                if (sent)
                 {
-                    tab.History.Add(command);
-                    // Keep long-lived terminal tabs from retaining an unlimited command history.
-                    if (tab.History.Count > 200) tab.History.RemoveAt(0);
+                    // Failed commands stay in the input field, not in the sent-command history.
+                    if (!string.IsNullOrWhiteSpace(command) && command.Length <= MaximumHistoryCommandCharacters)
+                    {
+                        tab.History.Add(command);
+                        // Keep long-lived terminal tabs from retaining an unlimited command history.
+                        if (tab.History.Count > 200) tab.History.RemoveAt(0);
+                    }
+                    tab.HistoryIndex = tab.History.Count;
                 }
-                tab.HistoryIndex = tab.History.Count;
-                if (!await SendInputAsync(tab, command + "\r") &&
-                    !_isClosing && tab.Input.Text.Length == 0)
+                else if (!_isClosing && tab.Input.Text.Length == 0)
                 {
                     // Keep a failed command available for retry without overwriting a newer draft.
                     tab.Input.Text = command;
@@ -437,11 +441,13 @@ internal sealed class CodexTerminalWindow : Window
         private bool _escape;
         private bool _csi;
         private bool _osc;
-        private bool _oscEscape;
+        private bool _controlString;
+        private bool _stringEscape;
+        private bool _charsetDesignation;
 
         public void Reset()
         {
-            _escape = _csi = _osc = _oscEscape = false;
+            _escape = _csi = _osc = _controlString = _stringEscape = _charsetDesignation = false;
         }
 
         public string Strip(string text)
@@ -449,16 +455,32 @@ internal sealed class CodexTerminalWindow : Window
             var output = new StringBuilder(text.Length);
             foreach (var ch in text)
             {
-                if (_osc)
+                // OSC ends with BEL or ESC \\, while DCS, SOS, PM and APC end with ESC \\.
+                // Keep the state across chunks so their payload never appears as plain text.
+                if (_osc || _controlString)
                 {
-                    if (ch == '\a') { _osc = false; _oscEscape = false; }
-                    else if (_oscEscape && ch == '\\') { _osc = false; _oscEscape = false; }
-                    else _oscEscape = ch == '\x1b';
+                    if (_osc && ch == '\a')
+                    {
+                        _osc = _stringEscape = false;
+                    }
+                    else if (_stringEscape && ch == '\\')
+                    {
+                        _osc = _controlString = _stringEscape = false;
+                    }
+                    else _stringEscape = ch == '\x1b';
+                    continue;
+                }
+                if (_charsetDesignation)
+                {
+                    // ESC ( B and related designations have one trailing selector byte.
+                    _charsetDesignation = false;
                     continue;
                 }
                 if (_csi)
                 {
-                    if (ch is >= '\x40' and <= '\x7e') _csi = false;
+                    // A malformed CSI must not swallow later output after a new ESC.
+                    if (ch == '\x1b') { _csi = false; _escape = true; }
+                    else if (ch is >= '\x40' and <= '\x7e') _csi = false;
                     continue;
                 }
                 if (_escape)
@@ -466,6 +488,9 @@ internal sealed class CodexTerminalWindow : Window
                     _escape = false;
                     if (ch == '[') _csi = true;
                     else if (ch == ']') _osc = true;
+                    else if (ch is 'P' or 'X' or '^' or '_') _controlString = true;
+                    else if (ch is '(' or ')' or '*' or '+' or '-' or '.' or '/' or '#')
+                        _charsetDesignation = true;
                     continue;
                 }
                 if (ch == '\x1b') { _escape = true; continue; }
@@ -474,7 +499,6 @@ internal sealed class CodexTerminalWindow : Window
             }
             return output.ToString();
         }
-
     }
 
     private static Button MakeButton(string label, bool accent = false) => new()

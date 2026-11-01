@@ -425,6 +425,16 @@ internal sealed class CodexFilePickerWindow : Window
         }
         if (!Directory.Exists(path))
         {
+            // Pasting an existing file path into the location bar should open its
+            // parent folder and prefill the name, without selecting it prematurely.
+            if (_mode != PickerMode.Folder && File.Exists(path)
+                && Path.GetDirectoryName(path) is { } parent && Directory.Exists(parent))
+            {
+                _currentDirectory = parent;
+                RefreshEntries();
+                _fileName.Text = Path.GetFileName(path);
+                return;
+            }
             ShowError("Папка не найдена.");
             return;
         }
