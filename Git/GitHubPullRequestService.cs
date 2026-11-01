@@ -27,7 +27,10 @@ internal static class GitHubPullRequestService
         {
             if (!Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri)
                 || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme is not ("https" or "http" or "ssh" or "git"))
+                || uri.Scheme is not ("https" or "http" or "ssh" or "git")
+                || !uri.IsDefaultPort
+                || uri.Query.Length != 0
+                || uri.Fragment.Length != 0)
                 return false;
             path = uri.AbsolutePath.Trim('/');
         }

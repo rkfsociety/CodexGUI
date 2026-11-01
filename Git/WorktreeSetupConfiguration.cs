@@ -108,6 +108,14 @@ internal static class WorktreeSetupConfiguration
             || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new IOException("Путь setup-сценария выходит за пределы репозитория.");
 
+        // A linked parent can redirect the repository before its root is reached.
+        for (var ancestor = Path.GetDirectoryName(fullRoot); ancestor is not null;
+             ancestor = Path.GetDirectoryName(ancestor))
+        {
+            if ((File.GetAttributes(ancestor) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Путь setup-сценария содержит junction или symbolic link.");
+        }
+
         // A junction or symlink at the repository root must not bypass the child checks.
         if ((File.Exists(fullRoot) || Directory.Exists(fullRoot))
             && (File.GetAttributes(fullRoot) & FileAttributes.ReparsePoint) != 0)
