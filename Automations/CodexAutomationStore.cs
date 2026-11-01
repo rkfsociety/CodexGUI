@@ -84,6 +84,8 @@ internal static class CodexAutomationStore
         }
         try
         {
+            EnsureNoLinkedStoragePath(definitionsPath);
+            EnsureNoLinkedStoragePath(definitionsPath + ".bak");
             var definitions = AtomicJsonFile.ReadWithBackup<List<CodexAutomationDefinition>>(
                 definitionsPath, ValidateDefinitions);
             foreach (var definition in definitions)
@@ -165,9 +167,13 @@ internal static class CodexAutomationStore
 
     internal static void SaveDefinitions(IReadOnlyList<CodexAutomationDefinition> definitions, string definitionsPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(definitionsPath)!);
         if (_definitionsSaveBlocked)
             throw new InvalidDataException("Сохранение расписаний заблокировано до восстановления исходного файла.");
+        EnsureNoLinkedStoragePath(definitionsPath);
+        EnsureNoLinkedStoragePath(definitionsPath + ".bak");
+        Directory.CreateDirectory(Path.GetDirectoryName(definitionsPath)!);
+        EnsureNoLinkedStoragePath(definitionsPath);
+        EnsureNoLinkedStoragePath(definitionsPath + ".bak");
         AtomicJsonFile.Write(definitionsPath, definitions, JsonOptions, backupPath: definitionsPath + ".bak");
     }
 
@@ -179,8 +185,7 @@ internal static class CodexAutomationStore
         try
         {
             // Do not follow a linked runs directory into unrelated user files.
-            if ((File.GetAttributes(runsDirectory) & FileAttributes.ReparsePoint) != 0)
-                return [];
+            EnsureNoLinkedStoragePath(runsDirectory);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
@@ -238,8 +243,26 @@ internal static class CodexAutomationStore
         if (System.Text.Encoding.UTF8.GetByteCount(serialized) > MaximumRunFileBytes)
             throw new InvalidDataException("Результат автоматизации превышает допустимый размер 1 МиБ.");
 
+        var runPath = Path.Combine(runsDirectory, run.Id + ".json");
+        EnsureNoLinkedStoragePath(runPath);
         Directory.CreateDirectory(runsDirectory);
-        AtomicJsonFile.Write(Path.Combine(runsDirectory, run.Id + ".json"), run, JsonOptions);
+        EnsureNoLinkedStoragePath(runPath);
+        AtomicJsonFile.Write(runPath, run, JsonOptions);
+    }
+
+    // Check every existing ancestor: a normal file may live beneath a linked parent.
+    private static void EnsureNoLinkedStoragePath(string path)
+    {
+        for (var current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
+        {
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Путь хранения автоматизаций содержит файловую ссылку.");
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+        }
     }
 
     public static void MarkRunReviewed(CodexAutomationRun run)

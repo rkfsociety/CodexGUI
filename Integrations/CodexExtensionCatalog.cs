@@ -29,15 +29,22 @@ internal static class CodexExtensionCatalog
             || !root.TryGetProperty("available", out var available) || available.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("Codex CLI вернул неизвестный формат каталога плагинов.");
 
-        var entries = installed.EnumerateArray().Concat(available.EnumerateArray()).ToArray();
-        if (entries.Any(item => item.ValueKind != JsonValueKind.Object))
+        var installedEntries = installed.EnumerateArray().ToArray();
+        var availableEntries = available.EnumerateArray().ToArray();
+        if (installedEntries.Concat(availableEntries).Any(item => item.ValueKind != JsonValueKind.Object))
             throw new InvalidDataException("Каталог плагинов Codex CLI содержит некорректную запись.");
 
-        return entries.Select(item => new CodexExtension(
-                Text(item, "pluginId"), Text(item, "name"),
-                $"{Text(item, "marketplaceName")} · {Text(item, "version")}",
-                null, null, Flag(item, "installed"), Flag(item, "enabled"),
-                Text(item, "installPolicy") == "AVAILABLE"))
+        // The installed collection is authoritative even if its entries omit "installed".
+        // Prefer it over the available collection when the same plugin appears in both.
+        return installedEntries.Select(item => (Item: item, Installed: true))
+            .Concat(availableEntries.Select(item => (Item: item, Installed: Flag(item, "installed"))))
+            .Select(entry => new CodexExtension(
+                Text(entry.Item, "pluginId"),
+                string.IsNullOrWhiteSpace(Text(entry.Item, "name"))
+                    ? Text(entry.Item, "pluginId") : Text(entry.Item, "name"),
+                $"{Text(entry.Item, "marketplaceName")} · {Text(entry.Item, "version")}",
+                null, null, entry.Installed, entry.Installed && Flag(entry.Item, "enabled"),
+                !entry.Installed && Text(entry.Item, "installPolicy") == "AVAILABLE"))
             .Where(item => item.Id.Length > 0)
             .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Installed)
@@ -74,8 +81,10 @@ internal static class CodexExtensionCatalog
                 if (string.IsNullOrWhiteSpace(path))
                     throw new InvalidDataException("В записи скилла Codex отсутствует путь.");
                 var plugin = Text(item, "pluginId");
-                skills.Add(new CodexExtension(path, Text(item, "name"), Text(item, "description"),
-                    path, plugin.Length > 0 ? plugin : null, true, Flag(item, "enabled"), false));
+                var name = Text(item, "name");
+                skills.Add(new CodexExtension(path, string.IsNullOrWhiteSpace(name) ? path : name,
+                    Text(item, "description"), path, plugin.Length > 0 ? plugin : null,
+                    true, Flag(item, "enabled"), false));
             }
         }
         return (skills.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
