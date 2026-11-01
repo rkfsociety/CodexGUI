@@ -17,7 +17,7 @@ internal static class AtomicJsonFile
         {
             using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                JsonSerializer.Serialize(stream, value, options);
+                JsonSerializer.Serialize(new BoundedWriteStream(stream, MaximumJsonBytes), value, options);
                 if (stream.Length > MaximumJsonBytes)
                     throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
                 stream.Flush(flushToDisk: true);
@@ -73,7 +73,7 @@ internal static class AtomicJsonFile
             await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
                 FileShare.None, 81920, FileOptions.Asynchronous))
             {
-                await JsonSerializer.SerializeAsync(stream, value, options, cancellationToken);
+                await JsonSerializer.SerializeAsync(new BoundedWriteStream(stream, MaximumJsonBytes), value, options, cancellationToken);
                 if (stream.Length > MaximumJsonBytes)
                     throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
                 await stream.FlushAsync(cancellationToken);
@@ -82,6 +82,60 @@ internal static class AtomicJsonFile
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally { TryDeleteTemporaryFile(temporaryPath); }
+    }
+
+
+    // Refuse oversized snapshots while they are being serialized, not after a
+    // temporary file has already consumed more disk space than the limit.
+    private sealed class BoundedWriteStream(Stream destination, long maximumBytes) : Stream
+    {
+        private long _bytesWritten;
+
+        private void Reserve(int count)
+        {
+            if (count > maximumBytes - _bytesWritten)
+                throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
+            _bytesWritten += count;
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            Reserve(count);
+            destination.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Reserve(buffer.Length);
+            destination.Write(buffer);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            Reserve(count);
+            return destination.WriteAsync(buffer, offset, count, cancellationToken);
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            Reserve(buffer.Length);
+            return destination.WriteAsync(buffer, cancellationToken);
+        }
+
+        public override void Flush() => destination.Flush();
+        public override Task FlushAsync(CancellationToken cancellationToken) => destination.FlushAsync(cancellationToken);
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     // JsonSerializer reads streams incrementally. Check the byte count on every read
