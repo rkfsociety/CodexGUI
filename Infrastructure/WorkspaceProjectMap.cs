@@ -14,10 +14,30 @@ internal static class WorkspaceProjectMap
 {
     // The map is an overview, not an exhaustive project scanner.
     private const int MaximumTopLevelDirectories = 128;
+    private const int MaximumNodeLabelCharacters = 120;
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", "bin", "obj", "node_modules", ".vs"
     };
+
+    // Manifests can contain very long names or control characters. Keep map labels
+    // compact so an untrusted dependency name cannot overwhelm WPF layout.
+    private static string CompactLabel(string value)
+    {
+        var result = new System.Text.StringBuilder(MaximumNodeLabelCharacters + 1);
+        foreach (var character in value)
+        {
+            if (char.IsControl(character)) continue;
+            if (result.Length >= MaximumNodeLabelCharacters)
+            {
+                if (char.IsHighSurrogate(result[result.Length - 1])) result.Length--;
+                result.Append('…');
+                break;
+            }
+            result.Append(character);
+        }
+        return result.ToString().Trim();
+    }
 
     private static string[] EnumerateDirectoriesSafely(string root)
     {
@@ -51,7 +71,7 @@ internal static class WorkspaceProjectMap
         // A workspace can be moved or a child folder can disappear during a refresh.
         // Keep the remaining map layers usable instead of failing the entire render.
         var directories = EnumerateDirectoriesSafely(root);
-        if (mode == 0) return directories.Take(6).Select(path => new WorkspaceMapNode(System.IO.Path.GetFileName(path), path)).ToArray();
+        if (mode == 0) return directories.Take(6).Select(path => new WorkspaceMapNode(CompactLabel(System.IO.Path.GetFileName(path)), path)).ToArray();
         var candidates = new[] { root }.Concat(directories).ToArray();
         if (mode == 2)
         {
@@ -85,7 +105,7 @@ internal static class WorkspaceProjectMap
                 .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
                 .Take(6)
                 .Select(item => new WorkspaceMapNode(
-                    $"{(item.Key.Length == 0 ? "без типа" : item.Key)} · {item.Value.Count}",
+                    CompactLabel($"{(item.Key.Length == 0 ? "без типа" : item.Key)} · {item.Value.Count}"),
                     item.Value.FirstPath)).ToArray();
         }
         // Only six distinct labels can be displayed. Stop scanning once the map is full
@@ -94,7 +114,8 @@ internal static class WorkspaceProjectMap
         var seenLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool AddNode(string label, string path)
         {
-            if (seenLabels.Add(label))
+            label = CompactLabel(label);
+            if (label.Length > 0 && seenLabels.Add(label))
                 nodes.Add(new WorkspaceMapNode(label, path));
             return nodes.Count == 6;
         }

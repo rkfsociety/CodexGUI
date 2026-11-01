@@ -21,7 +21,8 @@ internal static class GitHubPullRequestService
         string path;
         if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
         {
-            path = remoteUrl["git@github.com:".Length..].Trim('/');
+            // Do not trim leading or trailing separators: they make scp-style remotes ambiguous.
+            path = remoteUrl["git@github.com:".Length..];
         }
         else
         {

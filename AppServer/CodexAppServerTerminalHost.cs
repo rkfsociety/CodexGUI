@@ -20,6 +20,8 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     private static readonly TimeSpan DefaultControlRequestTimeout = TimeSpan.FromSeconds(8);
     // A single server notification must not allocate an unbounded decoded output buffer.
     private const int MaximumTerminalDeltaBase64Characters = 1024 * 1024;
+    // Bound input before UTF-8 encoding and Base64 expansion allocate large buffers.
+    private const int MaximumTerminalInputCharacters = 256 * 1024;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Decoder> _outputDecoders = new(StringComparer.Ordinal);
@@ -92,6 +94,8 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
     {
         if (Volatile.Read(ref _disposed) != 0) throw new ObjectDisposedException(nameof(CodexAppServerTerminalHost));
         if (!_sessions.ContainsKey(processId)) throw new InvalidOperationException("Терминал уже завершён.");
+        if (text.Length > MaximumTerminalInputCharacters)
+            throw new InvalidDataException("Команда слишком длинная: не более 262 144 символов за отправку.");
         var connection = _connection ?? throw new InvalidOperationException("Codex terminal не подключён к App Server.");
         await SendControlRequestAsync(connection, "command/exec/write", new
         {

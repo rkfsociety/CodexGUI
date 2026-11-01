@@ -13,6 +13,8 @@ namespace CodexGUI;
 
 internal sealed class CodexTerminalWindow : Window
 {
+    // Avoid retaining hundreds of large pasted scripts in each terminal tab.
+    private const int MaximumHistoryCommandCharacters = 16 * 1024;
     private readonly string _workingDirectory;
     private readonly bool _fullAccess;
     private readonly string? _initialCommand;
@@ -208,7 +210,7 @@ internal sealed class CodexTerminalWindow : Window
                 var command = tab.Input.Text;
                 tab.Input.Clear();
                 tab.HistoryDraft = "";
-                if (!string.IsNullOrWhiteSpace(command))
+                if (!string.IsNullOrWhiteSpace(command) && command.Length <= MaximumHistoryCommandCharacters)
                 {
                     tab.History.Add(command);
                     // Keep long-lived terminal tabs from retaining an unlimited command history.
