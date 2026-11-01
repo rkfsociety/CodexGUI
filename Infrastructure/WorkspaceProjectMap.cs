@@ -55,24 +55,38 @@ internal static class WorkspaceProjectMap
         var candidates = new[] { root }.Concat(directories).ToArray();
         if (mode == 2)
         {
-            // File links can point outside the selected workspace. Never expose them as map targets.
-            var files = candidates.SelectMany(directory => EnumerateFilesSafely(directory, "*", 500))
-                .Where(path =>
+            // Count file types without retaining every filename in grouping buffers.
+            // File links may point outside the workspace, and linked worktrees have a .git metadata file.
+            var counts = new Dictionary<string, (int Count, string FirstPath)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var directory in candidates)
+            foreach (var path in EnumerateFilesSafely(directory, "*", 500))
+            {
+                if (string.Equals(System.IO.Path.GetFileName(path), ".git", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
                 {
-                    // Linked Git worktrees keep private gitdir metadata in a .git file.
-                    // It is not a project file and should not appear in the file-type map.
-                    if (string.Equals(System.IO.Path.GetFileName(path), ".git", StringComparison.OrdinalIgnoreCase))
-                        return false;
-                    try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-                    {
-                        // A file may disappear or become inaccessible while the map refreshes.
-                        return false;
-                    }
-                });
-            return files.GroupBy(path => System.IO.Path.GetExtension(path).ToLowerInvariant())
-                .OrderByDescending(group => group.Count()).Take(6)
-                .Select(group => new WorkspaceMapNode($"{(group.Key.Length == 0 ? "без типа" : group.Key)} · {group.Count()}", group.First())).ToArray();
+                    if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                        continue;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    // A file may disappear or become inaccessible during the refresh.
+                    continue;
+                }
+
+                var extension = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                if (counts.TryGetValue(extension, out var existing))
+                    counts[extension] = (existing.Count + 1, existing.FirstPath);
+                else
+                    counts.Add(extension, (1, path));
+            }
+
+            return counts.OrderByDescending(item => item.Value.Count)
+                .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .Select(item => new WorkspaceMapNode(
+                    $"{(item.Key.Length == 0 ? "без типа" : item.Key)} · {item.Value.Count}",
+                    item.Value.FirstPath)).ToArray();
         }
         // Only six distinct labels can be displayed. Stop scanning once the map is full
         // instead of accumulating every dependency from large solution manifests.

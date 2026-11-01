@@ -196,8 +196,12 @@ internal static class AppInstaller
             "Windows",
             "Start Menu",
             "Programs");
+        // The Start Menu path is outside the installation directory and needs its
+        // own link checks before creating or replacing the shortcut.
+        RejectLinkedInstallPath(programsDirectory);
         Directory.CreateDirectory(programsDirectory);
         var shortcutPath = Path.Combine(programsDirectory, "CodexGUI.lnk");
+        RejectLinkedInstallPath(shortcutPath);
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
             ?? throw new InvalidOperationException("Не удалось создать ярлык меню Пуск.");
         object shell = Activator.CreateInstance(shellType)

@@ -16,12 +16,17 @@ internal static class WorkspaceMapView
         canvas.Width = 330; canvas.Height = 230;
         canvas.RenderTransform = new ScaleTransform(zoom, zoom, 165, 115);
         canvas.ClipToBounds = true;
+        // Render the decorative grid as one geometry rather than hundreds of WPF controls.
+        // The grid is non-interactive and should not inflate the visual tree on each refresh.
+        var grid = new GeometryGroup();
         for (var x = 6; x < 330; x += 15)
         for (var y = 6; y < 230; y += 15)
+            grid.Children.Add(new EllipseGeometry(new Point(x + 0.7, y + 0.7), 0.7, 0.7));
+        grid.Freeze();
+        canvas.Children.Add(new System.Windows.Shapes.Path
         {
-            var dot = new Ellipse { Width = 1.4, Height = 1.4, Fill = Brush("#25434D"), IsHitTestVisible = false };
-            Canvas.SetLeft(dot, x); Canvas.SetTop(dot, y); canvas.Children.Add(dot);
-        }
+            Data = grid, Fill = Brush("#25434D"), IsHitTestVisible = false
+        });
         for (var i = 0; i < nodes.Count; i++)
         {
             var angle = i * Math.PI * 2 / nodes.Count - Math.PI / 2;
@@ -35,7 +40,9 @@ internal static class WorkspaceMapView
             var angle = i * Math.PI * 2 / nodes.Count - Math.PI / 2;
             AddNode(165 + Math.Cos(angle) * 130, 115 + Math.Sin(angle) * 84, nodes[i].Label, nodes[i].Path, colors[i % colors.Length], false);
         }
-        AddNode(165, 115, Path.GetFileName(root), root, "#70E8CC", true);
+        // Directory roots often arrive with a trailing separator; show their real name.
+        var rootLabel = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
+        AddNode(165, 115, string.IsNullOrEmpty(rootLabel) ? root : rootLabel, root, "#70E8CC", true);
         if (nodes.Count == 0)
         {
             var empty = new TextBlock { Text = "Нет данных для этого вида", FontSize = 11, Foreground = Brush("#91A8B5") };

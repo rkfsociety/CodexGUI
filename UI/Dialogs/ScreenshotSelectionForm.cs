@@ -48,7 +48,7 @@ internal sealed class ScreenshotSelectionForm : Forms.Form
             return;
         }
 
-        var selection = GetSelectionRectangle(_start, _current);
+        var selection = Rectangle.Intersect(ClientRectangle, GetSelectionRectangle(_start, _current));
         if (selection.Width > 0 && selection.Height > 0)
         {
             using var pen = new Pen(Color.FromArgb(146, 229, 199), 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
@@ -80,7 +80,7 @@ internal sealed class ScreenshotSelectionForm : Forms.Form
         base.OnMouseUp(e);
         if (!_selecting || e.Button != MouseButtons.Left) return;
         _current = e.Location;
-        var selection = GetSelectionRectangle(_start, _current);
+        var selection = Rectangle.Intersect(ClientRectangle, GetSelectionRectangle(_start, _current));
         Capture = false;
         _selecting = false;
         if (selection.Width < 2 || selection.Height < 2)
