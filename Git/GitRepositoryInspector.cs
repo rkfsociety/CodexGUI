@@ -383,8 +383,10 @@ internal static class GitRepositoryInspector
         var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
         try
         {
-            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            // A Git status refresh must not prevent an editor from saving an untracked file.
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, bufferSize,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
             long lines = 0;
             long bytesRead = 0;
             byte lastByte = 0;
@@ -393,12 +395,17 @@ internal static class GitRepositoryInspector
             {
                 bytesRead += count;
                 if (bytesRead > maximumBytes || buffer.AsSpan(0, count).Contains((byte)0)) return null;
+                // Count CR, LF and CRLF correctly, including pairs split between read chunks.
                 for (var index = 0; index < count; index++)
-                    if (buffer[index] == (byte)'\n') lines++;
-                lastByte = buffer[count - 1];
+                {
+                    var current = buffer[index];
+                    if (current == (byte)'\r' || (current == (byte)'\n' && lastByte != (byte)'\r'))
+                        lines++;
+                    lastByte = current;
+                }
             }
 
-            return lines + (bytesRead > 0 && lastByte != (byte)'\n' ? 1 : 0);
+            return lines + (bytesRead > 0 && lastByte != (byte)'\r' && lastByte != (byte)'\n' ? 1 : 0);
         }
         finally
         {
