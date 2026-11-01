@@ -18,6 +18,8 @@ internal sealed record CodexTerminalExit(string ProcessId, int ExitCode, string?
 internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
 {
     private static readonly TimeSpan DefaultControlRequestTimeout = TimeSpan.FromSeconds(8);
+    // A single server notification must not allocate an unbounded decoded output buffer.
+    private const int MaximumTerminalDeltaBase64Characters = 1024 * 1024;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Decoder> _outputDecoders = new(StringComparer.Ordinal);
@@ -240,11 +242,22 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                         || !message.TryGetProperty("params", out var parameters)
                         || GetString(parameters, "processId") is not { Length: > 0 } processId)
                         continue;
+                    // Ignore late or unrelated notifications instead of retaining decoders
+                    // for process IDs that this terminal host does not own.
+                    if (!_sessions.ContainsKey(processId)) continue;
                     try
                     {
                         var deltaBase64 = GetString(parameters, "deltaBase64");
                         if (!string.IsNullOrEmpty(deltaBase64))
                         {
+                            if (deltaBase64.Length > MaximumTerminalDeltaBase64Characters)
+                            {
+                                // The decoder may contain a partial UTF-8 character from the
+                                // preceding chunk; it cannot be reused after dropped bytes.
+                                _outputDecoders.TryRemove(processId, out _);
+                                PublishOutput(processId, "\r\n[слишком большой фрагмент вывода терминала пропущен]\r\n");
+                                continue;
+                            }
                             var bytes = Convert.FromBase64String(deltaBase64);
                             var decoder = _outputDecoders.GetOrAdd(processId, static _ => Encoding.UTF8.GetDecoder());
                             var characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
@@ -258,6 +271,9 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                     }
                     catch (FormatException error)
                     {
+                        // A malformed chunk can break a multi-byte character across messages.
+                        // Start a fresh decoder so later Cyrillic output stays readable.
+                        _outputDecoders.TryRemove(processId, out _);
                         System.Diagnostics.Trace.TraceWarning("Некорректный terminal output chunk: {0}", error.Message);
                     }
                 }
