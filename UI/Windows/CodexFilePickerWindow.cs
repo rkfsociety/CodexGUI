@@ -294,18 +294,27 @@ internal sealed class CodexFilePickerWindow : Window
         try
         {
             // A huge folder must not allocate thousands of WPF controls or block the picker.
+            // In file modes, reserve some visible slots for files even when the
+            // folder contains more subdirectories than the list can display.
+            var directoryLimit = _mode == PickerMode.Folder
+                ? MaximumVisibleEntries : MaximumVisibleEntries * 7 / 10;
             var directoryPaths = Directory.EnumerateDirectories(_currentDirectory)
-                .Take(MaximumVisibleEntries + 1).ToList();
-            var truncated = directoryPaths.Count > MaximumVisibleEntries;
-            var entries = directoryPaths.Take(MaximumVisibleEntries)
+                .Take(directoryLimit + 1).ToList();
+            var truncated = directoryPaths.Count > directoryLimit;
+            var entries = directoryPaths.Take(directoryLimit)
                 .Select(path => new PickerEntry(Path.GetFileName(path), path, true, "Папка"))
                 .ToList();
-            if (_mode != PickerMode.Folder && !truncated)
+            if (_mode != PickerMode.Folder)
             {
                 var remaining = MaximumVisibleEntries - entries.Count;
                 // Bound the scan even if most files do not match the extension filter.
-                var filePaths = Directory.EnumerateFiles(_currentDirectory)
-                    .Take(MaximumScannedFiles + 1).ToList();
+                // With a single extension filter, let the filesystem select matching
+                // names before applying the scan limit; unrelated files should not
+                // crowd out the requested type in a large directory.
+                var candidates = _extensions.Length == 1
+                    ? Directory.EnumerateFiles(_currentDirectory, "*" + _extensions[0])
+                    : Directory.EnumerateFiles(_currentDirectory);
+                var filePaths = candidates.Take(MaximumScannedFiles + 1).ToList();
                 if (filePaths.Count > MaximumScannedFiles) truncated = true;
                 var matchingFiles = filePaths.Take(MaximumScannedFiles)
                     .Where(IsAllowedFile).Take(remaining + 1).ToList();

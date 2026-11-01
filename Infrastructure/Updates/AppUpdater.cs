@@ -247,7 +247,8 @@ internal static class AppUpdater
             try
             {
                 var response = await client.GetAsync(uri, completionOption, cancellationToken);
-                if (attempt < 2 && response.StatusCode is HttpStatusCode.TooManyRequests
+                if (attempt < 2 && response.StatusCode is HttpStatusCode.RequestTimeout
+                    or HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                     or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
                 {
                     var retryAfter = response.Headers.RetryAfter?.Delta;
@@ -267,6 +268,11 @@ internal static class AppUpdater
                 if (attempt == 0) continue;
                 throw new TimeoutException($"Сервер {uri.Host} не ответил вовремя после повторной попытки. "
                     + "Проверьте подключение к интернету и повторите операцию позже.", error);
+            }
+            catch (HttpRequestException) when (attempt < 2 && !cancellationToken.IsCancellationRequested)
+            {
+                // A brief connection reset should not interrupt update checks or downloads.
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * (attempt + 1)), cancellationToken);
             }
         }
     }
