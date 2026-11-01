@@ -23,7 +23,12 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
         if (!Uri.TryCreate(authorizationUrl, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             || string.IsNullOrWhiteSpace(uri.Host)
-            || uri.UserInfo.Length > 0)
+            || uri.UserInfo.Length > 0
+            // OAuth authorization links must use TLS except for local development callbacks.
+            || (uri.Scheme == Uri.UriSchemeHttp
+                && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                && !(System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address)
+                     && System.Net.IPAddress.IsLoopback(address))))
             throw new InvalidOperationException("MCP-сервер вернул недопустимый адрес входа.");
 
         _authorizationUri = uri;

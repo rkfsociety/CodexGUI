@@ -110,6 +110,8 @@ internal sealed class CodexAppServerLoginWindow : Window
     {
         if (!Uri.TryCreate(_verificationUrl, UriKind.Absolute, out var uri)
             || uri.Scheme != Uri.UriSchemeHttps
+            || uri.Port != 443
+            || uri.UserInfo.Length > 0
             || !uri.Host.Equals("auth.openai.com", StringComparison.OrdinalIgnoreCase))
         {
             _status.Text = "Сервер вернул недопустимый адрес страницы входа.";
