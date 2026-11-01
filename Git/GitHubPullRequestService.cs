@@ -37,7 +37,9 @@ internal static class GitHubPullRequestService
                 || uri.Query.Length != 0
                 || uri.Fragment.Length != 0)
                 return false;
-            path = uri.AbsolutePath.Trim('/');
+            // Reject paths that Uri silently normalizes (extra slashes, dot
+            // segments or escaped characters) rather than selecting a different repo.
+            if (!TryGetLiteralUriPath(remoteUrl, uri, out path)) return false;
         }
 
         if (path.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) path = path[..^4];
@@ -160,13 +162,30 @@ internal static class GitHubPullRequestService
             || uri.Fragment.Length != 0)
             return false;
 
-        var segments = uri.AbsolutePath.Trim('/').Split('/');
+        // A CLI success URL must also be canonical, without normalized
+        // path segments or trailing separators.
+        if (!TryGetLiteralUriPath(value, uri, out var path)) return false;
+        var segments = path.Split('/');
         return segments.Length == 4
             && string.Equals(segments[0] + "/" + segments[1], repositorySlug, StringComparison.OrdinalIgnoreCase)
             && segments[2] == "pull"
             && int.TryParse(segments[3], System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out var number)
             && number > 0;
+    }
+
+    private static bool TryGetLiteralUriPath(string source, Uri uri, out string path)
+    {
+        path = "";
+        var schemeSeparator = source.IndexOf("://", StringComparison.Ordinal);
+        if (schemeSeparator < 0) return false;
+        var pathStart = source.IndexOf('/', schemeSeparator + 3);
+        if (pathStart < 0 || uri.AbsolutePath.Length < 2
+            || uri.AbsolutePath.EndsWith('/')
+            || !string.Equals(source[pathStart..], uri.AbsolutePath, StringComparison.Ordinal))
+            return false;
+        path = uri.AbsolutePath[1..];
+        return true;
     }
 
     private static async Task TerminateProcessAsync(Process process)

@@ -317,17 +317,25 @@ internal sealed class CodexFilePickerWindow : Window
                     // Give every requested type a share of the scan budget. Otherwise
                     // thousands of files of the first type can hide all other types.
                     var perExtension = Math.Max(1, MaximumScannedFiles / _extensions.Length);
-                    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    filePaths = new List<string>();
+                    var groups = new List<List<string>>();
                     foreach (var extension in _extensions.Take(MaximumScannedFiles))
                     {
                         var paths = Directory.EnumerateFiles(_currentDirectory, "*" + extension)
                             .Take(perExtension + 1).ToList();
                         if (paths.Count > perExtension) truncated = true;
-                        foreach (var path in paths.Take(perExtension))
-                            if (seenPaths.Add(path)) filePaths.Add(path);
+                        groups.Add(paths.Take(perExtension).ToList());
                     }
                     if (_extensions.Length > MaximumScannedFiles) truncated = true;
+
+                    // Interleave file types before applying the visible-entry limit.
+                    // Concatenating groups first would let a common extension consume
+                    // every visible slot, hiding other requested types entirely.
+                    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    filePaths = new List<string>();
+                    for (var index = 0; index < perExtension && filePaths.Count < MaximumScannedFiles; index++)
+                        foreach (var group in groups)
+                            if (index < group.Count && seenPaths.Add(group[index]))
+                                filePaths.Add(group[index]);
                 }
                 else
                 {
