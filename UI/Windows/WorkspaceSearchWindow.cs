@@ -251,25 +251,39 @@ internal static class WorkspaceFileSearch
                         var content = textBuffer.AsSpan(0, textLength);
                         if (content.IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase) < 0) continue;
                         if (ContainsBinaryCharacters(content)) { skipped++; continue; }
-                        // Preserve accurate line numbers in files that use CR-only line endings.
-                        var lines = new string(content).Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
-                        for (var i = 0; i < lines.Length && hits.Count < 200; i++)
+                        // Scan lines directly in the reusable buffer. A single match must not
+                        // allocate an entire megabyte of strings just to show a short preview.
+                        // Count CR, LF and CRLF as one line break each.
+                        var lineStart = 0;
+                        var lineNumber = 1;
+                        while (lineStart <= content.Length && hits.Count < 200)
                         {
                             cancellation.ThrowIfCancellationRequested();
-                            var line = lines[i].Trim();
-                            var matchIndex = line.IndexOf(query, StringComparison.OrdinalIgnoreCase);
-                            if (matchIndex < 0) continue;
-                            var preview = line;
-                            if (line.Length > 180)
+                            var separatorOffset = content[lineStart..].IndexOfAny('\r', '\n');
+                            var lineEnd = separatorOffset < 0 ? content.Length : lineStart + separatorOffset;
+                            var line = content[lineStart..lineEnd].Trim();
+                            var matchIndex = line.IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
+                            if (matchIndex >= 0)
                             {
-                                // Keep the matching text visible even when it occurs far into a long line.
-                                var start = Math.Max(0, matchIndex - 60);
-                                if (start + 180 > line.Length) start = line.Length - 180;
-                                var end = start + 180;
-                                preview = (start > 0 ? "…" : "") + line[start..end]
-                                    + (end < line.Length ? "…" : "");
+                                string preview;
+                                if (line.Length <= 180)
+                                    preview = new string(line);
+                                else
+                                {
+                                    var previewStart = Math.Max(0, matchIndex - 60);
+                                    if (previewStart + 180 > line.Length) previewStart = line.Length - 180;
+                                    preview = (previewStart > 0 ? "…" : "")
+                                        + new string(line.Slice(previewStart, 180))
+                                        + (previewStart + 180 < line.Length ? "…" : "");
+                                }
+                                hits.Add(new WorkspaceSearchHit(file, lineNumber,
+                                    $"{relative}:{lineNumber}   {preview}"));
                             }
-                            hits.Add(new WorkspaceSearchHit(file, i + 1, $"{relative}:{i + 1}   {preview}"));
+                            if (separatorOffset < 0) break;
+                            lineStart = lineEnd + 1;
+                            if (content[lineEnd] == '\r' && lineStart < content.Length && content[lineStart] == '\n')
+                                lineStart++;
+                            lineNumber++;
                         }
                     }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException) { skipped++; }

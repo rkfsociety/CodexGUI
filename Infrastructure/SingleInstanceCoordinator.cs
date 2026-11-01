@@ -12,6 +12,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     private readonly Mutex _mutex;
     private readonly EventWaitHandle _activationEvent;
     private RegisteredWaitHandle? _activationWait;
+    private int _disposed;
 
     private SingleInstanceCoordinator(Mutex mutex, EventWaitHandle activationEvent)
     {
@@ -55,6 +56,8 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     public void ListenForActivation(Action activatePrimary)
     {
         ArgumentNullException.ThrowIfNull(activatePrimary);
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(SingleInstanceCoordinator));
         var dispatcher = Application.Current?.Dispatcher
             ?? throw new InvalidOperationException("Диспетчер приложения недоступен.");
 
@@ -66,11 +69,16 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             {
                 // A second launch can signal us while the primary application is closing.
                 // Posting to a stopped dispatcher must not crash a ThreadPool callback.
-                if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                if (Volatile.Read(ref _disposed) != 0 || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
                     return;
                 try
                 {
-                    dispatcher.BeginInvoke(activatePrimary);
+                    dispatcher.BeginInvoke((Action)(() =>
+                    {
+                        // A queued activation may execute after this coordinator was disposed.
+                        if (Volatile.Read(ref _disposed) == 0)
+                            activatePrimary();
+                    }));
                 }
                 catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
                 {
@@ -84,6 +92,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _activationWait?.Unregister(null);
         _activationEvent.Dispose();
         _mutex.Dispose();

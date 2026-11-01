@@ -150,7 +150,13 @@ internal sealed class CodexBrowserWindow : Window
             };
             core.NavigationStarting += (_, e) =>
             {
-                if (!IsAllowedNavigation(e.Uri)) e.Cancel = true;
+                if (!IsAllowedNavigation(e.Uri))
+                {
+                    e.Cancel = true;
+                    if (ReferenceEquals(ActiveBrowser, browser))
+                        _status.Text = "Переход заблокирован: разрешены только HTTP и HTTPS.";
+                    return;
+                }
                 if (ReferenceEquals(ActiveBrowser, browser)) _status.Text = "Загрузка страницы…";
             };
             core.NavigationCompleted += (_, e) =>

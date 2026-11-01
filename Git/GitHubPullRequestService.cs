@@ -29,7 +29,10 @@ internal static class GitHubPullRequestService
                 || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
                 || uri.Scheme is not ("https" or "http" or "ssh" or "git")
                 || !uri.IsDefaultPort
-                || uri.UserInfo.Length != 0
+                // ssh://git@github.com/owner/repo.git is a standard Git remote.
+                // Accept only the fixed "git" user, never credentials or other users.
+                || (uri.UserInfo.Length != 0
+                    && !(uri.Scheme == "ssh" && uri.UserInfo == "git"))
                 || uri.Query.Length != 0
                 || uri.Fragment.Length != 0)
                 return false;
