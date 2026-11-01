@@ -27,6 +27,11 @@ internal static class AppInstaller
 
         try
         {
+            // A pre-existing junction or symlink must not redirect installation or launch
+            // to a different directory or executable.
+            RejectLinkedInstallPath(installDirectory);
+            RejectLinkedInstallPath(installedExecutable);
+
             if (IsInstalledCopyRunning(installedExecutable))
             {
                 SingleInstanceCoordinator.SignalPrimaryInstance();
@@ -132,13 +137,23 @@ internal static class AppInstaller
         }
     }
 
+    private static void RejectLinkedInstallPath(string path)
+    {
+        if ((File.Exists(path) || Directory.Exists(path))
+            && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Путь установки ведёт через ссылку: " + path);
+    }
+
     private static void CopyApplicationDirectory(string sourceDirectory, string destinationDirectory)
     {
+        RejectLinkedInstallPath(destinationDirectory);
         foreach (var file in Directory.EnumerateFiles(sourceDirectory))
         {
             if (file.EndsWith(".sha256", StringComparison.OrdinalIgnoreCase)
                 || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) continue;
-            File.Copy(file, Path.Combine(destinationDirectory, Path.GetFileName(file)), overwrite: true);
+            var destinationFile = Path.Combine(destinationDirectory, Path.GetFileName(file));
+            RejectLinkedInstallPath(destinationFile);
+            File.Copy(file, destinationFile, overwrite: true);
         }
 
         foreach (var directory in Directory.EnumerateDirectories(sourceDirectory))
