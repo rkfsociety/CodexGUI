@@ -251,13 +251,16 @@ internal static class CodexAutomationStore
     public static DateTimeOffset CalculateNextRun(CodexAutomationDefinition definition, DateTimeOffset nowUtc,
         DateTimeOffset? previousOccurrenceUtc = null)
     {
+        // A clock rollback must not schedule another run before the last handled occurrence.
+        var effectiveNowUtc = previousOccurrenceUtc is { } lastOccurrence && lastOccurrence > nowUtc
+            ? lastOccurrence : nowUtc;
         if (definition.Cadence == "interval")
         {
             if (definition.IntervalMinutes < 1)
                 throw new InvalidDataException("Интервал должен быть положительным числом минут.");
             var period = TimeSpan.FromMinutes(definition.IntervalMinutes);
-            var anchor = previousOccurrenceUtc is { } previous && previous <= nowUtc ? previous : nowUtc;
-            var elapsedTicks = (nowUtc - anchor).Ticks;
+            var anchor = previousOccurrenceUtc ?? effectiveNowUtc;
+            var elapsedTicks = (effectiveNowUtc - anchor).Ticks;
             var intervalCount = elapsedTicks / period.Ticks + 1;
             return anchor.AddTicks(intervalCount * period.Ticks);
         }
@@ -266,7 +269,14 @@ internal static class CodexAutomationStore
                 DateTimeStyles.None, out var time))
             throw new InvalidDataException("Время автоматизации должно быть в формате ЧЧ:ММ.");
 
-        var localNow = nowUtc.ToLocalTime().DateTime;
+        var localNow = effectiveNowUtc.ToLocalTime().DateTime;
+        // At the autumn DST transition the wall clock repeats an hour. Do not
+        // run a daily/weekly/monthly occurrence twice on that same local date.
+        if (previousOccurrenceUtc is { } previousLocalOccurrence)
+        {
+            var previousLocal = previousLocalOccurrence.ToLocalTime().DateTime;
+            if (previousLocal > localNow) localNow = previousLocal;
+        }
         DateTime candidate;
         if (definition.Cadence == "monthly")
         {
