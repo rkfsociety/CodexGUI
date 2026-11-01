@@ -368,7 +368,11 @@ internal sealed class CodexMcpServerStatusWindow : Window
             $"Авторизация: {status.AuthenticationLabel}",
             $"Инструменты ({status.ToolNames.Count}):"
         };
-        lines.AddRange(status.ToolNames.Select(name => "• " + name));
+        // A server can expose hundreds of tools; keep the details panel readable.
+        const int maximumVisibleTools = 100;
+        lines.AddRange(status.ToolNames.Take(maximumVisibleTools).Select(name => "• " + name));
+        if (status.ToolNames.Count > maximumVisibleTools)
+            lines.Add($"Не показано ещё {status.ToolNames.Count - maximumVisibleTools} инструментов.");
         if (status.ServerVersion is { Length: > 0 } version) lines.Add("Версия сервера: " + version);
         if (status.HttpOrigin is { Length: > 0 } origin) lines.Add("Адрес: " + origin);
         if (!string.IsNullOrWhiteSpace(status.ToolsError)) lines.Add("Ошибка: " + status.ToolsError);

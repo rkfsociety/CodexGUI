@@ -395,9 +395,13 @@ internal sealed class CodexBrowserWindow : Window
         var title = browser.CoreWebView2?.DocumentTitle;
         // Page-controlled titles may be enormous or contain control characters.
         // Bound both the tab header and its accessibility label.
-        var label = string.IsNullOrWhiteSpace(title) ? "Новая вкладка"
-            : new string(title.Where(character => !char.IsControl(character)).Take(160).ToArray());
-        if (string.IsNullOrWhiteSpace(label)) label = "Новая вкладка";
+        var characters = title?.Where(character => !char.IsControl(character)).Take(161).ToArray() ?? [];
+        var truncated = characters.Length > 160;
+        var length = Math.Min(characters.Length, 160);
+        // A truncated title must not end with half of a UTF-16 surrogate pair.
+        if (truncated && length > 0 && char.IsHighSurrogate(characters[length - 1])) length--;
+        var label = length == 0 ? "Новая вкладка"
+            : new string(characters, 0, length) + (truncated ? "…" : "");
         tab.Header = CreateTabHeader(label, tab);
         AutomationProperties.SetName(tab, label);
     }

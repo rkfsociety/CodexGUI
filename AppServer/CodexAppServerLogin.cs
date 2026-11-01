@@ -66,14 +66,16 @@ internal static class CodexAppServerLogin
                     || !message.TryGetProperty("params", out var parameters)
                     || ReadString(parameters, "loginId") != loginId)
                     continue;
-                var success = parameters.TryGetProperty("success", out var successValue)
-                    && successValue.ValueKind == JsonValueKind.True;
-                return new LoginResult(success, ReadString(parameters, "error"));
+                if (!parameters.TryGetProperty("success", out var successValue)
+                    || successValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new InvalidDataException("Codex App Server вернул некорректный результат входа.");
+                return new LoginResult(successValue.GetBoolean(), ReadString(parameters, "error"));
             }
 
-            if (connection.ReaderTask.IsCompleted)
-                throw new EndOfStreamException("Codex App Server завершился до завершения входа.");
-            await Task.Delay(100, cancellationToken);
+            // Wait for an actual notification rather than waking up ten times a second.
+            // A completed or failed reader wakes this wait and surfaces its failure.
+            if (!await connection.WaitForIncomingAsync(cancellationToken))
+                throw new EndOfStreamException("Codex App Server завершил поток уведомлений до завершения входа.");
         }
     }
 

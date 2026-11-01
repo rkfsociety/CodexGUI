@@ -15,6 +15,7 @@ internal sealed record CodexExtension(string Id, string Name, string Description
 
 internal static class CodexExtensionCatalog
 {
+    private const int MaximumVisibleSkillErrors = 20;
     public static async Task<IReadOnlyList<CodexExtension>> LoadPluginsAsync()
     {
         var json = await CodexCliService.RunPluginCommandAsync("list", "--available", "--json");
@@ -60,6 +61,8 @@ internal static class CodexExtensionCatalog
 
         var skills = new List<CodexExtension>();
         var errors = new List<string>();
+        var seenErrors = new HashSet<string>(StringComparer.Ordinal);
+        var hiddenErrors = 0;
         foreach (var entry in data.EnumerateArray())
         {
             if (entry.ValueKind != JsonValueKind.Object)
@@ -69,7 +72,13 @@ internal static class CodexExtensionCatalog
                 if (failures.ValueKind != JsonValueKind.Array
                     || failures.EnumerateArray().Any(error => error.ValueKind != JsonValueKind.Object))
                     throw new InvalidDataException("Codex вернул некорректный список ошибок скиллов.");
-                errors.AddRange(failures.EnumerateArray().Select(error => $"{Text(error, "path")}: {Text(error, "message")}"));
+                foreach (var failure in failures.EnumerateArray())
+                {
+                    var message = $"{Text(failure, "path")}: {Text(failure, "message")}";
+                    if (!seenErrors.Add(message)) continue;
+                    if (errors.Count < MaximumVisibleSkillErrors) errors.Add(message);
+                    else hiddenErrors++;
+                }
             }
             if (!entry.TryGetProperty("skills", out var items)) continue;
             if (items.ValueKind != JsonValueKind.Array
@@ -87,6 +96,7 @@ internal static class CodexExtensionCatalog
                     true, Flag(item, "enabled"), false));
             }
         }
+        if (hiddenErrors > 0) errors.Add($"Не показано ещё {hiddenErrors} ошибок скиллов.");
         return (skills.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Name.Contains("imagegen", StringComparison.OrdinalIgnoreCase)
                 || item.Name.Contains("computer-use", StringComparison.OrdinalIgnoreCase))

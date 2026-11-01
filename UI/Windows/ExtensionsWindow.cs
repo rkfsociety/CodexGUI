@@ -297,13 +297,17 @@ internal sealed class ExtensionsWindow : Window
                 ? "Нет настроенных Git-маркетплейсов для обновления."
                 : $"Обновление каталогов завершено. Выбрано: {selectedCount}; обновлено корней: {upgradedCount}.";
 
+        const int maximumVisibleErrors = 20;
         var errors = response.GetProperty("errors").EnumerateArray()
+            .Take(maximumVisibleErrors)
             .Select(error => $"{ReadJsonString(error, "marketplaceName")}: {ReadJsonString(error, "message")}")
             .ToArray();
         var partialSummary = selectedCount == 0
             ? "Обновление каталогов завершилось с ошибками."
             : $"Обновление каталогов завершилось с ошибками. Выбрано: {selectedCount}; обновлено корней: {upgradedCount}.";
-        return partialSummary + Environment.NewLine + string.Join(Environment.NewLine, errors);
+        var hiddenErrors = errorsLength - errors.Length;
+        return partialSummary + Environment.NewLine + string.Join(Environment.NewLine, errors)
+            + (hiddenErrors > 0 ? Environment.NewLine + $"Не показано ещё {hiddenErrors} ошибок маркетплейсов." : "");
     }
 
     private static int ReadArrayLength(JsonElement value, string propertyName)
