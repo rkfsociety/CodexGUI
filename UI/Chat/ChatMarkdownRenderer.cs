@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,6 +16,8 @@ namespace CodexGUI;
 
 internal static class ChatMarkdownRenderer
 {
+    private const int MaximumRenderedTableRows = 100;
+    private const int MaximumRenderedTableColumns = 12;
     private static readonly Regex InlineTokens = new(@"(?<code>`[^`]+`)|(?<bold>\*\*.+?\*\*)|(?<italic>(?<!\*)\*[^*]+\*(?!\*))|\[(?<label>[^\]]+)\]\((?<url>https?://[^)\s]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(150));
     private static readonly Regex Heading = new(@"^(#{1,3})\s+(.+)$", RegexOptions.Compiled);
     private static readonly Regex ListItem = new(@"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$", RegexOptions.Compiled);
@@ -57,8 +61,10 @@ internal static class ChatMarkdownRenderer
             if (heading.Success)
             {
                 var size = heading.Groups[1].Length switch { 1 => 20d, 2 => 17d, _ => 15d };
-                content.Children.Add(CreateTextBlock(heading.Groups[2].Value, size, FontWeights.SemiBold,
-                    new Thickness(0, 6, 0, 3)));
+                var headingBlock = CreateTextBlock(heading.Groups[2].Value, size, FontWeights.SemiBold,
+                    new Thickness(0, 6, 0, 3));
+                AppendInlineFormatting(headingBlock, heading.Groups[2].Value);
+                content.Children.Add(headingBlock);
                 continue;
             }
 
@@ -66,9 +72,21 @@ internal static class ChatMarkdownRenderer
             {
                 var rows = new List<IReadOnlyList<string>> { SplitTableRow(line) };
                 var rowIndex = index + 2;
+                var truncatedRows = false;
                 while (rowIndex < lines.Length && ContainsTablePipes(lines[rowIndex]))
-                    rows.Add(SplitTableRow(lines[rowIndex++]));
+                {
+                    if (rows.Count < MaximumRenderedTableRows)
+                        rows.Add(SplitTableRow(lines[rowIndex]));
+                    else
+                        truncatedRows = true;
+                    rowIndex++;
+                }
+                var truncatedColumns = rows.Any(row => row.Count > MaximumRenderedTableColumns);
                 content.Children.Add(CreateTable(rows));
+                if (truncatedRows || truncatedColumns)
+                    content.Children.Add(CreateTextBlock(
+                        $"Таблица сокращена: показано не более {MaximumRenderedTableRows} строк и {MaximumRenderedTableColumns} столбцов.",
+                        12, FontWeights.Normal, new Thickness(0, 0, 0, 7)));
                 index = rowIndex - 1;
                 continue;
             }
@@ -183,7 +201,7 @@ internal static class ChatMarkdownRenderer
 
     private static FrameworkElement CreateTable(IReadOnlyList<IReadOnlyList<string>> rows)
     {
-        var columnCount = rows.Max(row => row.Count);
+        var columnCount = Math.Min(MaximumRenderedTableColumns, rows.Max(row => row.Count));
         var grid = new Grid { MinWidth = Math.Max(480, columnCount * 140) };
         for (var column = 0; column < columnCount; column++)
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -240,7 +258,7 @@ internal static class ChatMarkdownRenderer
         {
             Process.Start(new ProcessStartInfo(args.Uri.AbsoluteUri) { UseShellExecute = true });
         }
-        catch (Exception error) when (error is InvalidOperationException or Win32Exception)
+        catch (Exception error) when (error is InvalidOperationException or Win32Exception or IOException or SecurityException)
         {
             var message = "Не удалось открыть ссылку: " + error.Message;
             if (Window.GetWindow(source) is { } owner)
