@@ -39,7 +39,9 @@ internal static class AtomicJsonFile
                 FileShare.Read | FileShare.Delete, 81920, FileOptions.SequentialScan);
             if (stream.Length > MaximumJsonBytes)
                 throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
-            var value = JsonSerializer.Deserialize<T>(stream)
+            // Enforce the limit during parsing as well: a file may grow after Length was checked.
+            using var boundedStream = new BoundedReadStream(stream, MaximumJsonBytes);
+            var value = JsonSerializer.Deserialize<T>(boundedStream)
                 ?? throw new InvalidDataException("Файл состояния пуст.");
             validate(value);
             return value;
@@ -80,6 +82,41 @@ internal static class AtomicJsonFile
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally { TryDeleteTemporaryFile(temporaryPath); }
+    }
+
+    // JsonSerializer reads streams incrementally. Check the byte count on every read
+    // instead of trusting the file size observed before deserialization.
+    private sealed class BoundedReadStream(Stream source, long maximumBytes) : Stream
+    {
+        private long _bytesRead;
+
+        private int RecordRead(int count)
+        {
+            _bytesRead += count;
+            if (_bytesRead > maximumBytes)
+                throw new InvalidDataException("Файл JSON превышает допустимый размер 128 МиБ.");
+            return count;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => RecordRead(source.Read(buffer, offset, (int)Math.Min(count, maximumBytes - _bytesRead + 1)));
+
+        public override int Read(Span<byte> buffer)
+            => RecordRead(source.Read(buffer[..(int)Math.Min(buffer.Length, maximumBytes - _bytesRead + 1)]));
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static void TryDeleteTemporaryFile(string temporaryPath)
