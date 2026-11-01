@@ -46,6 +46,7 @@ internal static class AppInstaller
             }
 
             Directory.CreateDirectory(installDirectory);
+            RejectLinkedInstallPath(installDirectory);
             if (IsSingleFileApplication())
                 InstallSingleFileAtomically(sourceExecutable, installedExecutable);
             else
@@ -139,9 +140,19 @@ internal static class AppInstaller
 
     private static void RejectLinkedInstallPath(string path)
     {
-        if ((File.Exists(path) || Directory.Exists(path))
-            && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-            throw new IOException("Путь установки ведёт через ссылку: " + path);
+        // A link in an ancestor (for example Programs) can redirect the entire
+        // installation even when the CodexGUI directory itself is not a link.
+        for (string? current = Path.GetFullPath(path); current is not null;
+             current = Path.GetDirectoryName(current))
+        {
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Путь установки ведёт через ссылку: " + current);
+            }
+            catch (FileNotFoundException) { } // The destination may not exist yet.
+            catch (DirectoryNotFoundException) { }
+        }
     }
 
     private static void CopyApplicationDirectory(string sourceDirectory, string destinationDirectory)
