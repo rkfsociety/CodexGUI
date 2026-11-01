@@ -59,6 +59,10 @@ internal static class WorkspaceProjectMap
             var files = candidates.SelectMany(directory => EnumerateFilesSafely(directory, "*", 500))
                 .Where(path =>
                 {
+                    // Linked Git worktrees keep private gitdir metadata in a .git file.
+                    // It is not a project file and should not appear in the file-type map.
+                    if (string.Equals(System.IO.Path.GetFileName(path), ".git", StringComparison.OrdinalIgnoreCase))
+                        return false;
                     try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                     {

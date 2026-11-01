@@ -27,12 +27,22 @@ internal static class WorktreeSetupConfiguration
             FileShare.Read | FileShare.Delete, 4096, FileOptions.SequentialScan);
         if (stream.Length > MaximumConfigurationBytes)
             throw new InvalidDataException("Файл настройки worktree превышает допустимый размер 64 КиБ.");
-        using var reader = new StreamReader(stream);
-        var buffer = new char[MaximumConfigurationBytes + 1];
-        var length = reader.ReadBlock(buffer, 0, buffer.Length);
+        // Limit actual bytes, not decoded characters: UTF-8 may use several bytes per character,
+        // and a repository-controlled file can grow after its initial Length check.
+        var bytes = new byte[MaximumConfigurationBytes + 1];
+        var length = 0;
+        while (length < bytes.Length)
+        {
+            var read = stream.Read(bytes, length, bytes.Length - length);
+            if (read == 0) break;
+            length += read;
+        }
         if (length > MaximumConfigurationBytes)
             throw new InvalidDataException("Файл настройки worktree превышает допустимый размер 64 КиБ.");
-        var configuration = JsonSerializer.Deserialize<Configuration>(new string(buffer, 0, length))
+        // Preserve StreamReader's BOM detection for existing UTF-8/UTF-16 configurations.
+        using var snapshot = new MemoryStream(bytes, 0, length, writable: false);
+        using var reader = new StreamReader(snapshot);
+        var configuration = JsonSerializer.Deserialize<Configuration>(reader.ReadToEnd())
             ?? throw new InvalidDataException("Файл настройки worktree пуст.");
         if (string.IsNullOrWhiteSpace(configuration.SetupScript))
             throw new InvalidDataException("В настройке worktree не указан setupScript.");
