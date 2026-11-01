@@ -244,6 +244,9 @@ internal static class WorkspaceFileSearch
                         }
                         var content = new string(textBuffer, 0, textLength);
                         if (ContainsBinaryCharacters(content)) { skipped++; continue; }
+                        // Most files do not contain the query. Avoid allocating an array of
+                        // lines and trimmed previews unless a content match is possible.
+                        if (content.IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0) continue;
                         // Preserve accurate line numbers in files that use CR-only line endings.
                         var lines = content.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
                         for (var i = 0; i < lines.Length && hits.Count < 200; i++)
