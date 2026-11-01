@@ -62,6 +62,7 @@ internal static class CodexAppServerLogin
             cancellationToken.ThrowIfCancellationRequested();
             while (connection.TryReadIncoming(out var message))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (ReadString(message, "method") != "account/login/completed"
                     || !message.TryGetProperty("params", out var parameters)
                     || ReadString(parameters, "loginId") != loginId)

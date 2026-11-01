@@ -242,6 +242,7 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
             {
                 while (connection.TryReadIncoming(out var message))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (GetString(message, "method") != "command/exec/outputDelta"
                         || !message.TryGetProperty("params", out var parameters)
                         || GetString(parameters, "processId") is not { Length: > 0 } processId)

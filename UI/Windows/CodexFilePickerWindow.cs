@@ -430,24 +430,31 @@ internal sealed class CodexFilePickerWindow : Window
             if (_mode != PickerMode.Folder && File.Exists(path)
                 && Path.GetDirectoryName(path) is { } parent && Directory.Exists(parent))
             {
-                _currentDirectory = parent;
-                RefreshEntries();
+                NavigateToDirectory(parent);
                 _fileName.Text = Path.GetFileName(path);
                 return;
             }
             ShowError("Папка не найдена.");
             return;
         }
-        _currentDirectory = path;
+        NavigateToDirectory(path);
+    }
+
+    private void NavigateToDirectory(string directory)
+    {
+        _currentDirectory = directory;
         RefreshEntries();
+        // A file name selected in the previous folder must not silently carry over
+        // when opening a different folder. Save dialogs keep the typed name.
+        if (_mode == PickerMode.OpenFile)
+            _fileName.Clear();
     }
 
     private void NavigateToParent()
     {
         if (Directory.GetParent(_currentDirectory) is { } parent)
         {
-            _currentDirectory = parent.FullName;
-            RefreshEntries();
+            NavigateToDirectory(parent.FullName);
         }
     }
 
@@ -463,8 +470,7 @@ internal sealed class CodexFilePickerWindow : Window
         if (_entries.SelectedItem is not ListBoxItem { Tag: PickerEntry entry }) return;
         if (entry.IsDirectory)
         {
-            _currentDirectory = entry.Path;
-            RefreshEntries();
+            NavigateToDirectory(entry.Path);
         }
         else if (_mode == PickerMode.OpenFile)
         {
@@ -498,8 +504,7 @@ internal sealed class CodexFilePickerWindow : Window
 
         if (_mode == PickerMode.OpenFile && _entries.SelectedItem is ListBoxItem { Tag: PickerEntry { IsDirectory: true } selectedFolder })
         {
-            _currentDirectory = selectedFolder.Path;
-            RefreshEntries();
+            NavigateToDirectory(selectedFolder.Path);
             return;
         }
 
@@ -515,7 +520,12 @@ internal sealed class CodexFilePickerWindow : Window
         {
             path = Path.GetFullPath(Path.IsPathRooted(inputName) ? inputName : Path.Combine(_currentDirectory, inputName));
             if (_mode == PickerMode.SaveFile && Path.GetExtension(path).Length == 0 && _defaultExtension.Length > 0)
+            {
+                // Avoid producing names such as "report..txt" from "report.".
+                if (Path.GetFileName(path).EndsWith(".", StringComparison.Ordinal))
+                    path = path.TrimEnd('.');
                 path += _defaultExtension;
+            }
         }
         catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
         {

@@ -263,9 +263,12 @@ internal static class AppUpdater
                     or HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                     or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
                 {
-                    var retryAfter = response.Headers.RetryAfter?.Delta;
+                    var retryAfter = response.Headers.RetryAfter;
+                    TimeSpan? requestedDelay = retryAfter?.Delta;
+                    if (requestedDelay is null && retryAfter?.Date is { } retryDate)
+                        requestedDelay = retryDate - DateTimeOffset.UtcNow;
                     response.Dispose();
-                    var delay = retryAfter is { } requested && requested > TimeSpan.Zero
+                    var delay = requestedDelay is { } requested && requested > TimeSpan.Zero
                         ? TimeSpan.FromSeconds(Math.Min(requested.TotalSeconds, 10))
                         : TimeSpan.FromMilliseconds(500 * (attempt + 1));
                     await Task.Delay(delay, cancellationToken);
