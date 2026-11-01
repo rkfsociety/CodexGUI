@@ -93,8 +93,9 @@ internal static class CodexMcpServerStatusCatalog
         }
 
         return statuses
-            .DistinctBy(status => status.Name, StringComparer.OrdinalIgnoreCase)
+            .DistinctBy(status => status.Name, StringComparer.Ordinal)
             .OrderBy(status => status.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(status => status.Name, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -121,8 +122,9 @@ internal static class CodexMcpServerStatusCatalog
             throw new InvalidDataException("В записи MCP-сервера отсутствует список инструментов.");
         return tools.EnumerateObject()
             .Select(tool => tool.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.Ordinal)
             .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(name => name, StringComparer.Ordinal)
             .ToArray();
     }
 }

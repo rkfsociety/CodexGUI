@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -105,7 +106,8 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
             Process.Start(new ProcessStartInfo(_authorizationUri.AbsoluteUri) { UseShellExecute = true });
             _status.Text = "Завершите вход в браузере. Окно закроется после подтверждения сервером.";
         }
-        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception
+            or IOException or UnauthorizedAccessException)
         {
             _status.Text = "Не удалось открыть браузер: " + error.Message;
         }

@@ -278,6 +278,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
             cancellationToken.ThrowIfCancellationRequested();
             while (connection.TryReadIncoming(out var message))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (ReadString(message, "method") != "mcpServer/oauthLogin/completed"
                     || !message.TryGetProperty("params", out var parameters)
                     || ReadString(parameters, "name") != serverName)
