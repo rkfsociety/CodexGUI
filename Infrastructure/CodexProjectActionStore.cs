@@ -82,7 +82,10 @@ internal static class CodexProjectActionStore
         while ((length = reader.Read(buffer, 0, buffer.Length)) > 0)
         {
             // Also enforce the bound if the file changes while it is being read.
-            if (contents.Length > MaximumConfigurationBytes - length)
+            // A growing file can exceed the byte limit even when decoded characters stay below it.
+            // StreamReader may buffer ahead, so check the actual bytes consumed as well.
+            if (stream.Position > MaximumConfigurationBytes
+                || contents.Length > MaximumConfigurationBytes - length)
                 throw new InvalidDataException("Файл действий проекта превышает допустимый размер 8 МиБ.");
             contents.Append(buffer, 0, length);
         }
