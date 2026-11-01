@@ -238,8 +238,11 @@ internal sealed class CodexAppServerClient(
             // Only reconcile after the server confirms it; a genuinely missing history must still fail.
             string? cursor = null;
             var seenCursors = new HashSet<string>(StringComparer.Ordinal);
+            var pageCount = 0;
             do
             {
+                if (++pageCount > 200)
+                    throw new InvalidDataException("Список архивных чатов содержит слишком много страниц.");
                 var response = await send("thread/list", new
                 {
                     archived = true,

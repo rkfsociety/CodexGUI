@@ -58,6 +58,8 @@ internal static class WorktreeSetupConfiguration
         EnsureNoReparsePoints(root, selectedScript);
 
         var configurationPath = Path.Combine(root, ConfigurationRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        // Reject a linked .codex directory before creating anything through it.
+        EnsureNoReparsePoints(root, configurationPath);
         Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
         EnsureNoReparsePoints(root, configurationPath);
         AtomicJsonFile.Write(configurationPath, new Configuration { SetupScript = relativePath }, JsonOptions);

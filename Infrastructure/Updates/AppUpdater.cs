@@ -62,11 +62,11 @@ internal static class AppUpdater
         var checksumUrl = FindAssetUrl(assets, ChecksumName);
         var signatureUrl = FindAssetUrl(assets, SignatureName);
         if (!Uri.TryCreate(archiveUrl, UriKind.Absolute, out var archiveUri)
-            || archiveUri.Scheme != Uri.UriSchemeHttps
+            || !IsTrustedReleaseAsset(archiveUri, latestVersion, ArchiveName)
             || !Uri.TryCreate(checksumUrl, UriKind.Absolute, out var checksumUri)
-            || checksumUri.Scheme != Uri.UriSchemeHttps
+            || !IsTrustedReleaseAsset(checksumUri, latestVersion, ChecksumName)
             || !Uri.TryCreate(signatureUrl, UriKind.Absolute, out var signatureUri)
-            || signatureUri.Scheme != Uri.UriSchemeHttps)
+            || !IsTrustedReleaseAsset(signatureUri, latestVersion, SignatureName))
             throw new InvalidDataException("В релизе отсутствует архив, SHA-256 или подпись.");
 
         return new AppUpdate(latestVersion, archiveUri, checksumUri, signatureUri);
@@ -184,6 +184,18 @@ internal static class AppUpdater
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }
+
+    // Only fetch release files published under this repository and version.
+    // Redirects to GitHub's asset CDN remain supported by HttpClient.
+    private static bool IsTrustedReleaseAsset(Uri uri, string version, string assetName) =>
+        uri.Scheme == Uri.UriSchemeHttps
+        && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+        && uri.IsDefaultPort
+        && uri.UserInfo.Length == 0
+        && uri.Query.Length == 0
+        && uri.Fragment.Length == 0
+        && uri.AbsolutePath.Equals(
+            $"/rkfsociety/CodexGUI/releases/download/v{version}/{assetName}", StringComparison.Ordinal);
 
     private static string? FindAssetUrl(JsonElement assets, string name)
     {

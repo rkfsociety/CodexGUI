@@ -16,7 +16,7 @@ internal static class GitHubPullRequestService
     public static bool TryGetRepositorySlug(string? remoteUrl, out string repositorySlug)
     {
         repositorySlug = "";
-        if (string.IsNullOrWhiteSpace(remoteUrl)) return false;
+        if (string.IsNullOrWhiteSpace(remoteUrl) || remoteUrl.Contains('\\')) return false;
 
         string path;
         if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
@@ -29,6 +29,7 @@ internal static class GitHubPullRequestService
                 || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
                 || uri.Scheme is not ("https" or "http" or "ssh" or "git")
                 || !uri.IsDefaultPort
+                || uri.UserInfo.Length != 0
                 || uri.Query.Length != 0
                 || uri.Fragment.Length != 0)
                 return false;
@@ -36,7 +37,8 @@ internal static class GitHubPullRequestService
         }
 
         if (path.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) path = path[..^4];
-        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        // Do not silently normalize repeated separators in ambiguous remote URLs.
+        var parts = path.Split('/');
         if (parts.Length != 2 || !parts.All(IsRepositorySegment)) return false;
         repositorySlug = parts[0] + "/" + parts[1];
         return true;

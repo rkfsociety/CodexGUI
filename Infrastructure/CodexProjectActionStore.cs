@@ -48,6 +48,8 @@ internal static class CodexProjectActionStore
             try { acquired = writeLock.WaitOne(TimeSpan.FromSeconds(5)); }
             catch (AbandonedMutexException) { acquired = true; } // Re-read the file after an interrupted writer.
             if (!acquired) throw new IOException("Файл действий проекта занят другим процессом. Повторите сохранение.");
+            // The path may have changed while waiting for another writer's mutex.
+            WorktreeSetupConfiguration.EnsureNoReparsePoints(root, configurationPath);
             var currentRevision = File.Exists(configurationPath)
                 ? GetRevision(ReadConfiguration(configurationPath))
                 : null;
