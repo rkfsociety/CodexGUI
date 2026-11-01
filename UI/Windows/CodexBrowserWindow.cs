@@ -393,7 +393,11 @@ internal sealed class CodexBrowserWindow : Window
     private void UpdateTabTitle(TabItem tab, WebView2 browser)
     {
         var title = browser.CoreWebView2?.DocumentTitle;
-        var label = string.IsNullOrWhiteSpace(title) ? "Новая вкладка" : title;
+        // Page-controlled titles may be enormous or contain control characters.
+        // Bound both the tab header and its accessibility label.
+        var label = string.IsNullOrWhiteSpace(title) ? "Новая вкладка"
+            : new string(title.Where(character => !char.IsControl(character)).Take(160).ToArray());
+        if (string.IsNullOrWhiteSpace(label)) label = "Новая вкладка";
         tab.Header = CreateTabHeader(label, tab);
         AutomationProperties.SetName(tab, label);
     }

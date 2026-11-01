@@ -311,11 +311,32 @@ internal sealed class CodexFilePickerWindow : Window
                 // With a single extension filter, let the filesystem select matching
                 // names before applying the scan limit; unrelated files should not
                 // crowd out the requested type in a large directory.
-                var candidates = _extensions.Length == 1
-                    ? Directory.EnumerateFiles(_currentDirectory, "*" + _extensions[0])
-                    : Directory.EnumerateFiles(_currentDirectory);
-                var filePaths = candidates.Take(MaximumScannedFiles + 1).ToList();
-                if (filePaths.Count > MaximumScannedFiles) truncated = true;
+                List<string> filePaths;
+                if (_extensions.Length > 1)
+                {
+                    // Give every requested type a share of the scan budget. Otherwise
+                    // thousands of files of the first type can hide all other types.
+                    var perExtension = Math.Max(1, MaximumScannedFiles / _extensions.Length);
+                    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    filePaths = new List<string>();
+                    foreach (var extension in _extensions.Take(MaximumScannedFiles))
+                    {
+                        var paths = Directory.EnumerateFiles(_currentDirectory, "*" + extension)
+                            .Take(perExtension + 1).ToList();
+                        if (paths.Count > perExtension) truncated = true;
+                        foreach (var path in paths.Take(perExtension))
+                            if (seenPaths.Add(path)) filePaths.Add(path);
+                    }
+                    if (_extensions.Length > MaximumScannedFiles) truncated = true;
+                }
+                else
+                {
+                    var candidates = _extensions.Length == 1
+                        ? Directory.EnumerateFiles(_currentDirectory, "*" + _extensions[0])
+                        : Directory.EnumerateFiles(_currentDirectory);
+                    filePaths = candidates.Take(MaximumScannedFiles + 1).ToList();
+                    if (filePaths.Count > MaximumScannedFiles) truncated = true;
+                }
                 var matchingFiles = filePaths.Take(MaximumScannedFiles)
                     .Where(IsAllowedFile).Take(remaining + 1).ToList();
                 if (matchingFiles.Count > remaining) truncated = true;

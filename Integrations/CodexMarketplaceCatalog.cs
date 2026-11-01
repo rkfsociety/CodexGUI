@@ -35,10 +35,11 @@ internal static class CodexMarketplaceCatalog
             marketplaces.Add(new CodexMarketplace(name, path));
         }
 
+        // Choose the same source for duplicate names regardless of CLI response order.
         return marketplaces
-            .DistinctBy(marketplace => marketplace.Name, StringComparer.OrdinalIgnoreCase)
             .OrderBy(marketplace => marketplace.Name, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(marketplace => marketplace.Root, StringComparer.OrdinalIgnoreCase)
+            .DistinctBy(marketplace => marketplace.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
