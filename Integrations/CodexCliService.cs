@@ -113,12 +113,23 @@ internal static class CodexCliService
             throw new InvalidDataException($"Вывод Codex CLI слишком велик: более {MaximumCapturedCharactersPerStream} символов в одном потоке.");
         if (process.ExitCode != 0)
         {
-            var message = string.IsNullOrWhiteSpace(errors.Text) ? output.Text.Trim() : errors.Text.Trim();
+            var message = CompactCommandMessage(string.IsNullOrWhiteSpace(errors.Text) ? output.Text : errors.Text);
             throw new InvalidOperationException(message.Length > 0
                 ? message
                 : $"Менеджер плагинов Codex CLI завершился с кодом {process.ExitCode}.");
         }
         return output.Text;
+    }
+
+    // Keep large CLI diagnostics readable without splitting UTF-16 surrogate pairs.
+    internal static string CompactCommandMessage(string text, int maximumCharacters = 4000)
+    {
+        if (maximumCharacters < 2) throw new ArgumentOutOfRangeException(nameof(maximumCharacters));
+        var message = text.Trim();
+        if (message.Length <= maximumCharacters) return message;
+        var end = maximumCharacters;
+        if (char.IsHighSurrogate(message[end - 1]) && char.IsLowSurrogate(message[end])) end--;
+        return message[..end].TrimEnd() + "\n… (остальная часть сообщения скрыта)";
     }
 
     internal static async Task<(string Text, bool ExceededLimit)> ReadBoundedOutputAsync(TextReader reader, int maximumCharacters)

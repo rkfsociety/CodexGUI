@@ -136,8 +136,8 @@ internal static class GitHubPullRequestService
 
         if (exitCode != 0)
         {
-            var detail = string.Join(Environment.NewLine,
-                new[] { error.Text.Trim(), output.Text.Trim() }.Where(value => value.Length > 0));
+            var detail = CodexCliService.CompactCommandMessage(string.Join(Environment.NewLine,
+                new[] { error.Text.Trim(), output.Text.Trim() }.Where(value => value.Length > 0)));
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
                 ? "GitHub CLI не смог создать Pull Request. Проверьте gh auth status."
                 : detail);

@@ -51,6 +51,8 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        // Also clean up when initial setup or sign-in ends before the main window exists.
+        Exit += (_, _) => _singleInstance?.Dispose();
 
         var executablePath = Environment.ProcessPath;
         AppServerRuntimeSetupWindow? runtimeSetupWindow = null;
@@ -115,7 +117,6 @@ public partial class App : Application
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;
         _singleInstance.ListenForActivation(mainWindow.ShowFromTray);
-        Exit += (_, _) => _singleInstance.Dispose();
         ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
     }

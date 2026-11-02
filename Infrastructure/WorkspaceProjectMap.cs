@@ -43,16 +43,33 @@ internal static class WorkspaceProjectMap
     {
         try
         {
-            return Directory.EnumerateDirectories(root)
-                .Where(path =>
+            // File-system enumeration order varies. Keep the first alphabetical
+            // folders without accumulating all paths from a large workspace.
+            var comparer = Comparer<string>.Create((left, right) =>
+            {
+                var byName = StringComparer.OrdinalIgnoreCase.Compare(
+                    System.IO.Path.GetFileName(left), System.IO.Path.GetFileName(right));
+                return byName != 0 ? byName : StringComparer.Ordinal.Compare(left, right);
+            });
+            var selected = new SortedSet<string>(comparer);
+            foreach (var path in Directory.EnumerateDirectories(root))
+            {
+                if (ExcludedDirectories.Contains(System.IO.Path.GetFileName(path))) continue;
+                try
                 {
-                    if (ExcludedDirectories.Contains(System.IO.Path.GetFileName(path))) return false;
-                    try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0; }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
-                })
-                .Take(MaximumTopLevelDirectories)
-                .OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+                    if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) continue;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { continue; }
+
+                if (selected.Count < MaximumTopLevelDirectories)
+                    selected.Add(path);
+                else if (comparer.Compare(path, selected.Max!) < 0)
+                {
+                    selected.Remove(selected.Max!);
+                    selected.Add(path);
+                }
+            }
+            return selected.ToArray();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {

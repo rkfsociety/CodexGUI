@@ -95,7 +95,13 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _activationWait?.Unregister(null);
         _activationEvent.Dispose();
-        _mutex.Dispose();
+        // Closing the handle alone does not release ownership while the thread lives.
+        try { _mutex.ReleaseMutex(); }
+        catch (ApplicationException)
+        {
+            // Only the thread that acquired the mutex can release it.
+        }
+        finally { _mutex.Dispose(); }
     }
 
     internal static void SignalPrimaryInstance()

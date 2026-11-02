@@ -76,7 +76,8 @@ internal static class CodexExtensionCatalog
                 {
                     var message = $"{Text(failure, "path")}: {Text(failure, "message")}";
                     if (!seenErrors.Add(message)) continue;
-                    if (errors.Count < MaximumVisibleSkillErrors) errors.Add(message);
+                    if (errors.Count < MaximumVisibleSkillErrors)
+                        errors.Add(CodexCliService.CompactCommandMessage(message, 500));
                     else hiddenErrors++;
                 }
             }
