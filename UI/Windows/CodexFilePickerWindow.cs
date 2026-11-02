@@ -298,9 +298,10 @@ internal sealed class CodexFilePickerWindow : Window
             // folder contains more subdirectories than the list can display.
             var directoryLimit = _mode == PickerMode.Folder
                 ? MaximumVisibleEntries : MaximumVisibleEntries * 7 / 10;
-            var directoryPaths = Directory.EnumerateDirectories(_currentDirectory)
-                .Take(directoryLimit + 1).ToList();
-            var truncated = directoryPaths.Count > directoryLimit;
+            var directoryPaths = CollectPaths(
+                () => Directory.EnumerateDirectories(_currentDirectory),
+                directoryLimit + 1, out var directoryScanInterrupted);
+            var truncated = directoryScanInterrupted || directoryPaths.Count > directoryLimit;
             var entries = directoryPaths.Take(directoryLimit)
                 .Select(path => new PickerEntry(Path.GetFileName(path), path, true, "Папка"))
                 .ToList();
@@ -320,9 +321,10 @@ internal sealed class CodexFilePickerWindow : Window
                     var groups = new List<List<string>>();
                     foreach (var extension in _extensions.Take(MaximumScannedFiles))
                     {
-                        var paths = Directory.EnumerateFiles(_currentDirectory, "*" + extension)
-                            .Take(perExtension + 1).ToList();
-                        if (paths.Count > perExtension) truncated = true;
+                        var paths = CollectPaths(
+                            () => Directory.EnumerateFiles(_currentDirectory, "*" + extension),
+                            perExtension + 1, out var extensionScanInterrupted);
+                        if (extensionScanInterrupted || paths.Count > perExtension) truncated = true;
                         groups.Add(paths.Take(perExtension).ToList());
                     }
                     if (_extensions.Length > MaximumScannedFiles) truncated = true;
@@ -339,11 +341,12 @@ internal sealed class CodexFilePickerWindow : Window
                 }
                 else
                 {
-                    var candidates = _extensions.Length == 1
-                        ? Directory.EnumerateFiles(_currentDirectory, "*" + _extensions[0])
-                        : Directory.EnumerateFiles(_currentDirectory);
-                    filePaths = candidates.Take(MaximumScannedFiles + 1).ToList();
-                    if (filePaths.Count > MaximumScannedFiles) truncated = true;
+                    filePaths = CollectPaths(
+                        () => _extensions.Length == 1
+                            ? Directory.EnumerateFiles(_currentDirectory, "*" + _extensions[0])
+                            : Directory.EnumerateFiles(_currentDirectory),
+                        MaximumScannedFiles + 1, out var fileScanInterrupted);
+                    if (fileScanInterrupted || filePaths.Count > MaximumScannedFiles) truncated = true;
                 }
                 var matchingFiles = filePaths.Take(MaximumScannedFiles)
                     .Where(IsAllowedFile).Take(remaining + 1).ToList();
@@ -369,6 +372,27 @@ internal sealed class CodexFilePickerWindow : Window
             _status.ToolTip = _currentDirectory;
         }
         UpdateConfirmButton();
+    }
+
+    // A folder can change or become inaccessible during enumeration. Keep the
+    // entries already found and mark the list as incomplete rather than clearing it.
+    private static List<string> CollectPaths(Func<IEnumerable<string>> enumerate, int limit, out bool interrupted)
+    {
+        var paths = new List<string>(Math.Min(limit, MaximumVisibleEntries + 1));
+        interrupted = false;
+        try
+        {
+            foreach (var path in enumerate())
+            {
+                paths.Add(path);
+                if (paths.Count >= limit) break;
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            interrupted = true;
+        }
+        return paths;
     }
 
     private ListBoxItem CreateEntryItem(PickerEntry entry)

@@ -41,17 +41,17 @@ internal static class WorkspaceProjectMap
 
     private static string[] EnumerateDirectoriesSafely(string root)
     {
+        // Keep the alphabetical selection even if directory enumeration fails midway.
+        // A transient inaccessible entry should not erase folders already discovered.
+        var comparer = Comparer<string>.Create((left, right) =>
+        {
+            var byName = StringComparer.OrdinalIgnoreCase.Compare(
+                System.IO.Path.GetFileName(left), System.IO.Path.GetFileName(right));
+            return byName != 0 ? byName : StringComparer.Ordinal.Compare(left, right);
+        });
+        var selected = new SortedSet<string>(comparer);
         try
         {
-            // File-system enumeration order varies. Keep the first alphabetical
-            // folders without accumulating all paths from a large workspace.
-            var comparer = Comparer<string>.Create((left, right) =>
-            {
-                var byName = StringComparer.OrdinalIgnoreCase.Compare(
-                    System.IO.Path.GetFileName(left), System.IO.Path.GetFileName(right));
-                return byName != 0 ? byName : StringComparer.Ordinal.Compare(left, right);
-            });
-            var selected = new SortedSet<string>(comparer);
             foreach (var path in Directory.EnumerateDirectories(root))
             {
                 if (ExcludedDirectories.Contains(System.IO.Path.GetFileName(path))) continue;
@@ -69,12 +69,12 @@ internal static class WorkspaceProjectMap
                     selected.Add(path);
                 }
             }
-            return selected.ToArray();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            return [];
+            // Keep the folders discovered before the filesystem interrupted the scan.
         }
+        return selected.ToArray();
     }
 
     private static string[] EnumerateFilesSafely(string directory, string pattern, int limit)

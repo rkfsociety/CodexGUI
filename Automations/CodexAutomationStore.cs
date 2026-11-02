@@ -192,10 +192,12 @@ internal static class CodexAutomationStore
             return [];
         }
         var runs = new List<CodexAutomationRun>();
-        foreach (var path in Directory.EnumerateFiles(runsDirectory, "*.json"))
+        try
         {
-            try
+            foreach (var path in Directory.EnumerateFiles(runsDirectory, "*.json"))
             {
+                try
+                {
                 // A linked JSON file can redirect the history reader outside its own storage.
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     continue;
@@ -223,10 +225,17 @@ internal static class CodexAutomationStore
                 else
                     System.Diagnostics.Trace.TraceWarning("Пропущен результат автоматизации с некорректным идентификатором: {0}", path);
             }
-            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
-            {
-                System.Diagnostics.Trace.TraceWarning("Не удалось прочитать результат автоматизации {0}: {1}", path, error.Message);
+                catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
+                {
+                    System.Diagnostics.Trace.TraceWarning("Не удалось прочитать результат автоматизации {0}: {1}", path, error.Message);
+                }
             }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // The directory may disappear or become inaccessible during enumeration.
+            // Preserve history entries already loaded instead of failing the whole view.
+            System.Diagnostics.Trace.TraceWarning("Чтение списка результатов автоматизаций прервано: {0}", error.Message);
         }
         return runs.OrderByDescending(run => run.StartedAtUtc).ToList();
     }
