@@ -19,6 +19,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
     private readonly TextBox _search = new()
     {
         Height = 34,
+        MaxLength = 512,
         Padding = new Thickness(10, 7, 10, 7),
         Background = Brush("#1D1F23"),
         Foreground = Brush("#F1F3F5"),
@@ -184,13 +185,19 @@ internal sealed class CodexMcpServerStatusWindow : Window
                 ? "Проверка завершена. Настроенных MCP-серверов нет."
                 : $"Проверка завершена. Серверов: {_items.Count}.";
         }
+        catch (OperationCanceledException) when (_rpcCancellation.IsCancellationRequested)
+        {
+            // Closing the window cancels its pending refresh without showing a false error.
+        }
         catch (Exception error)
         {
-            _items = [];
+            // A temporary App Server failure must not erase the last successful result.
             _loadFailed = true;
-            RefreshList();
-            _details.Text = "Не удалось получить состояние MCP-серверов.";
-            _status.Text = "Проверка не удалась: " + error.Message;
+            RefreshList(selectedName);
+            var detail = CompactText(error.Message, 1000);
+            _status.Text = _items.Count == 0
+                ? "Проверка не удалась: " + detail
+                : "Не удалось обновить состояние MCP-серверов. Показаны предыдущие данные: " + detail;
         }
         finally
         {
@@ -307,7 +314,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var visibleItems = _items.Where(status => MatchesSearch(status, query))
             .ToArray();
         _servers.ItemsSource = visibleItems;
-        _empty.Text = _loadFailed
+        _empty.Text = _loadFailed && _items.Count == 0
             ? "Список MCP-серверов не загружен."
             : _items.Count == 0
                 ? "В общем профиле Codex нет настроенных MCP-серверов."
@@ -329,7 +336,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
             }
             _servers.SelectedIndex = selectedIndex;
         }
-        else _details.Text = _loadFailed
+        else _details.Text = _loadFailed && _items.Count == 0
             ? "Не удалось получить состояние MCP-серверов."
             : _items.Count == 0
                 ? "В общем профиле Codex нет настроенных MCP-серверов."
@@ -355,6 +362,15 @@ internal sealed class CodexMcpServerStatusWindow : Window
     private static bool Contains(string? value, string query)
         => value?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
 
+    private static string CompactText(string value, int maximumCharacters)
+    {
+        if (value.Length <= maximumCharacters) return value;
+        var length = maximumCharacters;
+        if (char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
+            length--;
+        return value[..length] + "… (текст сокращён)";
+    }
+
     private void ShowSelectedDetails()
     {
         if (_servers.SelectedItem is not CodexMcpServerStatus status)
@@ -364,19 +380,21 @@ internal sealed class CodexMcpServerStatusWindow : Window
         }
         var lines = new List<string>
         {
-            status.ServerTitle is { Length: > 0 } title ? $"{title} · {status.Name}" : status.Name,
+            status.ServerTitle is { Length: > 0 } title
+                ? $"{CompactText(title, 200)} · {CompactText(status.Name, 200)}"
+                : CompactText(status.Name, 200),
             $"Состояние: {status.StateLabel}",
             $"Авторизация: {status.AuthenticationLabel}",
             $"Инструменты ({status.ToolNames.Count}):"
         };
         // A server can expose hundreds of tools; keep the details panel readable.
         const int maximumVisibleTools = 100;
-        lines.AddRange(status.ToolNames.Take(maximumVisibleTools).Select(name => "• " + name));
+        lines.AddRange(status.ToolNames.Take(maximumVisibleTools).Select(name => "• " + CompactText(name, 180)));
         if (status.ToolNames.Count > maximumVisibleTools)
             lines.Add($"Не показано ещё {status.ToolNames.Count - maximumVisibleTools} инструментов.");
-        if (status.ServerVersion is { Length: > 0 } version) lines.Add("Версия сервера: " + version);
-        if (status.HttpOrigin is { Length: > 0 } origin) lines.Add("Адрес: " + origin);
-        if (!string.IsNullOrWhiteSpace(status.ToolsError)) lines.Add("Ошибка: " + status.ToolsError);
+        if (status.ServerVersion is { Length: > 0 } version) lines.Add("Версия сервера: " + CompactText(version, 200));
+        if (status.HttpOrigin is { Length: > 0 } origin) lines.Add("Адрес: " + CompactText(origin, 500));
+        if (!string.IsNullOrWhiteSpace(status.ToolsError)) lines.Add("Ошибка: " + CompactText(status.ToolsError, 1500));
         _details.Text = string.Join(Environment.NewLine, lines);
     }
 

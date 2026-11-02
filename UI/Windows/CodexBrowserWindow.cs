@@ -16,6 +16,7 @@ namespace CodexGUI;
 internal sealed class CodexBrowserWindow : Window
 {
     private const string HomeUrl = "https://www.google.com/";
+    private const int MaximumOpenTabs = 30;
     private readonly TabControl _tabs = new();
     private readonly TextBox _addressBar = new();
     private readonly Button _backButton = MakeButton("←", "Назад");
@@ -122,6 +123,13 @@ internal sealed class CodexBrowserWindow : Window
 
     private async Task CreateTabAsync(string? initialUrl = null)
     {
+        // A page can request many popups; keep WebView2 processes and tabs bounded.
+        if (_tabs.Items.Count >= MaximumOpenTabs)
+        {
+            _status.Text = $"Открыто слишком много вкладок (не более {MaximumOpenTabs}). Закройте ненужную вкладку.";
+            return;
+        }
+
         var browser = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(11, 17, 23) };
         var tab = new TabItem { Content = browser, Tag = browser };
         tab.Header = CreateTabHeader("Новая вкладка", tab);
@@ -187,7 +195,9 @@ internal sealed class CodexBrowserWindow : Window
             // A disposed tab must not be updated after its asynchronous startup fails.
             if (!_tabs.Items.Contains(tab)) return;
             _status.Text = $"WebView2 не удалось запустить: {ex.Message}";
-            browser.Visibility = Visibility.Collapsed;
+            // A failed initialization must not leave a hidden WebView2 instance alive.
+            browser.Dispose();
+            tab.Tag = null;
             var message = new TextBlock
             {
                 Text = "Для встроенного браузера требуется Microsoft Edge WebView2 Runtime. Установите или восстановите WebView2 Runtime, затем перезапустите браузер.",
