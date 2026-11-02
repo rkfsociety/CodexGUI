@@ -155,7 +155,7 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         }
         catch (Exception error)
         {
-            _status.Text = "Не удалось удалить маркетплейс: " + error.Message;
+            _status.Text = "Не удалось удалить маркетплейс: " + CodexCliService.CompactCommandMessage(error.Message, 600);
         }
         finally
         {

@@ -90,6 +90,7 @@ internal sealed class CodexPullRequestWindow : Window
             Margin = new Thickness(0, 0, 0, 5)
         });
         _body.AcceptsReturn = true;
+        _body.MaxLength = 60000;
         _body.TextWrapping = TextWrapping.Wrap;
         _body.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _body.Padding = new Thickness(10, 8, 10, 8);

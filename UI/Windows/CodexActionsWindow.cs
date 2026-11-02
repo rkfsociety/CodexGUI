@@ -40,6 +40,7 @@ internal sealed class CodexActionDefinition
 
 internal sealed class CodexActionsWindow : Window
 {
+    private const int MaximumActionPreviewCharacters = 240;
     private readonly IList<CodexActionDefinition> _actions;
     private readonly IList<CodexActionDefinition> _projectActions;
     private readonly Func<bool> _saveActions;
@@ -145,6 +146,7 @@ internal sealed class CodexActionsWindow : Window
             Margin = new Thickness(0, 0, 10, 0)
         });
         _search.Height = 36;
+        _search.MaxLength = 512;
         _search.Padding = new Thickness(10, 8, 10, 5);
         _search.Background = Brush("#25272C");
         _search.Foreground = Brush("#F1F3F5");
@@ -234,7 +236,7 @@ internal sealed class CodexActionsWindow : Window
             content.Children.Add(title);
             content.Children.Add(new TextBlock
             {
-                Text = action.IsCommand ? "PowerShell: " + action.Command : action.Prompt,
+                Text = PreviewAction(action),
                 FontSize = 11,
                 Foreground = Brush("#B0B5BE"),
                 TextWrapping = TextWrapping.Wrap,
@@ -259,6 +261,17 @@ internal sealed class CodexActionsWindow : Window
             : "Ничего не найдено. Измените запрос поиска.";
         _empty.Visibility = _list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateButtons();
+    }
+
+    private static string PreviewAction(CodexActionDefinition action)
+    {
+        var text = action.IsCommand ? "PowerShell: " + action.Command : action.Prompt;
+        if (text.Length <= MaximumActionPreviewCharacters) return text;
+
+        var length = MaximumActionPreviewCharacters;
+        if (char.IsHighSurrogate(text[length - 1]) && char.IsLowSurrogate(text[length]))
+            length--;
+        return text[..length] + "…";
     }
 
     private static bool MatchesSearch(ActionEntry entry, string query)
