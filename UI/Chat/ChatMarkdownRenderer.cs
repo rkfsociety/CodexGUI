@@ -70,13 +70,13 @@ internal static class ChatMarkdownRenderer
 
             if (index + 1 < lines.Length && ContainsTablePipes(line) && IsTableSeparator(lines[index + 1]))
             {
-                var rows = new List<IReadOnlyList<string>> { SplitTableRow(line) };
+                var rows = new List<IReadOnlyList<string>> { SplitTableRow(line, MaximumRenderedTableColumns + 1) };
                 var rowIndex = index + 2;
                 var truncatedRows = false;
                 while (rowIndex < lines.Length && ContainsTablePipes(lines[rowIndex]))
                 {
                     if (rows.Count < MaximumRenderedTableRows)
-                        rows.Add(SplitTableRow(lines[rowIndex]));
+                        rows.Add(SplitTableRow(lines[rowIndex], MaximumRenderedTableColumns + 1));
                     else
                         truncatedRows = true;
                     rowIndex++;
@@ -191,12 +191,30 @@ internal static class ChatMarkdownRenderer
         return cells.Count > 1 && cells.All(cell => TableSeparatorCell.IsMatch(cell));
     }
 
-    private static IReadOnlyList<string> SplitTableRow(string line)
+    private static IReadOnlyList<string> SplitTableRow(string line, int maximumColumns = int.MaxValue)
     {
         var trimmed = line.Trim();
         if (trimmed.StartsWith("|", StringComparison.Ordinal)) trimmed = trimmed[1..];
         if (trimmed.EndsWith("|", StringComparison.Ordinal)) trimmed = trimmed[..^1];
-        return trimmed.Split('|').Select(cell => cell.Trim()).ToArray();
+        if (maximumColumns == int.MaxValue)
+            return trimmed.Split('|').Select(cell => cell.Trim()).ToArray();
+
+        // One extra cell is enough to detect hidden columns. Do not allocate
+        // thousands of strings that the table renderer will never display.
+        var cells = new List<string>(maximumColumns);
+        var start = 0;
+        while (cells.Count < maximumColumns)
+        {
+            var separator = trimmed.IndexOf('|', start);
+            if (separator < 0)
+            {
+                cells.Add(trimmed[start..].Trim());
+                break;
+            }
+            cells.Add(trimmed[start..separator].Trim());
+            start = separator + 1;
+        }
+        return cells;
     }
 
     private static FrameworkElement CreateTable(IReadOnlyList<IReadOnlyList<string>> rows)
