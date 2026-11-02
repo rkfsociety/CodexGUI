@@ -113,7 +113,13 @@ internal sealed class CodexSubagentsWindow : Window
     private void RefreshList()
     {
         var selectedThreadId = SelectedSubagent()?.ThreadId;
-        var subagents = _readSubagents();
+        IReadOnlyList<CodexSubagentInfo> subagents;
+        try { subagents = _readSubagents(); }
+        catch (Exception error)
+        {
+            _details.Text = "Не удалось обновить список субагентов: " + error.Message;
+            return;
+        }
         _list.Items.Clear();
         foreach (var agent in subagents)
         {

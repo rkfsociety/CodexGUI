@@ -81,6 +81,7 @@ internal sealed class CodexThreadGoalWindow : Window
             Margin = new Thickness(1, 0, 1, 3)
         });
         AddField(form, "Цель", _objective);
+        _objective.MaxLength = 4000;
         _objective.AcceptsReturn = true;
         _objective.TextWrapping = TextWrapping.Wrap;
         _objective.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -98,6 +99,7 @@ internal sealed class CodexThreadGoalWindow : Window
         };
         _status.DisplayMemberPath = nameof(GoalStatusChoice.Label);
         AddField(form, "Лимит токенов (необязательно)", _tokenBudget);
+        _tokenBudget.MaxLength = 20;
         _tokenBudget.ToolTip = "Оставьте пустым, чтобы не задавать лимит";
         _usage.Foreground = Brush("#A6B1BF");
         form.Children.Add(_usage);

@@ -39,6 +39,8 @@ internal static class CodexMarketplaceCatalog
         return marketplaces
             .OrderBy(marketplace => marketplace.Name, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(marketplace => marketplace.Root, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(marketplace => marketplace.Name, StringComparer.Ordinal)
+            .ThenBy(marketplace => marketplace.Root, StringComparer.Ordinal)
             .DistinctBy(marketplace => marketplace.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }

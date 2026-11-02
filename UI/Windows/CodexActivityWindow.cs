@@ -175,8 +175,17 @@ internal sealed class CodexActivityWindow : Window
             button.Content = row;
             button.Click += (_, _) =>
             {
+                try
+                {
+                    _openThread(item.ThreadId);
+                }
+                catch (Exception error)
+                {
+                    CodexMessageDialog.Show(this, "Не удалось открыть чат: " + error.Message,
+                        "Ошибка перехода", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
                 Close();
-                _openThread(item.ThreadId);
             };
             _items.Children.Add(button);
         }

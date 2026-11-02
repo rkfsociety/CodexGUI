@@ -93,7 +93,7 @@ internal static class CodexCliService
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (InvalidOperationException) { }
+            catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
 
             // A child process can keep redirected pipes open after the CLI exits.
             try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
@@ -110,9 +110,14 @@ internal static class CodexCliService
         var output = await outputTask;
         var errors = await errorTask;
         if (output.ExceededLimit || errors.ExceededLimit)
-            throw new InvalidDataException($"Codex CLI output exceeded {MaximumCapturedCharactersPerStream} characters per stream.");
+            throw new InvalidDataException($"Вывод Codex CLI слишком велик: более {MaximumCapturedCharactersPerStream} символов в одном потоке.");
         if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(errors.Text) ? output.Text.Trim() : errors.Text.Trim());
+        {
+            var message = string.IsNullOrWhiteSpace(errors.Text) ? output.Text.Trim() : errors.Text.Trim();
+            throw new InvalidOperationException(message.Length > 0
+                ? message
+                : $"Менеджер плагинов Codex CLI завершился с кодом {process.ExitCode}.");
+        }
         return output.Text;
     }
 
