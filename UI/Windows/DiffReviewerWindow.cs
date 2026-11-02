@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Documents;
 using System.Windows.Media;
 
@@ -42,6 +44,7 @@ internal sealed class DiffReviewerWindow : Window
         BorderThickness = new Thickness(0)
     };
     private readonly StackPanel _conversation = new();
+    private readonly TextBlock _threadCount = new();
     private readonly TextBox _draft = new();
     private readonly Button _newThreadButton = new() { Content = "Новая ветка" };
     private readonly Button _replyButton = new() { Content = "Ответить" };
@@ -53,6 +56,7 @@ internal sealed class DiffReviewerWindow : Window
     private IReadOnlyList<Paragraph> _diffLines = [];
     private RichTextBox? _diffBox;
     private DiffCommentThread? _selectedThread;
+    private bool _hunkActionInProgress;
 
     public DiffReviewerWindow(Window owner, string repositoryRoot, string relativePath, string diff,
         RepositoryDiffScope diffScope, bool hunkActionsAvailable,
@@ -84,6 +88,14 @@ internal sealed class DiffReviewerWindow : Window
             UpdateActionState();
         };
         _draft.TextChanged += (_, _) => UpdateActionState();
+        _draft.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter || (Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+            if (_selectedThread is not null && _replyButton.IsEnabled) AddReply();
+            else if (_newThreadButton.IsEnabled) AddThread();
+            else return;
+            e.Handled = true;
+        };
         UpdateActionState();
     }
 
@@ -127,8 +139,9 @@ internal sealed class DiffReviewerWindow : Window
         root.Children.Add(header);
 
         var body = new Grid();
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star), MinWidth = 300 });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(7) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 250 });
         Grid.SetRow(body, 1);
         root.Children.Add(body);
 
@@ -149,10 +162,24 @@ internal sealed class DiffReviewerWindow : Window
         };
         _diffBox.SelectionChanged += (_, _) => UpdateActionState();
         var diffBorder = Card(_diffBox);
-        diffBorder.Margin = new Thickness(0, 0, 9, 0);
+        diffBorder.Margin = new Thickness(0, 0, 3, 0);
         body.Children.Add(diffBorder);
+        var splitter = new GridSplitter
+        {
+            Width = 7,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ResizeDirection = GridResizeDirection.Columns,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            Background = Brush("#2C3A47"),
+            Cursor = Cursors.SizeWE,
+            ToolTip = "Перетащите, чтобы изменить ширину просмотра и замечаний"
+        };
+        AutomationProperties.SetName(splitter, "Изменить ширину просмотра изменений и замечаний");
+        Grid.SetColumn(splitter, 1);
+        body.Children.Add(splitter);
         var commentsPanel = BuildCommentPanel();
-        Grid.SetColumn(commentsPanel, 1);
+        Grid.SetColumn(commentsPanel, 2);
         body.Children.Add(commentsPanel);
 
         var footer = new StackPanel
@@ -180,20 +207,27 @@ internal sealed class DiffReviewerWindow : Window
 
     private UIElement BuildCommentPanel()
     {
-        var grid = new Grid { Margin = new Thickness(9, 0, 0, 0) };
+        var grid = new Grid { Margin = new Thickness(3, 0, 0, 0) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(140) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(82) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.Children.Add(new TextBlock
+        var commentsHeader = new DockPanel { Margin = new Thickness(4, 2, 4, 7) };
+        _threadCount.Text = "Замечаний: 0";
+        _threadCount.FontSize = 10;
+        _threadCount.Foreground = Brush("#9AA8B8");
+        DockPanel.SetDock(_threadCount, Dock.Right);
+        commentsHeader.Children.Add(_threadCount);
+        commentsHeader.Children.Add(new TextBlock
         {
             Text = "ВЕТКИ ЗАМЕЧАНИЙ",
             FontSize = 10,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#8795A6"),
-            Margin = new Thickness(4, 2, 0, 7)
+            Foreground = Brush("#8795A6")
         });
+        grid.Children.Add(commentsHeader);
+        AutomationProperties.SetName(_threadList, "Ветки замечаний к изменениям");
         var listCard = Card(_threadList);
         Grid.SetRow(listCard, 1);
         grid.Children.Add(listCard);
@@ -212,7 +246,8 @@ internal sealed class DiffReviewerWindow : Window
         _draft.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _draft.Padding = new Thickness(9, 7, 9, 7);
         _draft.Margin = new Thickness(0, 8, 0, 0);
-        _draft.ToolTip = "Выделите строки и напишите замечание, либо выберите ветку и ответьте";
+        _draft.ToolTip = "Выделите строки и напишите замечание либо выберите ветку и ответьте. Ctrl+Enter — добавить.";
+        AutomationProperties.SetName(_draft, "Текст замечания или ответа");
         StyleInput(_draft);
         Grid.SetRow(_draft, 3);
         grid.Children.Add(_draft);
@@ -262,6 +297,7 @@ internal sealed class DiffReviewerWindow : Window
     private void RenderThreadList()
     {
         var selectedId = _selectedThread?.Id;
+        _threadCount.Text = $"Замечаний: {_threads.Count}";
         _threadList.Items.Clear();
         foreach (var thread in _threads)
         {
@@ -333,7 +369,7 @@ internal sealed class DiffReviewerWindow : Window
         _newThreadButton.IsEnabled = _diffBox is not null && !_diffBox.Selection.IsEmpty && !string.IsNullOrWhiteSpace(_draft.Text);
         _replyButton.IsEnabled = _selectedThread is not null && !string.IsNullOrWhiteSpace(_draft.Text);
         _attachButton.IsEnabled = _threads.Count > 0;
-        var hasSelectedHunk = _hunkActionsAvailable && SelectedHunk() is not null;
+        var hasSelectedHunk = !_hunkActionInProgress && _hunkActionsAvailable && SelectedHunk() is not null;
         _stageHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Unstaged;
         _revertHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Unstaged;
         _unstageHunkButton.IsEnabled = hasSelectedHunk && _diffScope == RepositoryDiffScope.Staged;
@@ -350,7 +386,7 @@ internal sealed class DiffReviewerWindow : Window
 
     private async Task ApplySelectedHunkAsync(GitHunkAction action)
     {
-        if (SelectedHunk() is not { } hunk) return;
+        if (_hunkActionInProgress || SelectedHunk() is not { } hunk) return;
         if (action == GitHunkAction.Revert)
         {
             var answer = CodexMessageDialog.Show(this,
@@ -359,11 +395,17 @@ internal sealed class DiffReviewerWindow : Window
             if (answer != MessageBoxResult.Yes) return;
         }
 
-        _stageHunkButton.IsEnabled = false;
-        _unstageHunkButton.IsEnabled = false;
-        _revertHunkButton.IsEnabled = false;
-        if (!await _applyGitHunk(hunk.Patch, action)) { UpdateActionState(); return; }
-        Close();
+        _hunkActionInProgress = true;
+        UpdateActionState();
+        try
+        {
+            if (await _applyGitHunk(hunk.Patch, action)) Close();
+        }
+        finally
+        {
+            _hunkActionInProgress = false;
+            UpdateActionState();
+        }
     }
 
     private static void StyleHunkButton(Button button, string background, string tooltip)
