@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -263,12 +264,24 @@ internal sealed class CodexAppServerTerminalHost : IAsyncDisposable
                                 PublishOutput(processId, "\r\n[слишком большой фрагмент вывода терминала пропущен]\r\n");
                                 continue;
                             }
-                            var bytes = Convert.FromBase64String(deltaBase64);
-                            var decoder = _outputDecoders.GetOrAdd(processId, static _ => Encoding.UTF8.GetDecoder());
-                            var characters = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
-                            var count = decoder.GetChars(bytes, 0, bytes.Length, characters, 0, flush: false);
-                            if (count > 0)
-                                PublishOutput(processId, new string(characters, 0, count));
+                            // Reuse large decode buffers during sustained terminal output
+                            // instead of allocating new byte and character arrays per chunk.
+                            var bytes = ArrayPool<byte>.Shared.Rent(deltaBase64.Length);
+                            try
+                            {
+                                if (!Convert.TryFromBase64String(deltaBase64, bytes, out var byteCount))
+                                    throw new FormatException("Некорректный Base64 в выводе терминала.");
+                                var decoder = _outputDecoders.GetOrAdd(processId, static _ => Encoding.UTF8.GetDecoder());
+                                var characters = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(byteCount));
+                                try
+                                {
+                                    var count = decoder.GetChars(bytes, 0, byteCount, characters, 0, flush: false);
+                                    if (count > 0)
+                                        PublishOutput(processId, new string(characters, 0, count));
+                                }
+                                finally { ArrayPool<char>.Shared.Return(characters, clearArray: true); }
+                            }
+                            finally { ArrayPool<byte>.Shared.Return(bytes, clearArray: true); }
                         }
                         // The server can signal truncation without sending another text chunk.
                         if (parameters.TryGetProperty("capReached", out var capReached) && capReached.ValueKind == JsonValueKind.True)

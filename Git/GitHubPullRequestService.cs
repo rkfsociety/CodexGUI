@@ -57,6 +57,18 @@ internal static class GitHubPullRequestService
     public static async Task<string> CreateAsync(string repositoryRoot, string repositorySlug,
         string branch, string title, string body, bool draft, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(body);
+        if (string.IsNullOrWhiteSpace(repositorySlug)
+            || repositorySlug.Split('/') is not { Length: 2 } segments
+            || !segments.All(IsRepositorySegment))
+            throw new ArgumentException("Укажите корректный GitHub-репозиторий.", nameof(repositorySlug));
+        if (string.IsNullOrWhiteSpace(branch))
+            throw new ArgumentException("Не указана ветка для Pull Request.", nameof(branch));
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 256)
+            throw new ArgumentException("Название Pull Request должно содержать от 1 до 256 символов.", nameof(title));
+        if (body.Length > 60_000)
+            throw new ArgumentException("Описание Pull Request не должно превышать 60 000 символов.", nameof(body));
+
         // Keep potentially long or sensitive PR descriptions out of the process command line.
         // gh reads the UTF-8 file synchronously before the command exits.
         var bodyFilePath = Path.Combine(Path.GetTempPath(), "CodexGUI-pr-body-" + Guid.NewGuid().ToString("N") + ".md");
@@ -169,6 +181,7 @@ internal static class GitHubPullRequestService
         return segments.Length == 4
             && string.Equals(segments[0] + "/" + segments[1], repositorySlug, StringComparison.OrdinalIgnoreCase)
             && segments[2] == "pull"
+            && (segments[3].Length == 1 || segments[3][0] != '0')
             && int.TryParse(segments[3], System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out var number)
             && number > 0;
@@ -193,7 +206,10 @@ internal static class GitHubPullRequestService
         try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
         catch (InvalidOperationException) { }
         catch (Win32Exception) { }
+        catch (UnauthorizedAccessException) { }
         try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
         catch (TimeoutException) { }
+        catch (InvalidOperationException) { }
+        catch (Win32Exception) { }
     }
 }
