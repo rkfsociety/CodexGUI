@@ -21,7 +21,7 @@ internal sealed class WorkspaceSearchWindow : Window
         CodexWindowTheme.Apply(this);
         var panel = new DockPanel { Margin = new Thickness(18) };
         var header = new StackPanel();
-        var input = new TextBox { MinHeight = 32, ToolTip = "Текст или имя файла" };
+        var input = new TextBox { MinHeight = 32, MaxLength = WorkspaceFileSearch.MaximumQueryLength, ToolTip = "Текст или имя файла" };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 8) };
         var search = new Button { Content = "Найти", IsDefault = true };
         var cancel = new Button { Content = "Остановить", IsEnabled = false, Margin = new Thickness(8, 0, 0, 0) };
@@ -127,6 +127,7 @@ internal static class WorkspaceFileSearch
 {
     // A file can grow after its size is checked; keep the actual read bounded too.
     private const int MaximumTextBytes = 1024 * 1024;
+    internal const int MaximumQueryLength = 512;
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", "bin", "obj", "node_modules", ".vs"
@@ -160,6 +161,14 @@ internal static class WorkspaceFileSearch
         int maximumDirectories = 10000)
     {
         if (maximumDirectories < 1) throw new ArgumentOutOfRangeException(nameof(maximumDirectories));
+        if (query.Length > MaximumQueryLength)
+            throw new ArgumentException("Поисковый запрос слишком длинный (максимум 512 символов).", nameof(query));
+
+        // Child links are excluded below; reject a linked workspace root or ancestor too.
+        for (string? current = Path.GetFullPath(root); current is not null; current = Path.GetDirectoryName(current))
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Поиск по папке, ведущей через символическую ссылку, не поддерживается.");
+
         var hits = new List<WorkspaceSearchHit>();
         var pending = new Stack<string>(); pending.Push(root);
         var scanned = 0; var skipped = 0; var directories = 0;

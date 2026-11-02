@@ -60,7 +60,11 @@ internal sealed class CodexSubagentsWindow : Window
         Grid.SetRow(content, 2);
         root.Children.Add(content);
         content.Children.Add(Card(_list));
-        var detailsPanel = new StackPanel { Margin = new Thickness(16, 4, 0, 0) };
+        // Long agent prompts must scroll instead of pushing the open button off screen.
+        var detailsPanel = new Grid { Margin = new Thickness(16, 4, 0, 0) };
+        detailsPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        detailsPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        detailsPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         detailsPanel.Children.Add(new TextBlock
         {
             Text = "ЗАДАЧА АГЕНТА",
@@ -71,8 +75,14 @@ internal sealed class CodexSubagentsWindow : Window
         });
         _details.TextWrapping = TextWrapping.Wrap;
         _details.Foreground = Brush("#D3DCE6");
-        _details.MinHeight = 80;
-        detailsPanel.Children.Add(_details);
+        var detailsScroll = new ScrollViewer
+        {
+            Content = _details,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        Grid.SetRow(detailsScroll, 1);
+        detailsPanel.Children.Add(detailsScroll);
         _openButton.Margin = new Thickness(0, 12, 0, 0);
         _openButton.Padding = new Thickness(11, 7, 11, 7);
         _openButton.Background = Brush("#223B38");
@@ -92,6 +102,7 @@ internal sealed class CodexSubagentsWindow : Window
             }
             finally { _openButton.IsEnabled = SelectedSubagent() is not null; }
         };
+        Grid.SetRow(_openButton, 2);
         detailsPanel.Children.Add(_openButton);
         var detailsCard = Card(detailsPanel);
         Grid.SetColumn(detailsCard, 1);
@@ -132,7 +143,8 @@ internal sealed class CodexSubagentsWindow : Window
             });
             card.Children.Add(new TextBlock
             {
-                Text = agent.Prompt ?? ShortId(agent.ThreadId),
+                Text = string.IsNullOrWhiteSpace(agent.Prompt)
+                    ? ShortId(agent.ThreadId) : CompactText(agent.Prompt, 240),
                 FontSize = 10,
                 Foreground = Brush("#A6B1BF"),
                 TextWrapping = TextWrapping.Wrap,
@@ -158,8 +170,8 @@ internal sealed class CodexSubagentsWindow : Window
             return;
         }
         _details.Text = $"Состояние: {StatusName(agent.Status)}\nОперация: {ToolName(agent.Tool)}\nID: {agent.ThreadId}"
-            + (string.IsNullOrWhiteSpace(agent.Prompt) ? "" : $"\n\nЗадание:\n{agent.Prompt}")
-            + (string.IsNullOrWhiteSpace(agent.Message) ? "" : $"\n\nПоследнее состояние:\n{agent.Message}");
+            + (string.IsNullOrWhiteSpace(agent.Prompt) ? "" : $"\n\nЗадание:\n{CompactText(agent.Prompt, 4000)}")
+            + (string.IsNullOrWhiteSpace(agent.Message) ? "" : $"\n\nПоследнее состояние:\n{CompactText(agent.Message, 2000)}");
     }
 
     private CodexSubagentInfo? SelectedSubagent() => (_list.SelectedItem as ListBoxItem)?.Tag as CodexSubagentInfo;
@@ -204,6 +216,14 @@ internal sealed class CodexSubagentsWindow : Window
         "notFound" => "Не найден",
         _ => status
     };
+
+    private static string CompactText(string text, int maximumCharacters)
+    {
+        if (text.Length <= maximumCharacters) return text;
+        var length = maximumCharacters;
+        if (char.IsHighSurrogate(text[length - 1]) && char.IsLowSurrogate(text[length])) length--;
+        return text[..length] + "… (текст сокращён)";
+    }
 
     private static string ShortId(string id) => id.Length > 18 ? id[..8] + "…" + id[^6..] : id;
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));

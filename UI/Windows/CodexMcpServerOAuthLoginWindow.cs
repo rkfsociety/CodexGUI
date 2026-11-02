@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,6 +25,7 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
         if (!Uri.TryCreate(authorizationUrl, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             || string.IsNullOrWhiteSpace(uri.Host)
+            || authorizationUrl.Any(character => char.IsControl(character) || character == '\\')
             || uri.UserInfo.Length > 0
             // OAuth authorization links must use TLS except for local development callbacks.
             || (uri.Scheme == Uri.UriSchemeHttp

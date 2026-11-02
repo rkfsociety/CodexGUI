@@ -950,6 +950,12 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<CodexActivityItem> BuildActivityItems()
     {
+        // Resolve project names once instead of scanning every project for every active chat.
+        var projectNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var project in _projects)
+            if (!string.IsNullOrEmpty(project.Id))
+                projectNames.TryAdd(project.Id, project.Name);
+
         return _threads
             .Where(thread => thread.WaitingForInput || thread.ActiveRun is not null || thread.HasUnreadResponse)
             .Select(thread =>
@@ -961,8 +967,10 @@ public partial class MainWindow : Window
                     ? "Нужно ответить на запрос Codex"
                     : active ? "Codex выполняет задачу" : "Ответ завершённого чата не прочитан";
                 var accent = waiting ? "#E6BC70" : active ? "#92E5C7" : "#92E5C7";
-                var projectName = _projects.FirstOrDefault(project => project.Id == thread.ProjectId)?.Name
-                    ?? Path.GetFileName(thread.ProjectPath.TrimEnd(Path.DirectorySeparatorChar));
+                var projectName = thread.ProjectId is { } projectId
+                    && projectNames.TryGetValue(projectId, out var knownName)
+                    ? knownName
+                    : Path.GetFileName(thread.ProjectPath.TrimEnd(Path.DirectorySeparatorChar));
                 var item = new CodexActivityItem(thread.Id, thread.Title, projectName, status, description, accent)
                 {
                     RecentEvents = BuildRecentActivityEvents(thread)
@@ -983,12 +991,35 @@ public partial class MainWindow : Window
         {
             var message = thread.Messages[index];
             if (message.ActivityTitle is not { Length: > 0 } title) continue;
-            var detail = string.Join(" ", message.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-            if (detail.Length > 140) detail = detail[..139] + "…";
+            var detail = CompactActivityDetail(message.Text);
             events.Add(new CodexActivityEvent(title, detail, message.IsError));
         }
         events.Reverse();
         return events;
+    }
+
+    private static string CompactActivityDetail(string text)
+    {
+        // Do not split and join an entire large response just to show a short activity preview.
+        const int maximumCharacters = 140;
+        var preview = new StringBuilder(maximumCharacters + 1);
+        var pendingSpace = false;
+        Span<char> runeBuffer = stackalloc char[2];
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (Rune.IsWhiteSpace(rune))
+            {
+                pendingSpace = preview.Length > 0;
+                continue;
+            }
+
+            if (preview.Length + rune.Utf16SequenceLength + (pendingSpace ? 1 : 0) > maximumCharacters)
+                return preview.ToString() + "…";
+            if (pendingSpace) preview.Append(' ');
+            pendingSpace = false;
+            preview.Append(runeBuffer[..rune.EncodeToUtf16(runeBuffer)]);
+        }
+        return preview.ToString();
     }
 
     private void UpdateActivityView()
