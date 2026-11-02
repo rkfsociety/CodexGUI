@@ -356,13 +356,38 @@ public partial class MainWindow
         if (path is not null) await PreviewWorkspaceFileAsync(path);
     }
 
+    private const int MaximumWorkspacePreviewBytes = 2 * 1024 * 1024;
+
+    private static async Task<string> ReadWorkspacePreviewTextAsync(string path)
+    {
+        // The file can grow after a size check; bound the bytes actually read as well.
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete, 81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (stream.Length > MaximumWorkspacePreviewBytes)
+            throw new IOException("Для просмотра выберите текстовый файл размером до 2 МБ.");
+
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+        var text = new System.Text.StringBuilder();
+        var buffer = new char[8192];
+        while (true)
+        {
+            var count = await reader.ReadAsync(buffer.AsMemory());
+            if (count == 0) break;
+            if (stream.Position > MaximumWorkspacePreviewBytes
+                || text.Length > MaximumWorkspacePreviewBytes - count)
+                throw new IOException("Для просмотра выберите текстовый файл размером до 2 МБ.");
+            text.Append(buffer, 0, count);
+        }
+        return text.ToString();
+    }
+
     private async Task PreviewWorkspaceFileAsync(string path, int line = 1)
     {
         try
         {
-            if (new FileInfo(path).Length > 2 * 1024 * 1024)
-                throw new IOException("Для просмотра выберите текстовый файл размером до 2 МБ.");
-            var text = await File.ReadAllTextAsync(path);
+            var text = await ReadWorkspacePreviewTextAsync(path);
             if (text.Contains('\0')) throw new IOException("Этот файл не является текстовым.");
             var window = new Window { Owner = this, Title = Path.GetFileName(path), Width = 900, Height = 650,
                 MinWidth = 500, MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner };
@@ -385,7 +410,7 @@ public partial class MainWindow
 
     private void CreateWorkspaceFile()
     {
-        var path = CodexFilePickerWindow.SaveFile(this, "Создать файл", WorkspaceDirectory, "new-file.txt", ".txt");
+        var path = CodexFilePickerWindow.SaveFile(this, "Создать файл", WorkspaceDirectory, "new-file.txt", ".txt", allowOverwrite: false);
         if (path is null) return;
         try
         {

@@ -25,6 +25,7 @@ internal sealed class CodexFilePickerWindow : Window
     private sealed record PickerEntry(string Name, string Path, bool IsDirectory, string Details);
 
     private readonly PickerMode _mode;
+    private readonly bool _allowOverwrite;
     private readonly string[] _extensions;
     private readonly string _defaultExtension;
     private readonly TextBox _location = new();
@@ -45,12 +46,13 @@ internal sealed class CodexFilePickerWindow : Window
         => ShowDialog(owner, new CodexFilePickerWindow(title, initialDirectory, extensions, "", initialFileName ?? "", "open"));
 
     public static string? SaveFile(Window owner, string title, string initialDirectory,
-        string initialFileName, string defaultExtension)
-        => ShowDialog(owner, new CodexFilePickerWindow(title, initialDirectory, [], defaultExtension, initialFileName, "save"));
+        string initialFileName, string defaultExtension, bool allowOverwrite = true)
+        => ShowDialog(owner, new CodexFilePickerWindow(title, initialDirectory, [], defaultExtension, initialFileName, "save", allowOverwrite));
 
     public CodexFilePickerWindow(string title, string initialDirectory, string[] extensions,
-        string defaultExtension, string fileName, string mode)
+        string defaultExtension, string fileName, string mode, bool allowOverwrite = true)
     {
+        _allowOverwrite = allowOverwrite;
         _mode = mode switch
         {
             "folder" => PickerMode.Folder,
@@ -543,6 +545,12 @@ internal sealed class CodexFilePickerWindow : Window
         try
         {
             path = Path.GetFullPath(Path.IsPathRooted(inputName) ? inputName : Path.Combine(_currentDirectory, inputName));
+            // Do not turn an existing folder into a sibling file by appending the default extension.
+            if (_mode == PickerMode.SaveFile && Directory.Exists(path))
+            {
+                ShowError("По указанному пути находится папка.");
+                return;
+            }
             if (_mode == PickerMode.SaveFile && Path.GetExtension(path).Length == 0 && _defaultExtension.Length > 0)
             {
                 // Avoid producing names such as "report..txt" from "report.".
@@ -583,10 +591,18 @@ internal sealed class CodexFilePickerWindow : Window
                 ShowError("По указанному пути находится папка.");
                 return;
             }
-            if (File.Exists(path) && CodexMessageDialog.Show(this,
-                    $"Файл «{Path.GetFileName(path)}» уже существует. Перезаписать его?",
-                    "Подтвердите перезапись", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-                return;
+            if (File.Exists(path))
+            {
+                if (!_allowOverwrite)
+                {
+                    ShowError("Файл уже существует. Укажите другое имя.");
+                    return;
+                }
+                if (CodexMessageDialog.Show(this,
+                        $"Файл «{Path.GetFileName(path)}» уже существует. Перезаписать его?",
+                        "Подтвердите перезапись", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    return;
+            }
         }
 
         SelectedPath = path;
