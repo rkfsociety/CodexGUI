@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -43,6 +44,8 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout(serverName);
+        AutomationProperties.SetName(_status, "Состояние входа в MCP-сервер");
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         Closed += (_, _) => _cancelled.TrySetResult(true);
     }
 
@@ -78,20 +81,25 @@ internal sealed class CodexMcpServerOAuthLoginWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 9, 0, 0)
         };
+        AutomationProperties.SetName(host, "Адрес страницы авторизации");
         Grid.SetRow(host, 2);
         root.Children.Add(host);
         Grid.SetRow(_status, 3);
         root.Children.Add(_status);
 
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 16, 0, 0)
         };
         var open = MakeButton("Открыть страницу входа", accent: true);
+        open.IsDefault = true;
+        open.ToolTip = "Открыть страницу входа (Enter)";
         open.Click += (_, _) => OpenAuthorizationPage();
         var cancel = MakeButton("Отмена");
+        cancel.IsCancel = true;
+        cancel.ToolTip = "Отменить вход (Esc)";
         cancel.Margin = new Thickness(8, 0, 0, 0);
         cancel.Click += (_, _) => Close();
         buttons.Children.Add(open);

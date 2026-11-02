@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -16,8 +17,10 @@ internal sealed class AppServerRuntimeSetupWindow : Window
     {
         Title = "CodexGUI";
         Width = 460;
-        Height = 178;
-        ResizeMode = ResizeMode.NoResize;
+        Height = 210;
+        MinWidth = 400;
+        MinHeight = 190;
+        ResizeMode = ResizeMode.CanResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
         CodexWindowTheme.Apply(this);
@@ -30,7 +33,14 @@ internal sealed class AppServerRuntimeSetupWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 9)
         });
-        _status = new TextBlock { Text = $"Загружаю App Server {CodexAppServerRuntime.Version}…", FontSize = 12 };
+        _status = new TextBlock
+        {
+            Text = $"Загружаю App Server {CodexAppServerRuntime.Version}…",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap
+        };
+        AutomationProperties.SetName(_status, "Состояние подготовки App Server");
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         layout.Children.Add(_status);
         _progress = new ProgressBar
         {
@@ -49,8 +59,14 @@ internal sealed class AppServerRuntimeSetupWindow : Window
             FontSize = 10,
             Foreground = new SolidColorBrush(Color.FromRgb(164, 177, 194))
         };
+        AutomationProperties.SetName(_details, "Подробности загрузки App Server");
         layout.Children.Add(_details);
-        Content = layout;
+        Content = new ScrollViewer
+        {
+            Content = layout,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
     }
 
     public void Report(AppServerRuntimeProgress progress)
@@ -65,14 +81,17 @@ internal sealed class AppServerRuntimeSetupWindow : Window
         if (progress.TotalBytes is { } total && total > 0)
         {
             _progress.IsIndeterminate = false;
-            _progress.Value = Math.Clamp(progress.BytesReceived * 100d / total, 0d, 100d);
+            var received = Math.Clamp(progress.BytesReceived, 0L, total);
+            _progress.Value = received * 100d / total;
             _details.Text = $"{_progress.Value.ToString("N0", CultureInfo.CurrentCulture)} % · " +
-                $"{(progress.BytesReceived / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} из {(total / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} МБ";
+                $"{(received / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} из {(total / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} МБ";
         }
         else
         {
             _progress.IsIndeterminate = true;
-            _details.Text = "Подготовка App Server продолжается. Ожидайте завершения…";
+            _details.Text = progress.BytesReceived > 0
+                ? $"Загружено {(progress.BytesReceived / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} МБ. Общий размер пока неизвестен."
+                : "Подготовка App Server продолжается. Ожидайте завершения…";
         }
     }
 }

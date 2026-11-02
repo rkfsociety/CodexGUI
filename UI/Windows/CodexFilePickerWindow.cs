@@ -31,6 +31,10 @@ internal sealed class CodexFilePickerWindow : Window
     private readonly TextBox _location = new();
     private readonly ListBox _entries = new();
     private readonly TextBox _fileName = new();
+    private readonly TextBox _filter = new() { MaxLength = 256, ToolTip = "Поиск по именам в показанном списке файлов и папок" };
+    private readonly Button _clearFilter = new() { Content = "Очистить", IsEnabled = false };
+    private readonly TextBlock _filterSummary = new() { FontSize = 11, Foreground = Brush("#B0B5BE"), VerticalAlignment = VerticalAlignment.Center };
+    private List<PickerEntry> _loadedEntries = [];
     private readonly TextBlock _status = new();
     private readonly Button _upButton = new();
     private Button _confirmButton = new();
@@ -89,12 +93,25 @@ internal sealed class CodexFilePickerWindow : Window
         ShowInTaskbar = false;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout(title, fileName);
+        _filter.TextChanged += (_, _) => RefreshFilteredEntries();
+        _clearFilter.Click += (_, _) => { _filter.Clear(); _filter.Focus(); };
         PreviewKeyDown += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.L)
             {
                 _location.Focus();
                 _location.SelectAll();
+                e.Handled = true;
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+            {
+                _filter.Focus();
+                _filter.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _filter.IsKeyboardFocusWithin && _filter.Text.Length > 0)
+            {
+                _filter.Clear();
                 e.Handled = true;
             }
             else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0
@@ -116,6 +133,7 @@ internal sealed class CodexFilePickerWindow : Window
     private UIElement BuildLayout(string title, string fileName)
     {
         var root = new Grid { Margin = new Thickness(20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -184,6 +202,32 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetRow(navigation, 1);
         root.Children.Add(navigation);
 
+        var filterRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        filterRow.Children.Add(new TextBlock
+        {
+            Text = "Фильтр списка",
+            Foreground = Brush("#B0B5BE"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0)
+        });
+        var filterBorder = CreateInputBorder(_filter);
+        AutomationProperties.SetName(_filter, "Фильтр показанных файлов и папок");
+        Grid.SetColumn(filterBorder, 1);
+        filterRow.Children.Add(filterBorder);
+        _clearFilter.Margin = new Thickness(8, 0, 0, 0);
+        AutomationProperties.SetName(_clearFilter, "Очистить фильтр файлов и папок");
+        Grid.SetColumn(_clearFilter, 2);
+        filterRow.Children.Add(_clearFilter);
+        _filterSummary.Margin = new Thickness(10, 0, 0, 0);
+        Grid.SetColumn(_filterSummary, 3);
+        filterRow.Children.Add(_filterSummary);
+        Grid.SetRow(filterRow, 2);
+        root.Children.Add(filterRow);
+
         _entries.Background = Brush("#151619");
         AutomationProperties.SetName(_entries, "Содержимое текущей папки");
         _entries.Foreground = Brush("#F1F3F5");
@@ -206,7 +250,7 @@ internal sealed class CodexFilePickerWindow : Window
             OpenSelectedEntry();
             e.Handled = true;
         };
-        Grid.SetRow(_entries, 2);
+        Grid.SetRow(_entries, 3);
         root.Children.Add(_entries);
 
         var fileNamePanel = new Grid { Margin = new Thickness(0, 11, 0, 0) };
@@ -241,7 +285,7 @@ internal sealed class CodexFilePickerWindow : Window
             e.Handled = true;
         };
         fileNamePanel.Visibility = _mode == PickerMode.Folder ? Visibility.Collapsed : Visibility.Visible;
-        Grid.SetRow(fileNamePanel, 3);
+        Grid.SetRow(fileNamePanel, 4);
         root.Children.Add(fileNamePanel);
 
         var footer = new Grid { Margin = new Thickness(0, 14, 0, 0) };
@@ -284,7 +328,7 @@ internal sealed class CodexFilePickerWindow : Window
         actions.Children.Add(_confirmButton);
         Grid.SetColumn(actions, 1);
         footer.Children.Add(actions);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 5);
         root.Children.Add(footer);
 
         return root;
@@ -309,7 +353,7 @@ internal sealed class CodexFilePickerWindow : Window
 
     private void RefreshEntries()
     {
-        _entries.Items.Clear();
+        _loadedEntries.Clear();
         _location.Text = _currentDirectory;
         _upButton.IsEnabled = Directory.GetParent(_currentDirectory) is not null;
         try
@@ -376,9 +420,8 @@ internal sealed class CodexFilePickerWindow : Window
                     .Select(path => new PickerEntry(Path.GetFileName(path), path, false, DescribeFile(path))));
             }
 
-            foreach (var entry in entries.OrderByDescending(entry => entry.IsDirectory)
-                         .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase))
-                _entries.Items.Add(CreateEntryItem(entry));
+            _loadedEntries = entries.OrderByDescending(entry => entry.IsDirectory)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
             _status.Foreground = Brush("#8D95A2");
             _status.Text = truncated
@@ -392,6 +435,27 @@ internal sealed class CodexFilePickerWindow : Window
             _status.Text = "Не удалось прочитать папку: " + error.Message;
             _status.ToolTip = _currentDirectory;
         }
+        RefreshFilteredEntries();
+    }
+
+    private void RefreshFilteredEntries()
+    {
+        var selectedPath = _entries.SelectedItem is ListBoxItem { Tag: PickerEntry selected }
+            ? selected.Path : null;
+        _entries.Items.Clear();
+        var query = _filter.Text.Trim();
+        var matches = _loadedEntries.Where(entry => query.Length == 0
+            || entry.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        foreach (var entry in matches)
+        {
+            var item = CreateEntryItem(entry);
+            _entries.Items.Add(item);
+            if (selectedPath is not null && string.Equals(entry.Path, selectedPath, StringComparison.OrdinalIgnoreCase))
+                _entries.SelectedItem = item;
+        }
+        _clearFilter.IsEnabled = query.Length > 0;
+        _filterSummary.Text = query.Length == 0 ? $"{_loadedEntries.Count} в списке"
+            : matches.Count == 0 ? "Нет совпадений" : $"Найдено: {matches.Count}";
         UpdateConfirmButton();
     }
 
@@ -493,6 +557,7 @@ internal sealed class CodexFilePickerWindow : Window
     private void NavigateToDirectory(string directory)
     {
         _currentDirectory = directory;
+        if (_filter.Text.Length > 0) _filter.Clear();
         RefreshEntries();
         // A file name selected in the previous folder must not silently carry over
         // when opening a different folder. Save dialogs keep the typed name.

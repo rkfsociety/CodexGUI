@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -20,8 +21,10 @@ internal sealed class CodexAppServerLoginWindow : Window
         _userCode = userCode;
         Title = "Вход в Codex";
         Width = 440;
-        Height = 250;
-        ResizeMode = ResizeMode.NoResize;
+        Height = 290;
+        MinWidth = 420;
+        MinHeight = 260;
+        ResizeMode = ResizeMode.CanResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
         CodexWindowTheme.Apply(this);
@@ -97,8 +100,14 @@ internal sealed class CodexAppServerLoginWindow : Window
         layout.Children.Add(buttons);
 
         layout.Children.Add(_status);
-        System.Windows.Automation.AutomationProperties.SetName(_status, "Состояние входа");
-        Content = layout;
+        AutomationProperties.SetName(_status, "Состояние входа");
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
+        Content = new ScrollViewer
+        {
+            Content = layout,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
         Closed += (_, _) => _cancelled.TrySetResult(true);
     }
 
