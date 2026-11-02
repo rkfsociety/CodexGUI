@@ -1370,6 +1370,7 @@ public partial class MainWindow : Window
 
     private Task RestoreThreadHistoryAsync(ChatThread thread, bool force = false)
     {
+        if (thread.SessionUnavailable) return Task.CompletedTask;
         if (!force && thread.Messages.Count > 0)
         {
             thread.HistoryLoaded = true;
@@ -1405,9 +1406,20 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            thread.HistoryError = error.Message;
-            if (_currentThread == thread)
-                SetStatus("Не удалось загрузить историю", error.Message, isError: true);
+            if (CodexThreadRecovery.IsMissingThreadError(error.Message))
+            {
+                thread.SessionUnavailable = true;
+                if (_currentThread == thread && thread.ActiveRun is null)
+                    OpenReplacementChatForUnavailableThread(thread);
+                else
+                    RequestStateSave();
+            }
+            else
+            {
+                thread.HistoryError = error.Message;
+                if (_currentThread == thread)
+                    SetStatus("Не удалось загрузить историю", error.Message, isError: true);
+            }
         }
         finally
         {
@@ -4204,6 +4216,11 @@ public partial class MainWindow : Window
                     break;
                 }
                 var thread = _threads.First(item => item.Id == queued.ThreadId);
+                if (thread.SessionUnavailable)
+                {
+                    OpenReplacementChatForUnavailableThread(thread);
+                    continue;
+                }
                 if (thread.IsArchived)
                 {
                     await SetThreadArchivedAsync(thread, archived: false);
@@ -4244,6 +4261,11 @@ public partial class MainWindow : Window
                     {
                         thread.ActiveRun = null;
                         _promptQueue.Add(queued);
+                        if (thread.SessionUnavailable)
+                        {
+                            OpenReplacementChatForUnavailableThread(thread);
+                            continue;
+                        }
                         RequestStateSave();
                         RenderThreads();
                         RenderPromptQueue();
@@ -4275,6 +4297,7 @@ public partial class MainWindow : Window
     private async Task ExecuteActiveCliRunAsync(ChatThread thread, ActiveCliRun activeRun, ChatMessage assistantMessage, bool reloadHistoryWhenFinished)
     {
         var failed = false;
+        var recoveredMissingThread = false;
         try
         {
             var response = await RunCodexAsync(thread, activeRun, assistantMessage);
@@ -4287,6 +4310,25 @@ public partial class MainWindow : Window
                 thread.Messages.Remove(assistantMessage);
             if (_currentThread == thread) SetStatus("Готов", "Ответ получен.");
         }
+        catch (Exception error) when (!activeRun.StopRequested && !string.IsNullOrWhiteSpace(thread.CodexSessionId)
+            && CodexThreadRecovery.IsMissingThreadError(error.Message))
+        {
+            // The remote session was removed after history had already been cached.
+            // Requeue the prompt in a different chat instead of attaching new messages to stale history.
+            recoveredMissingThread = true;
+            thread.Messages.Remove(assistantMessage);
+            var promptIndex = thread.Messages.FindLastIndex(message => message.IsUser && message.Text == activeRun.Prompt);
+            if (promptIndex >= 0) thread.Messages.RemoveAt(promptIndex);
+            _promptQueue.Insert(0, new QueuedPrompt
+            {
+                ThreadId = thread.Id,
+                Text = activeRun.Prompt,
+                Model = activeRun.Model,
+                Effort = activeRun.Effort,
+                FullAccess = activeRun.FullAccess
+            });
+            OpenReplacementChatForUnavailableThread(thread);
+        }
         catch (Exception error)
         {
             failed = true;
@@ -4297,7 +4339,7 @@ public partial class MainWindow : Window
         {
             if (_activeProcesses.Remove(activeRun.RunId, out var activeProcess)) activeProcess?.Dispose();
             if (thread.ActiveRun?.RunId == activeRun.RunId) thread.ActiveRun = null;
-            if (_currentThread != thread || !IsActive || WindowState == WindowState.Minimized || !IsVisible)
+            if (!recoveredMissingThread && (_currentThread != thread || !IsActive || WindowState == WindowState.Minimized || !IsVisible))
             {
                 thread.HasUnreadResponse = true;
                 ShowChatCompletionNotification(thread, failed);
@@ -5407,8 +5449,49 @@ public partial class MainWindow : Window
         Control<TextBox>("PromptInput")?.Focus();
     }
 
+    private ChatThread OpenReplacementChatForUnavailableThread(ChatThread unavailableThread, bool select = false)
+    {
+        unavailableThread.SessionUnavailable = true;
+        var replacement = _threads.FirstOrDefault(thread => thread.Id == unavailableThread.ReplacementThreadId);
+        if (replacement is null)
+        {
+            replacement = new ChatThread
+            {
+                ProjectId = unavailableThread.ProjectId,
+                ProjectPath = unavailableThread.ProjectPath,
+                UseWorktree = unavailableThread.UseWorktree
+            };
+            _threads.Add(replacement);
+            unavailableThread.ReplacementThreadId = replacement.Id;
+        }
+
+        foreach (var queued in _promptQueue.Where(item => item.ThreadId == unavailableThread.Id))
+            queued.ThreadId = replacement.Id;
+
+        if (select || ReferenceEquals(_currentThread, unavailableThread))
+        {
+            _selectedProject = _projects.FirstOrDefault(project => project.Id == replacement.ProjectId);
+            _currentThread = replacement;
+            _projectPath = replacement.WorktreePath ?? replacement.ProjectPath;
+            _showArchivedChats = false;
+            RefreshView();
+            SetStatus("Открыт новый чат", "Старая сессия Codex недоступна. Можно отправлять новые сообщения.");
+            Control<TextBox>("PromptInput")?.Focus();
+        }
+
+        RequestStateSave();
+        RenderThreads();
+        RenderPromptQueue();
+        return replacement;
+    }
+
     private void SelectThread(ChatThread thread)
     {
+        if (thread.SessionUnavailable)
+        {
+            OpenReplacementChatForUnavailableThread(thread, select: true);
+            return;
+        }
         if (!ReferenceEquals(_currentThread, thread)
             && thread.CodexSessionId is { Length: > 0 } sessionId
             && !_threadGoalLoadsInProgress.Contains(sessionId))
@@ -6665,6 +6748,8 @@ public partial class MainWindow : Window
         public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
+        public bool SessionUnavailable { get; set; }
+        public string? ReplacementThreadId { get; set; }
         public CodexAppServerGoalDraft? PendingGoal { get; set; }
         public List<WorkspaceGoalStep> GoalSteps { get; set; } = [];
         public bool IsArchived { get; set; }
@@ -6705,6 +6790,8 @@ public partial class MainWindow : Window
         public string? WorktreePath { get; set; }
         public string? CodexSessionId { get; set; }
         public string? ForkFromSessionId { get; set; }
+        public bool SessionUnavailable { get; set; }
+        public string? ReplacementThreadId { get; set; }
         public CodexAppServerGoalDraft? PendingGoal { get; set; }
         public List<WorkspaceGoalStep> GoalSteps { get; set; } = [];
         public bool IsArchived { get; set; }

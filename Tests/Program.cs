@@ -56,6 +56,7 @@ internal static class Program
             await Check("Operation cancellation closes the RPC child process", () => RpcAsync(root, cancel: true));
             await Check("Window lifetime cancellation closes the RPC child process", () => RpcAsync(root, cancel: true, lifetime: true));
             await Check("Short RPC session reuses one process across pages", () => RpcSessionPaginationAsync(root));
+            await Check("Unavailable Codex sessions are distinguished from transient errors", MissingThreadClassificationAsync);
             await Check("Thread history rejects repeated pagination cursors", () => ThreadHistoryPaginationAsync(root));
             await Check("Cancelling a later history page stops its RPC process", () => ThreadHistoryCancellationAsync(root));
             await Check("Thread history accumulation respects its byte budget", ThreadHistoryBudgetAsync);
@@ -113,6 +114,29 @@ internal static class Program
             // This directory was created by this invocation and contains only check fixtures.
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static Task MissingThreadClassificationAsync()
+    {
+        foreach (var message in new[]
+        {
+            "thread not loaded: 01a18be1-1dfa-7933-b4a5-07167d442efc",
+            "Thread not found",
+            "no rollout found for thread id missing-id",
+            "unknown thread",
+            "session not found"
+        })
+            Require(CodexThreadRecovery.IsMissingThreadError(message), "Missing session was not recognized: " + message);
+
+        foreach (var message in new[]
+        {
+            "Codex app-server не ответил на запрос за 20 секунд.",
+            "Access denied",
+            "Codex app-server завершился до ответа.",
+            "История чата превышает допустимый размер"
+        })
+            Require(!CodexThreadRecovery.IsMissingThreadError(message), "Transient failure was mistaken for a missing session: " + message);
+        return Task.CompletedTask;
     }
 
     private static Task ThreadContextUsageAsync(string root)
