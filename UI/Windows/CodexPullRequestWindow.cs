@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Input;
 
 namespace CodexGUI;
 
@@ -29,6 +30,14 @@ internal sealed class CodexPullRequestWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout(branch);
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control && _createButton.IsEnabled)
+            {
+                Create();
+                e.Handled = true;
+            }
+        };
         Loaded += (_, _) =>
         {
             _title.Focus();
@@ -106,6 +115,7 @@ internal sealed class CodexPullRequestWindow : Window
         _body.BorderBrush = Brush("#314454");
         _body.BorderThickness = new Thickness(1);
         _body.Text = "## Summary\n\n## Testing\n";
+        _body.ToolTip = "Описание поддерживает Markdown. Ctrl+Enter — создать Pull Request.";
         AutomationProperties.SetName(_body, "Описание Pull Request");
         Grid.SetRow(_body, 1);
         bodyPanel.Children.Add(_body);
@@ -116,10 +126,11 @@ internal sealed class CodexPullRequestWindow : Window
 
         _draft.Foreground = Brush("#C5D0D8");
         _draft.Margin = new Thickness(0, 12, 0, 0);
+        _draft.ToolTip = "Черновик можно дополнить до отправки на проверку.";
         Grid.SetRow(_draft, 3);
         root.Children.Add(_draft);
 
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -132,6 +143,7 @@ internal sealed class CodexPullRequestWindow : Window
         _createButton.IsDefault = true;
         _createButton.Background = Brush("#204139");
         _createButton.Foreground = Brush("#92E5C7");
+        _createButton.ToolTip = "Создать Pull Request (Ctrl+Enter)";
         _createButton.Click += (_, _) => Create();
         buttons.Children.Add(cancel);
         buttons.Children.Add(_createButton);

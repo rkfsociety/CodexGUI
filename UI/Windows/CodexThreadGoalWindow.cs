@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Input;
 
 namespace CodexGUI;
 
@@ -46,13 +47,21 @@ internal sealed class CodexThreadGoalWindow : Window
         _tokenBudget.TextChanged += (_, _) => UpdateValidation();
         _status.SelectionChanged += (_, _) => UpdateValidation();
         UpdateValidation();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control && _saveButton.IsEnabled)
+            {
+                SaveGoal();
+                e.Handled = true;
+            }
+        };
         Loaded += (_, _) => _objective.Focus();
     }
 
     private UIElement BuildLayout()
     {
         var root = new DockPanel { Margin = new Thickness(22) };
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -73,6 +82,7 @@ internal sealed class CodexThreadGoalWindow : Window
         _saveButton = MakeButton("Сохранить", "#223B38");
         _saveButton.Foreground = Brush("#92E5C7");
         _saveButton.IsDefault = true;
+        _saveButton.ToolTip = "Сохранить цель (Ctrl+Enter)";
         _saveButton.Click += (_, _) => SaveGoal();
         buttons.Children.Add(_saveButton);
         root.Children.Add(buttons);
@@ -193,6 +203,7 @@ internal sealed class CodexThreadGoalWindow : Window
 
     private static string FormatDuration(ulong totalSeconds)
     {
+        if (totalSeconds < 60) return $"{totalSeconds} сек";
         var totalMinutes = totalSeconds / 60;
         var hours = totalMinutes / 60;
         var minutes = totalMinutes % 60;

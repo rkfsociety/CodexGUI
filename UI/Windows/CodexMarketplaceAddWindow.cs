@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Input;
 
 namespace CodexGUI;
 
@@ -15,6 +16,8 @@ internal sealed class CodexMarketplaceAddWindow : Window
     private readonly TextBox _source = new();
     private readonly TextBox _refName = new();
     private readonly TextBox _sparsePaths = new();
+    private readonly TextBlock _sourceHint = new() { FontSize = 11, Foreground = Brush("#B0B5BE"), Margin = new Thickness(0, 5, 0, 0) };
+    private readonly TextBlock _pathsSummary = new() { FontSize = 11, Foreground = Brush("#B0B5BE"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) };
     private Button _addButton = null!;
 
     public CodexMarketplaceAddRequest? Result { get; private set; }
@@ -30,7 +33,17 @@ internal sealed class CodexMarketplaceAddWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _source.TextChanged += (_, _) => UpdateSourceState();
+        _sparsePaths.TextChanged += (_, _) => UpdatePathSummary();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control && _addButton.IsEnabled)
+            {
+                Save();
+                e.Handled = true;
+            }
+        };
         UpdateSourceState();
+        UpdatePathSummary();
         Loaded += (_, _) => _source.Focus();
     }
 
@@ -53,6 +66,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
         _source.MaxLength = 2048;
         AutomationProperties.SetName(_source, "Источник маркетплейса");
         form.Children.Add(_source);
+        form.Children.Add(_sourceHint);
 
         AddLabel(form, "Ветка или тег (необязательно)", new Thickness(0, 14, 0, 5));
         StyleTextBox(_refName, 36);
@@ -73,6 +87,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
         _sparsePaths.BorderThickness = new Thickness(1);
         AutomationProperties.SetName(_sparsePaths, "Пути внутри репозитория");
         form.Children.Add(_sparsePaths);
+        form.Children.Add(_pathsSummary);
         form.Children.Add(new TextBlock
         {
             Text = "Источник будет сохранён в общем профиле Codex. После добавления список доступных плагинов обновится.",
@@ -90,7 +105,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
         Grid.SetRow(formScroll, 1);
         root.Children.Add(formScroll);
 
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right
@@ -113,7 +128,28 @@ internal sealed class CodexMarketplaceAddWindow : Window
     private void UpdateSourceState()
     {
         _addButton.IsEnabled = !string.IsNullOrWhiteSpace(_source.Text);
-        _addButton.ToolTip = _addButton.IsEnabled ? null : "Укажите источник маркетплейса";
+        _addButton.ToolTip = _addButton.IsEnabled ? "Добавить маркетплейс (Ctrl+Enter)" : "Укажите источник маркетплейса";
+        _sourceHint.Text = _addButton.IsEnabled
+            ? "Ctrl+Enter — добавить маркетплейс."
+            : "Укажите адрес репозитория или его краткое имя.";
+    }
+
+    private string[] GetSparsePaths() => _sparsePaths.Text
+        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+        .Select(path => path.Trim())
+        .Where(path => path.Length > 0)
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+    private void UpdatePathSummary()
+    {
+        var enteredCount = _sparsePaths.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Count(path => !string.IsNullOrWhiteSpace(path));
+        var uniqueCount = GetSparsePaths().Length;
+        var duplicates = enteredCount - uniqueCount;
+        _pathsSummary.Text = uniqueCount == 0
+            ? "Пути не указаны — будет использован весь репозиторий."
+            : $"Выбрано путей: {uniqueCount}" + (duplicates > 0 ? $" · Повторов пропущено: {duplicates}" : "");
     }
 
     private void Save()
@@ -127,12 +163,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
         }
 
         var refName = string.IsNullOrWhiteSpace(_refName.Text) ? null : _refName.Text.Trim();
-        var sparsePaths = _sparsePaths.Text
-            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => path.Trim())
-            .Where(path => path.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        var sparsePaths = GetSparsePaths();
         Result = new CodexMarketplaceAddRequest(source, refName, sparsePaths);
         DialogResult = true;
     }
