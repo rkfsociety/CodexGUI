@@ -41,6 +41,16 @@ internal sealed class CodexTerminalWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F
+                && _tabs.SelectedItem is TabItem { Tag: TerminalTab selected })
+            {
+                e.Handled = true;
+                selected.SearchBox.Focus();
+                selected.SearchBox.SelectAll();
+            }
+        };
         _host.OutputReceived += OnOutputReceived;
         _host.SessionExited += OnSessionExited;
         Loaded += async (_, _) => await CreateTerminalAsync(_initialCommand);
@@ -154,8 +164,9 @@ internal sealed class CodexTerminalWindow : Window
             Foreground = Brush("#A4B1C2"),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            ToolTip = "Завершить терминал"
+            ToolTip = $"Завершить {tab.Title}"
         };
+        System.Windows.Automation.AutomationProperties.SetName(close, $"Завершить {tab.Title}");
         close.Click += async (_, _) => await CloseTerminalAsync(tab.ProcessId);
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Insert(0, close);
@@ -165,12 +176,91 @@ internal sealed class CodexTerminalWindow : Window
     private UIElement BuildTerminalContent(TerminalTab tab)
     {
         var layout = new Grid { Margin = new Thickness(2, 8, 2, 2) };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        toolbar.Children.Add(new TextBlock
+        {
+            Text = "Найти:",
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brush("#B6C4D3"),
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        tab.SearchBox = new TextBox
+        {
+            Width = 205,
+            MaxLength = 256,
+            Padding = new Thickness(8, 5, 8, 5),
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
+            ToolTip = "Поиск в выводе текущего терминала (Ctrl+F)"
+        };
+        System.Windows.Automation.AutomationProperties.SetName(tab.SearchBox, "Поиск в выводе терминала");
+        tab.SearchBox.TextChanged += (_, _) => FindInOutput(tab, backwards: false, fromStart: true);
+        tab.SearchBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                FindInOutput(tab, backwards: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+            }
+            else if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                tab.SearchBox.Clear();
+                tab.Input.Focus();
+            }
+        };
+        toolbar.Children.Add(tab.SearchBox);
+        var previous = MakeButton("↑", accent: false);
+        previous.Margin = new Thickness(6, 0, 0, 0);
+        previous.ToolTip = "Предыдущее совпадение (Shift+Enter)";
+        System.Windows.Automation.AutomationProperties.SetName(previous, "Предыдущее совпадение");
+        previous.Click += (_, _) => FindInOutput(tab, backwards: true);
+        toolbar.Children.Add(previous);
+        var next = MakeButton("↓", accent: false);
+        next.Margin = new Thickness(4, 0, 0, 0);
+        next.ToolTip = "Следующее совпадение (Enter)";
+        System.Windows.Automation.AutomationProperties.SetName(next, "Следующее совпадение");
+        next.Click += (_, _) => FindInOutput(tab, backwards: false);
+        toolbar.Children.Add(next);
+        var copy = MakeButton("Копировать вывод");
+        copy.Margin = new Thickness(10, 0, 0, 0);
+        copy.ToolTip = "Скопировать выделенный текст или весь вывод текущего терминала";
+        copy.Click += (_, _) =>
+        {
+            var selected = tab.Output.SelectedText;
+            var text = selected.Length > 0 ? selected : tab.Output.Text;
+            if (text.Length == 0) { _status.Text = "Вывод терминала пуст"; return; }
+            try
+            {
+                Clipboard.SetText(text);
+                _status.Text = selected.Length > 0 ? "Выделенный текст скопирован" : "Вывод терминала скопирован";
+            }
+            catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+            {
+                _status.Text = "Не удалось скопировать вывод: " + error.Message;
+            }
+        };
+        toolbar.Children.Add(copy);
+        tab.SearchStatus = new TextBlock
+        {
+            Foreground = Brush("#9AA8B8"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        toolbar.Children.Add(tab.SearchStatus);
+        layout.Children.Add(toolbar);
+
         tab.Output = new TextBox
         {
             IsReadOnly = true,
             IsReadOnlyCaretVisible = true,
+            IsInactiveSelectionHighlightEnabled = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -183,6 +273,8 @@ internal sealed class CodexTerminalWindow : Window
             BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1)
         };
+        System.Windows.Automation.AutomationProperties.SetName(tab.Output, "Вывод терминала");
+        Grid.SetRow(tab.Output, 1);
         layout.Children.Add(tab.Output);
         tab.Input = new TextBox
         {
@@ -262,9 +354,50 @@ internal sealed class CodexTerminalWindow : Window
                 tab.Input.CaretIndex = tab.Input.Text.Length;
             }
         };
-        Grid.SetRow(tab.Input, 1);
+        System.Windows.Automation.AutomationProperties.SetName(tab.Input, "Команда PowerShell");
+        Grid.SetRow(tab.Input, 2);
         layout.Children.Add(tab.Input);
         return layout;
+    }
+
+    private static void FindInOutput(TerminalTab tab, bool backwards, bool fromStart = false)
+    {
+        var query = tab.SearchBox.Text;
+        if (query.Length == 0)
+        {
+            tab.SearchStatus.Text = "";
+            return;
+        }
+
+        var content = tab.Output.Text;
+        if (content.Length == 0)
+        {
+            tab.SearchStatus.Text = "Совпадений нет";
+            return;
+        }
+
+        var position = fromStart
+            ? (backwards ? content.Length - 1 : 0)
+            : backwards
+                ? Math.Max(0, tab.Output.SelectionStart - 1)
+                : Math.Min(content.Length, tab.Output.SelectionStart + Math.Max(1, tab.Output.SelectionLength));
+        var match = backwards
+            ? content.LastIndexOf(query, position, StringComparison.OrdinalIgnoreCase)
+            : content.IndexOf(query, position, StringComparison.OrdinalIgnoreCase);
+        if (match < 0)
+            match = backwards
+                ? content.LastIndexOf(query, StringComparison.OrdinalIgnoreCase)
+                : content.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+
+        if (match < 0)
+        {
+            tab.SearchStatus.Text = "Совпадений нет";
+            return;
+        }
+
+        tab.Output.Select(match, query.Length);
+        tab.Output.ScrollToLine(tab.Output.GetLineIndexFromCharacterIndex(match));
+        tab.SearchStatus.Text = "Найдено";
     }
 
     private async Task<bool> SendInputAsync(TerminalTab tab, string input)
@@ -520,6 +653,8 @@ internal sealed class CodexTerminalWindow : Window
         public TabItem Item { get; set; } = null!;
         public TextBlock HeaderLabel { get; set; } = null!;
         public TextBox Output { get; set; } = null!;
+        public TextBox SearchBox { get; set; } = null!;
+        public TextBlock SearchStatus { get; set; } = null!;
         public TextBox Input { get; set; } = null!;
         public bool IsRunning { get; set; }
         public TerminalSequenceFilter SequenceFilter { get; } = new();

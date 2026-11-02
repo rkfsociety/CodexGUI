@@ -40,6 +40,7 @@ internal sealed class AppServerRuntimeSetupWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(168, 230, 207)),
             Background = new SolidColorBrush(Color.FromRgb(43, 55, 70))
         };
+        System.Windows.Automation.AutomationProperties.SetName(_progress, "Загрузка App Server");
         layout.Children.Add(_progress);
         _details = new TextBlock
         {
@@ -65,11 +66,13 @@ internal sealed class AppServerRuntimeSetupWindow : Window
         {
             _progress.IsIndeterminate = false;
             _progress.Value = Math.Clamp(progress.BytesReceived * 100d / total, 0d, 100d);
-            _details.Text = $"{(progress.BytesReceived / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} из {(total / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} МБ";
+            _details.Text = $"{_progress.Value.ToString("N0", CultureInfo.CurrentCulture)} % · " +
+                $"{(progress.BytesReceived / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} из {(total / 1_048_576d).ToString("N1", CultureInfo.CurrentCulture)} МБ";
         }
         else
         {
             _progress.IsIndeterminate = true;
+            _details.Text = "Подготовка App Server продолжается. Ожидайте завершения…";
         }
     }
 }

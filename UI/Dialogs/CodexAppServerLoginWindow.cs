@@ -61,10 +61,11 @@ internal sealed class CodexAppServerLoginWindow : Window
             BorderThickness = new Thickness(0),
             SelectionBrush = Color("#3D655E")
         };
+        System.Windows.Automation.AutomationProperties.SetName(code, "Код подтверждения входа");
         code.GotKeyboardFocus += (_, _) => code.SelectAll();
         layout.Children.Add(code);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var copy = new Button { Content = "Скопировать код", Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 8, 0) };
         copy.Click += (_, _) =>
         {
@@ -85,8 +86,10 @@ internal sealed class CodexAppServerLoginWindow : Window
             Background = Color("#2B5A4A"),
             Margin = new Thickness(0, 0, 8, 0)
         };
+        open.IsDefault = true;
         open.Click += (_, _) => OpenVerificationPage();
         var cancel = new Button { Content = "Отмена", Padding = new Thickness(10, 6, 10, 6), Background = Color("#4A2A31") };
+        cancel.IsCancel = true;
         cancel.Click += (_, _) => Cancel();
         buttons.Children.Add(copy);
         buttons.Children.Add(open);
@@ -94,6 +97,7 @@ internal sealed class CodexAppServerLoginWindow : Window
         layout.Children.Add(buttons);
 
         layout.Children.Add(_status);
+        System.Windows.Automation.AutomationProperties.SetName(_status, "Состояние входа");
         Content = layout;
         Closed += (_, _) => _cancelled.TrySetResult(true);
     }
