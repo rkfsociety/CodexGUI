@@ -89,6 +89,21 @@ internal sealed class CodexFilePickerWindow : Window
         ShowInTaskbar = false;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout(title, fileName);
+        PreviewKeyDown += (_, e) =>
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.L)
+            {
+                _location.Focus();
+                _location.SelectAll();
+                e.Handled = true;
+            }
+            else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0
+                     && (e.Key == Key.Up || e.SystemKey == Key.Up))
+            {
+                NavigateToParent();
+                e.Handled = true;
+            }
+        };
         RefreshEntries();
     }
 
@@ -143,6 +158,8 @@ internal sealed class CodexFilePickerWindow : Window
         navigation.Children.Add(_upButton);
 
         var locationBorder = CreateInputBorder(_location);
+        AutomationProperties.SetName(_location, "Путь к папке");
+        locationBorder.ToolTip = "Ctrl+L — перейти к вводу пути; Alt+↑ — на уровень выше";
         Grid.SetColumn(locationBorder, 1);
         navigation.Children.Add(locationBorder);
         _location.PreviewKeyDown += (_, e) =>
@@ -167,7 +184,8 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetRow(navigation, 1);
         root.Children.Add(navigation);
 
-        _entries.Background = Brush("#0E1720");
+        _entries.Background = Brush("#151619");
+        AutomationProperties.SetName(_entries, "Содержимое текущей папки");
         _entries.Foreground = Brush("#F1F3F5");
         _entries.BorderBrush = Brush("#34373E");
         _entries.BorderThickness = new Thickness(1);
@@ -206,6 +224,7 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetColumn(fileNameBorder, 1);
         fileNamePanel.Children.Add(fileNameBorder);
         _fileName.Text = fileName;
+        AutomationProperties.SetName(_fileName, "Имя файла");
         _fileName.TextChanged += (_, _) =>
         {
             // A typed file name takes precedence over a previously highlighted folder.
@@ -430,13 +449,18 @@ internal sealed class CodexFilePickerWindow : Window
         };
         Grid.SetColumn(details, 2);
         row.Children.Add(details);
-        return new ListBoxItem
+        var item = new ListBoxItem
         {
             Tag = entry,
             Content = row,
             Padding = new Thickness(8, 4, 8, 4),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            ToolTip = entry.Path
         };
+        AutomationProperties.SetName(item, entry.IsDirectory
+            ? "Папка " + entry.Name
+            : "Файл " + entry.Name + ", " + entry.Details);
+        return item;
     }
 
     private void NavigateToLocation()

@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 
@@ -26,7 +28,9 @@ internal sealed class CodexMcpServerStatusWindow : Window
         BorderBrush = Brush("#34373E"),
         ToolTip = "Поиск по имени сервера, инструментам, статусу и адресу"
     };
-    private readonly ListBox _servers = new() { Background = Brush("#151619"), BorderBrush = Brush("#34373E") };
+    private readonly ListBox _servers = new() { Background = Brush("#151619"), BorderThickness = new Thickness(0), Padding = new Thickness(4) };
+    private readonly Button _clearFilter = MakeButton("Очистить");
+    private readonly TextBlock _count = new() { Foreground = Brush("#B0B5BE"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _empty = new()
     {
         Text = "В общем профиле Codex нет настроенных MCP-серверов.",
@@ -65,6 +69,24 @@ internal sealed class CodexMcpServerStatusWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        AutomationProperties.SetName(_search, "Поиск MCP-серверов");
+        AutomationProperties.SetName(_servers, "Список MCP-серверов");
+        AutomationProperties.SetName(_clearFilter, "Очистить фильтр MCP-серверов");
+        AutomationProperties.SetName(_details, "Сведения о выбранном MCP-сервере");
+        PreviewKeyDown += (_, e) =>
+        {
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+            {
+                _search.Focus();
+                _search.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _search.IsKeyboardFocusWithin && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+            }
+        };
         VirtualizingPanel.SetIsVirtualizing(_servers, true);
         VirtualizingPanel.SetVirtualizationMode(_servers, VirtualizationMode.Recycling);
         ScrollViewer.SetCanContentScroll(_servers, true);
@@ -74,7 +96,8 @@ internal sealed class CodexMcpServerStatusWindow : Window
             ShowSelectedDetails();
             UpdateButtons();
         };
-        _search.TextChanged += (_, _) => RefreshList(SelectedServer()?.Name);
+        _search.TextChanged += (_, _) => { RefreshList(SelectedServer()?.Name); UpdateButtons(); };
+        _clearFilter.Click += (_, _) => { _search.Clear(); _search.Focus(); };
         _refresh.Click += async (_, _) => await ReloadAsync();
         _login.Click += async (_, _) => await LoginSelectedAsync();
         Loaded += async (_, _) => await ReloadAsync();
@@ -120,6 +143,8 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var searchRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         searchRow.Children.Add(new TextBlock
         {
             Text = "Фильтр",
@@ -129,12 +154,19 @@ internal sealed class CodexMcpServerStatusWindow : Window
         });
         Grid.SetColumn(_search, 1);
         searchRow.Children.Add(_search);
+        _clearFilter.Margin = new Thickness(8, 0, 0, 0);
+        Grid.SetColumn(_clearFilter, 2);
+        searchRow.Children.Add(_clearFilter);
+        _count.Margin = new Thickness(12, 0, 0, 0);
+        Grid.SetColumn(_count, 3);
+        searchRow.Children.Add(_count);
         Grid.SetRow(searchRow, 2);
         root.Children.Add(searchRow);
 
         var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star), MinWidth = 180 });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star), MinWidth = 200 });
         _servers.ItemTemplate = (DataTemplate)XamlReader.Parse("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
               <StackPanel>
@@ -143,28 +175,62 @@ internal sealed class CodexMcpServerStatusWindow : Window
               </StackPanel>
             </DataTemplate>
             """);
-        var listArea = new Grid { Margin = new Thickness(0, 0, 10, 0) };
-        listArea.Children.Add(_servers);
+        var listArea = new Grid { Margin = new Thickness(0, 0, 6, 0) };
+        listArea.Children.Add(new Border
+        {
+            Background = Brush("#151619"),
+            BorderBrush = Brush("#34373E"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Child = _servers
+        });
         listArea.Children.Add(_empty);
         content.Children.Add(listArea);
+        var splitter = new GridSplitter
+        {
+            Width = 4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = Brush("#34373E"),
+            Cursor = Cursors.SizeWE,
+            ResizeDirection = GridResizeDirection.Columns,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            ShowsPreview = true,
+            ToolTip = "Перетащите, чтобы изменить ширину панелей"
+        };
+        Grid.SetColumn(splitter, 1);
+        content.Children.Add(splitter);
         var detailsFrame = new Border
         {
             Background = Brush("#151619"),
             BorderBrush = Brush("#34373E"),
             BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Margin = new Thickness(6, 0, 0, 0),
             Child = new ScrollViewer
             {
                 Content = _details,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             }
         };
-        Grid.SetColumn(detailsFrame, 1);
+        Grid.SetColumn(detailsFrame, 2);
         content.Children.Add(detailsFrame);
         Grid.SetRow(content, 3);
         root.Children.Add(content);
 
-        Grid.SetRow(_status, 4);
-        root.Children.Add(_status);
+        var statusFrame = new Border
+        {
+            Background = Brush("#1D1F23"),
+            BorderBrush = Brush("#34373E"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(10, 0, 10, 10),
+            Margin = new Thickness(0, 10, 0, 0),
+            Child = _status
+        };
+        _status.Margin = new Thickness(0);
+        Grid.SetRow(statusFrame, 4);
+        root.Children.Add(statusFrame);
         return root;
     }
 
@@ -175,11 +241,13 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var selectedName = SelectedServer()?.Name;
         _busy = true;
         UpdateButtons();
+        _status.Foreground = Brush("#92E5C7");
         _status.Text = "Проверка MCP-серверов…";
         try
         {
             _items = await CodexMcpServerStatusCatalog.LoadAsync(new CodexAppServerClient(_appServerExecutablePath, _rpcCancellation.Token));
             _loadFailed = false;
+            _status.Foreground = Brush("#B0B5BE");
             RefreshList(selectedName);
             _status.Text = _items.Count == 0
                 ? "Проверка завершена. Настроенных MCP-серверов нет."
@@ -193,6 +261,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         {
             // A temporary App Server failure must not erase the last successful result.
             _loadFailed = true;
+            _status.Foreground = Brush("#E6BC70");
             RefreshList(selectedName);
             var detail = CompactText(error.Message, 1000);
             _status.Text = _items.Count == 0
@@ -313,12 +382,13 @@ internal sealed class CodexMcpServerStatusWindow : Window
         var query = _search.Text.Trim();
         var visibleItems = _items.Where(status => MatchesSearch(status, query))
             .ToArray();
+        _count.Text = $"Показано: {visibleItems.Length} из {_items.Count}";
         _servers.ItemsSource = visibleItems;
         _empty.Text = _loadFailed && _items.Count == 0
             ? "Список MCP-серверов не загружен."
             : _items.Count == 0
                 ? "В общем профиле Codex нет настроенных MCP-серверов."
-                : $"По фильтру «{query}» серверы не найдены.";
+                : $"По фильтру «{CompactText(query, 80)}» серверы не найдены.";
         _empty.Visibility = visibleItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (visibleItems.Length > 0)
         {
@@ -403,6 +473,7 @@ internal sealed class CodexMcpServerStatusWindow : Window
         _refresh.IsEnabled = !_busy;
         _servers.IsEnabled = !_busy;
         _search.IsEnabled = !_busy;
+        _clearFilter.IsEnabled = !_busy && _search.Text.Length > 0;
         var canLogin = SelectedServer() is { } status && RequiresLogin(status);
         _login.Visibility = canLogin ? Visibility.Visible : Visibility.Collapsed;
         _login.IsEnabled = !_busy && canLogin;
