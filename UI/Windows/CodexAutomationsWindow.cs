@@ -6,6 +6,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -31,6 +33,12 @@ internal sealed class CodexAutomationsWindow : Window
     private readonly ListBox _runList = new() { Background = new SolidColorBrush(Color.FromRgb(23, 30, 39)), BorderThickness = new Thickness(0) };
     private readonly TextBlock _definitionDetails = new();
     private readonly TextBlock _runDetails = new();
+    private readonly TextBox _definitionSearch = new() { MaxLength = 512 };
+    private readonly TextBox _runSearch = new() { MaxLength = 512 };
+    private readonly TextBlock _definitionCount = new();
+    private readonly TextBlock _runCount = new();
+    private readonly Button _clearDefinitionSearch = new() { Content = "×" };
+    private readonly Button _clearRunSearch = new() { Content = "×" };
     private readonly Button _editButton = new() { Content = "Изменить" };
     private readonly Button _deleteButton = new() { Content = "Удалить" };
     private readonly Button _runButton = new() { Content = "Запустить сейчас" };
@@ -64,6 +72,65 @@ internal sealed class CodexAutomationsWindow : Window
         Content = BuildLayout();
         _definitionList.SelectionChanged += (_, _) => UpdateDefinitionSelection();
         _runList.SelectionChanged += (_, _) => UpdateRunSelection();
+        _definitionSearch.TextChanged += (_, _) => UpdateLists();
+        _runSearch.TextChanged += (_, _) => UpdateLists();
+        _clearDefinitionSearch.Click += (_, _) => _definitionSearch.Clear();
+        _clearRunSearch.Click += (_, _) => _runSearch.Clear();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+            {
+                e.Handled = true;
+                _definitionSearch.Focus();
+                _definitionSearch.SelectAll();
+            }
+            else if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.F)
+            {
+                e.Handled = true;
+                _runSearch.Focus();
+                _runSearch.SelectAll();
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Escape)
+            {
+                if (_definitionSearch.IsKeyboardFocusWithin)
+                {
+                    _definitionSearch.Clear();
+                    e.Handled = true;
+                }
+                else if (_runSearch.IsKeyboardFocusWithin)
+                {
+                    _runSearch.Clear();
+                    e.Handled = true;
+                }
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Enter)
+            {
+                if (_definitionList.IsKeyboardFocusWithin && SelectedDefinition() is { } definition)
+                {
+                    e.Handled = true;
+                    _ = EditDefinitionAsync(definition);
+                }
+                else if (_runList.IsKeyboardFocusWithin && _openRunButton.IsEnabled && SelectedRun() is { } run)
+                {
+                    e.Handled = true;
+                    _openRun(run);
+                }
+            }
+        };
+        _definitionList.MouseDoubleClick += (_, e) =>
+        {
+            if (e.OriginalSource is DependencyObject source &&
+                ItemsControl.ContainerFromElement(_definitionList, source) is ListBoxItem &&
+                SelectedDefinition() is { } definition)
+                _ = EditDefinitionAsync(definition);
+        };
+        _runList.MouseDoubleClick += (_, e) =>
+        {
+            if (e.OriginalSource is DependencyObject source &&
+                ItemsControl.ContainerFromElement(_runList, source) is ListBoxItem &&
+                _openRunButton.IsEnabled && SelectedRun() is { } run)
+                _openRun(run);
+        };
         UpdateLists();
     }
 
@@ -71,8 +138,11 @@ internal sealed class CodexAutomationsWindow : Window
     {
         var selectedDefinitionId = (_definitionList.SelectedItem as ListBoxItem)?.Tag as string;
         var selectedRunId = (_runList.SelectedItem as ListBoxItem)?.Tag as string;
+        var definitionQuery = _definitionSearch.Text.Trim();
+        var runQuery = _runSearch.Text.Trim();
         _definitionList.Items.Clear();
-        foreach (var definition in _definitions.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+        foreach (var definition in _definitions.Where(item => MatchesDefinition(item, definitionQuery))
+                     .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
         {
             var item = new ListBoxItem
             {
@@ -80,12 +150,16 @@ internal sealed class CodexAutomationsWindow : Window
                 Padding = new Thickness(10, 8, 10, 8),
                 Content = BuildDefinitionItem(definition)
             };
+            AutomationProperties.SetName(item, definition.Name);
             _definitionList.Items.Add(item);
             if (definition.Id == selectedDefinitionId) _definitionList.SelectedItem = item;
         }
 
         _runList.Items.Clear();
-        foreach (var run in _runs.OrderByDescending(item => item.StartedAtUtc))
+        foreach (var run in _runs.Where(item => MatchesFilter(runQuery, item.AutomationName,
+                     item.ProjectPath, item.Status, RunStatusLabel(item), item.Summary, item.Error,
+                     item.StartedAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.CurrentCulture)))
+                     .OrderByDescending(item => item.StartedAtUtc))
         {
             var item = new ListBoxItem
             {
@@ -93,14 +167,39 @@ internal sealed class CodexAutomationsWindow : Window
                 Padding = new Thickness(10, 8, 10, 8),
                 Content = BuildRunItem(run)
             };
+            AutomationProperties.SetName(item, $"{run.AutomationName}, {RunStatusLabel(run)}");
             _runList.Items.Add(item);
             if (run.Id == selectedRunId) _runList.SelectedItem = item;
         }
+        _definitionCount.Text = $"{_definitionList.Items.Count} из {_definitions.Count}";
+        _runCount.Text = $"{_runList.Items.Count} из {_runs.Count}";
+        _clearDefinitionSearch.Visibility = string.IsNullOrEmpty(_definitionSearch.Text) ? Visibility.Collapsed : Visibility.Visible;
+        _clearRunSearch.Visibility = string.IsNullOrEmpty(_runSearch.Text) ? Visibility.Collapsed : Visibility.Visible;
         if (_definitionList.SelectedItem is null && _definitionList.Items.Count > 0) _definitionList.SelectedIndex = 0;
         if (_runList.SelectedItem is null && _runList.Items.Count > 0) _runList.SelectedIndex = 0;
         UpdateDefinitionSelection();
         UpdateRunSelection();
     }
+
+    private bool MatchesDefinition(CodexAutomationDefinition definition, string query) =>
+        MatchesFilter(query, definition.Name, definition.Prompt, definition.Cadence,
+            definition.ProjectPath, definition.RecurrenceRule, definition.ProjectId)
+        || definition.ProjectIds.Any(id => MatchesFilter(query, id,
+            _projects.FirstOrDefault(project => project.Id == id)?.Name,
+            definition.ProjectPaths.TryGetValue(id, out var path) ? path : null));
+
+    private static bool MatchesFilter(string query, params string?[] values) =>
+        string.IsNullOrWhiteSpace(query) ||
+        values.Any(value => value?.Contains(query, StringComparison.CurrentCultureIgnoreCase) == true);
+
+    private static string RunStatusLabel(CodexAutomationRun run) => run.Status switch
+    {
+        "preparing" => "Подготовка",
+        "running" => "Выполняется",
+        "completed" => run.Reviewed ? "Проверено" : "Готово · нужна проверка",
+        "failed" => "Ошибка",
+        _ => run.Status
+    };
 
     private UIElement BuildLayout()
     {
@@ -127,13 +226,27 @@ internal sealed class CodexAutomationsWindow : Window
         root.Children.Add(note);
 
         var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 280 });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 280 });
         Grid.SetRow(content, 2);
         root.Children.Add(content);
         content.Children.Add(BuildDefinitionsPanel());
+        var splitter = new GridSplitter
+        {
+            Width = 6,
+            Background = Brush("#34373E"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ResizeDirection = GridResizeDirection.Columns,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            Cursor = Cursors.SizeWE,
+            ToolTip = "Перетащите для изменения ширины панелей"
+        };
+        Grid.SetColumn(splitter, 1);
+        content.Children.Add(splitter);
         var runsPanel = BuildRunsPanel();
-        Grid.SetColumn(runsPanel, 1);
+        Grid.SetColumn(runsPanel, 2);
         content.Children.Add(runsPanel);
         return root;
     }
@@ -142,12 +255,17 @@ internal sealed class CodexAutomationsWindow : Window
     {
         var panel = new Grid { Margin = new Thickness(0, 0, 9, 0) };
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.Children.Add(SectionTitle("РАСПИСАНИЯ"));
+        var search = BuildSearchRow(_definitionSearch, _definitionCount, _clearDefinitionSearch,
+            "Поиск расписаний (Ctrl+F)", "Очистить поиск расписаний");
+        Grid.SetRow(search, 1);
+        panel.Children.Add(search);
         var listBorder = Card(_definitionList);
-        Grid.SetRow(listBorder, 1);
+        Grid.SetRow(listBorder, 2);
         panel.Children.Add(listBorder);
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 9, 0, 0) };
@@ -170,14 +288,14 @@ internal sealed class CodexAutomationsWindow : Window
             finally { _runButton.IsEnabled = true; UpdateLists(); }
         };
         buttons.Children.Add(_runButton);
-        Grid.SetRow(buttons, 2);
+        Grid.SetRow(buttons, 3);
         panel.Children.Add(buttons);
 
         _definitionDetails.Foreground = Brush("#A6B1BF");
         _definitionDetails.FontSize = 10;
         _definitionDetails.TextWrapping = TextWrapping.Wrap;
         _definitionDetails.Margin = new Thickness(3, 8, 3, 0);
-        Grid.SetRow(_definitionDetails, 3);
+        Grid.SetRow(_definitionDetails, 4);
         panel.Children.Add(_definitionDetails);
         return panel;
     }
@@ -186,12 +304,17 @@ internal sealed class CodexAutomationsWindow : Window
     {
         var panel = new Grid { Margin = new Thickness(9, 0, 0, 0) };
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.Children.Add(SectionTitle("РЕЗУЛЬТАТЫ · ОЧЕРЕДЬ ПРОВЕРКИ"));
+        var search = BuildSearchRow(_runSearch, _runCount, _clearRunSearch,
+            "Поиск результатов (Ctrl+Shift+F)", "Очистить поиск результатов");
+        Grid.SetRow(search, 1);
+        panel.Children.Add(search);
         var listBorder = Card(_runList);
-        Grid.SetRow(listBorder, 1);
+        Grid.SetRow(listBorder, 2);
         panel.Children.Add(listBorder);
         var buttons = new WrapPanel { Margin = new Thickness(0, 9, 0, 0) };
         _openRunButton.Click += (_, _) => { if (SelectedRun() is { } run) _openRun(run); };
@@ -199,15 +322,50 @@ internal sealed class CodexAutomationsWindow : Window
         _reviewButton.Margin = new Thickness(6, 0, 0, 0);
         _reviewButton.Click += (_, _) => { if (SelectedRun() is { } run) { _markReviewed(run); UpdateLists(); } };
         buttons.Children.Add(_reviewButton);
-        Grid.SetRow(buttons, 2);
+        Grid.SetRow(buttons, 3);
         panel.Children.Add(buttons);
         _runDetails.Foreground = Brush("#A6B1BF");
         _runDetails.FontSize = 10;
         _runDetails.TextWrapping = TextWrapping.Wrap;
         _runDetails.Margin = new Thickness(3, 8, 3, 0);
-        Grid.SetRow(_runDetails, 3);
+        Grid.SetRow(_runDetails, 4);
         panel.Children.Add(_runDetails);
         return panel;
+    }
+
+    private static UIElement BuildSearchRow(TextBox search, TextBlock count, Button clear,
+        string searchName, string clearName)
+    {
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        search.MinHeight = 32;
+        search.Padding = new Thickness(8, 5, 8, 5);
+        search.Background = Brush("#151D25");
+        search.Foreground = Brush("#E6EBF1");
+        search.BorderBrush = Brush("#43515E");
+        search.ToolTip = searchName;
+        AutomationProperties.SetName(search, searchName);
+        row.Children.Add(search);
+        count.FontSize = 10;
+        count.Foreground = Brush("#A6B1BF");
+        count.VerticalAlignment = VerticalAlignment.Center;
+        count.Margin = new Thickness(8, 0, 2, 0);
+        Grid.SetColumn(count, 1);
+        row.Children.Add(count);
+        clear.MinWidth = 28;
+        clear.Height = 30;
+        clear.Padding = new Thickness(4, 0, 4, 0);
+        clear.Margin = new Thickness(5, 0, 0, 0);
+        clear.Background = Brush("#282B30");
+        clear.Foreground = Brush("#D3DCE6");
+        clear.BorderBrush = Brush("#34373E");
+        clear.ToolTip = clearName;
+        AutomationProperties.SetName(clear, clearName);
+        Grid.SetColumn(clear, 2);
+        row.Children.Add(clear);
+        return row;
     }
 
     private UIElement BuildDefinitionItem(CodexAutomationDefinition definition)
@@ -248,14 +406,7 @@ internal sealed class CodexAutomationsWindow : Window
     private static UIElement BuildRunItem(CodexAutomationRun run)
     {
         var stack = new StackPanel();
-        var status = run.Status switch
-        {
-            "preparing" => "Подготовка",
-            "running" => "Выполняется",
-            "completed" => run.Reviewed ? "Проверено" : "Готово · нужна проверка",
-            "failed" => "Ошибка",
-            _ => run.Status
-        };
+        var status = RunStatusLabel(run);
         stack.Children.Add(new TextBlock { Text = run.AutomationName, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
         stack.Children.Add(new TextBlock
         {
@@ -338,7 +489,13 @@ internal sealed class CodexAutomationsWindow : Window
         _editButton.IsEnabled = selected is not null;
         _deleteButton.IsEnabled = selected is not null;
         _runButton.IsEnabled = selected is not null;
-        if (selected is null) { _definitionDetails.Text = "Создайте расписание для одного или нескольких проектов."; return; }
+        if (selected is null)
+        {
+            _definitionDetails.Text = string.IsNullOrWhiteSpace(_definitionSearch.Text)
+                ? "Создайте расписание для одного или нескольких проектов."
+                : "По запросу ничего не найдено.";
+            return;
+        }
         var next = selected.RecurrenceExhausted ? "повторы завершены"
             : selected.NextRunAtUtc == default ? "будет рассчитан при запуске"
             : selected.NextRunAtUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm", CultureInfo.CurrentCulture);
@@ -352,7 +509,13 @@ internal sealed class CodexAutomationsWindow : Window
             && !string.IsNullOrWhiteSpace(selected.ThreadId)
             && selected.Status is not ("running" or "preparing");
         _reviewButton.IsEnabled = selected is { Status: "completed", Reviewed: false };
-        if (selected is null) { _runDetails.Text = "Здесь появятся завершённые результаты и ошибки расписаний."; return; }
+        if (selected is null)
+        {
+            _runDetails.Text = string.IsNullOrWhiteSpace(_runSearch.Text)
+                ? "Здесь появятся завершённые результаты и ошибки расписаний."
+                : "По запросу ничего не найдено.";
+            return;
+        }
         var project = System.IO.Path.GetFileName(selected.ProjectPath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
         var result = string.IsNullOrWhiteSpace(selected.Error) ? selected.Summary : selected.Error;
         _runDetails.Text = string.IsNullOrWhiteSpace(project) ? result : $"Проект: {project}\n{result}";
