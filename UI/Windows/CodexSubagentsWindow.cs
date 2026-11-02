@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -16,6 +18,10 @@ internal sealed class CodexSubagentsWindow : Window
     private readonly Func<string, Task> _openSubagent;
     private readonly ListBox _list = new() { Background = Brush("#1D1F23"), BorderThickness = new Thickness(0) };
     private readonly TextBlock _details = new();
+    private readonly TextBox _filter = new() { MinHeight = 32, MaxLength = 256, ToolTip = "Поиск по заданию, состоянию, операции и идентификатору" };
+    private readonly TextBlock _count = new() { FontSize = 11, Foreground = Brush("#A6B1BF") };
+    private IReadOnlyList<CodexSubagentInfo> _subagents = Array.Empty<CodexSubagentInfo>();
+    private bool _opening;
     private readonly Button _openButton = new() { Content = "Открыть историю субагента" };
 
     public CodexSubagentsWindow(string parentTitle, Func<IReadOnlyList<CodexSubagentInfo>> readSubagents,
@@ -32,12 +38,41 @@ internal sealed class CodexSubagentsWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateDetails();
+        _filter.TextChanged += (_, _) => RenderList();
+        _list.KeyDown += async (_, args) =>
+        {
+            if (args.Key != Key.Enter) return;
+            args.Handled = true;
+            await OpenSelectedAsync();
+        };
+        _list.MouseDoubleClick += async (_, args) =>
+        {
+            if (args.OriginalSource is not DependencyObject source
+                || ItemsControl.ContainerFromElement(_list, source) is not ListBoxItem item
+                || !ReferenceEquals(item, _list.SelectedItem)) return;
+            await OpenSelectedAsync();
+        };
+        PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                _filter.Focus();
+                _filter.SelectAll();
+                args.Handled = true;
+            }
+            else if (args.Key == Key.Escape && _filter.Text.Length > 0)
+            {
+                _filter.Clear();
+                args.Handled = true;
+            }
+        };
         RefreshList();
     }
 
     private UIElement BuildLayout()
     {
         var root = new Grid { Margin = new Thickness(20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -54,12 +89,40 @@ internal sealed class CodexSubagentsWindow : Window
         Grid.SetRow(note, 1);
         root.Children.Add(note);
 
+        var searchRow = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+        var clearSearch = MakeButton("Очистить");
+        clearSearch.Margin = new Thickness(8, 0, 0, 0);
+        clearSearch.Click += (_, _) => { _filter.Clear(); _filter.Focus(); };
+        DockPanel.SetDock(clearSearch, Dock.Right);
+        searchRow.Children.Add(clearSearch);
+        _count.VerticalAlignment = VerticalAlignment.Center;
+        _count.Margin = new Thickness(0, 0, 12, 0);
+        DockPanel.SetDock(_count, Dock.Right);
+        searchRow.Children.Add(_count);
+        _filter.Padding = new Thickness(8, 5, 8, 5);
+        AutomationProperties.SetName(_filter, "Поиск субагентов");
+        AutomationProperties.SetName(_list, "Список субагентов");
+        searchRow.Children.Add(_filter);
+        Grid.SetRow(searchRow, 2);
+        root.Children.Add(searchRow);
+
         var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(content, 2);
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 220 });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 220 });
+        Grid.SetRow(content, 3);
         root.Children.Add(content);
         content.Children.Add(Card(_list));
+        var splitter = new GridSplitter
+        {
+            Width = 6,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = Brush("#34373E"),
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext
+        };
+        Grid.SetColumn(splitter, 1);
+        content.Children.Add(splitter);
         // Long agent prompts must scroll instead of pushing the open button off screen.
         var detailsPanel = new Grid { Margin = new Thickness(16, 4, 0, 0) };
         detailsPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -87,25 +150,11 @@ internal sealed class CodexSubagentsWindow : Window
         _openButton.Padding = new Thickness(11, 7, 11, 7);
         _openButton.Background = Brush("#223B38");
         _openButton.Foreground = Brush("#92E5C7");
-        _openButton.Click += async (_, _) =>
-        {
-            if (SelectedSubagent() is not { } agent) return;
-            _openButton.IsEnabled = false;
-            try
-            {
-                await _openSubagent(agent.ThreadId);
-                DialogResult = true;
-            }
-            catch (Exception error)
-            {
-                CodexMessageDialog.Show(this, error.Message, "Не удалось открыть субагента", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally { _openButton.IsEnabled = SelectedSubagent() is not null; }
-        };
+        _openButton.Click += async (_, _) => await OpenSelectedAsync();
         Grid.SetRow(_openButton, 2);
         detailsPanel.Children.Add(_openButton);
         var detailsCard = Card(detailsPanel);
-        Grid.SetColumn(detailsCard, 1);
+        Grid.SetColumn(detailsCard, 2);
         content.Children.Add(detailsCard);
 
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
@@ -116,23 +165,36 @@ internal sealed class CodexSubagentsWindow : Window
         close.Margin = new Thickness(8, 0, 0, 0);
         close.Click += (_, _) => Close();
         footer.Children.Add(close);
-        Grid.SetRow(footer, 3);
+        Grid.SetRow(footer, 4);
         root.Children.Add(footer);
         return root;
     }
 
     private void RefreshList()
     {
-        var selectedThreadId = SelectedSubagent()?.ThreadId;
-        IReadOnlyList<CodexSubagentInfo> subagents;
-        try { subagents = _readSubagents(); }
+        try { _subagents = _readSubagents(); }
         catch (Exception error)
         {
             _details.Text = "Не удалось обновить список субагентов: " + error.Message;
             return;
         }
+        RenderList();
+    }
+
+    private void RenderList()
+    {
+        var selectedThreadId = SelectedSubagent()?.ThreadId;
+        var query = _filter.Text.Trim();
+        var matching = _subagents.Where(agent => query.Length == 0
+            || agent.ThreadId.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || agent.Tool.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || ToolName(agent.Tool).Contains(query, StringComparison.OrdinalIgnoreCase)
+            || StatusName(agent.Status).Contains(query, StringComparison.OrdinalIgnoreCase)
+            || (agent.Prompt?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (agent.Message?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+        _count.Text = $"Показано: {matching.Count} из {_subagents.Count}";
         _list.Items.Clear();
-        foreach (var agent in subagents)
+        foreach (var agent in matching)
         {
             var card = new StackPanel();
             card.Children.Add(new TextBlock
@@ -163,15 +225,38 @@ internal sealed class CodexSubagentsWindow : Window
     private void UpdateDetails()
     {
         var agent = SelectedSubagent();
-        _openButton.IsEnabled = agent is not null;
+        _openButton.IsEnabled = !_opening && agent is not null;
         if (agent is null)
         {
-            _details.Text = "Здесь появятся вызванные субагенты. После обновления истории нажмите «Обновить».";
+            _details.Text = _filter.Text.Trim().Length > 0 && _subagents.Count > 0
+                ? "По запросу субагенты не найдены. Измените или очистите поиск."
+                : "Здесь появятся вызванные субагенты. После обновления истории нажмите «Обновить».";
             return;
         }
         _details.Text = $"Состояние: {StatusName(agent.Status)}\nОперация: {ToolName(agent.Tool)}\nID: {agent.ThreadId}"
             + (string.IsNullOrWhiteSpace(agent.Prompt) ? "" : $"\n\nЗадание:\n{CompactText(agent.Prompt, 4000)}")
             + (string.IsNullOrWhiteSpace(agent.Message) ? "" : $"\n\nПоследнее состояние:\n{CompactText(agent.Message, 2000)}");
+    }
+
+    private async Task OpenSelectedAsync()
+    {
+        if (_opening || SelectedSubagent() is not { } agent) return;
+        _opening = true;
+        _openButton.IsEnabled = false;
+        try
+        {
+            await _openSubagent(agent.ThreadId);
+            DialogResult = true;
+        }
+        catch (Exception error)
+        {
+            CodexMessageDialog.Show(this, error.Message, "Не удалось открыть субагента", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _opening = false;
+            _openButton.IsEnabled = SelectedSubagent() is not null;
+        }
     }
 
     private CodexSubagentInfo? SelectedSubagent() => (_list.SelectedItem as ListBoxItem)?.Tag as CodexSubagentInfo;

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Automation;
 
 namespace CodexGUI;
 
@@ -23,15 +24,32 @@ internal sealed class WorkspaceSearchWindow : Window
         var header = new StackPanel();
         var input = new TextBox { MinHeight = 32, MaxLength = WorkspaceFileSearch.MaximumQueryLength, ToolTip = "Текст или имя файла" };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 8) };
-        var search = new Button { Content = "Найти", IsDefault = true };
+        var search = new Button { Content = "Найти", IsDefault = true, IsEnabled = false };
+        var clear = new Button { Content = "Очистить", IsEnabled = false, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Очистить запрос и результаты" };
         var cancel = new Button { Content = "Остановить", IsEnabled = false, Margin = new Thickness(8, 0, 0, 0) };
         actions.Children.Add(search);
         actions.Children.Add(cancel);
+        actions.Children.Add(clear);
         var status = new TextBlock { Text = "Поиск текста и имён файлов. До 200 результатов; регистр не учитывается.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
         header.Children.Add(input); header.Children.Add(actions); header.Children.Add(status);
         DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header);
         var list = new ListBox { DisplayMemberPath = nameof(WorkspaceSearchHit.Display) };
         panel.Children.Add(list); Content = panel;
+        AutomationProperties.SetName(input, "Поисковый запрос");
+        AutomationProperties.SetName(list, "Результаты поиска по проекту");
+        input.TextChanged += (_, _) =>
+        {
+            search.IsEnabled = !string.IsNullOrWhiteSpace(input.Text);
+            clear.IsEnabled = input.Text.Length > 0;
+        };
+        clear.Click += (_, _) =>
+        {
+            _search?.Cancel();
+            list.ItemsSource = null;
+            input.Clear();
+            input.Focus();
+            status.Text = "Поиск текста и имён файлов. До 200 результатов; регистр не учитывается.";
+        };
         search.Click += async (_, _) =>
         {
             _search?.Cancel();
@@ -53,7 +71,8 @@ internal sealed class WorkspaceSearchWindow : Window
                 var result = await Task.Run(() => WorkspaceFileSearch.Find(directory, query, cancellation.Token));
                 if (cancellation.IsCancellationRequested) return;
                 list.ItemsSource = result.Hits;
-                status.Text = $"Найдено: {result.Hits.Count}. Просмотрено файлов: {result.Scanned}. Пропущено: {result.Skipped}."
+                status.Text = (result.Hits.Count == 0 ? "Совпадений не найдено. Попробуйте другой запрос. " : "")
+                    + $"Найдено: {result.Hits.Count}. Просмотрено файлов: {result.Scanned}. Пропущено: {result.Skipped}."
                     + (result.Limited ? " Достигнут предел поиска; уточните запрос." : "");
             }
             catch (OperationCanceledException) { }
@@ -83,10 +102,19 @@ internal sealed class WorkspaceSearchWindow : Window
         cancel.Click += (_, _) => StopActiveSearch();
         PreviewKeyDown += (_, args) =>
         {
+            if (args.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                input.Focus();
+                input.SelectAll();
+                args.Handled = true;
+                return;
+            }
             if (args.Key != Key.Escape) return;
             args.Handled = true;
             if (_search is { IsCancellationRequested: false })
                 StopActiveSearch();
+            else if (input.Text.Length > 0)
+                clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             else
                 Close();
         };
