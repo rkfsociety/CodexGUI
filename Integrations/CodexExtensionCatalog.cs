@@ -37,19 +37,29 @@ internal static class CodexExtensionCatalog
 
         // The installed collection is authoritative even if its entries omit "installed".
         // Prefer it over the available collection when the same plugin appears in both.
-        return installedEntries.Select(item => (Item: item, Installed: true))
-            .Concat(availableEntries.Select(item => (Item: item, Installed: Flag(item, "installed"))))
-            .Select(entry => new CodexExtension(
+        return installedEntries.Select(item => (Item: item, Installed: true, FromInstalledList: true))
+            .Concat(availableEntries.Select(item => (Item: item, Installed: Flag(item, "installed"), FromInstalledList: false)))
+            .Select(entry => (Extension: new CodexExtension(
                 Text(entry.Item, "pluginId"),
                 string.IsNullOrWhiteSpace(Text(entry.Item, "name"))
                     ? Text(entry.Item, "pluginId") : Text(entry.Item, "name"),
                 $"{Text(entry.Item, "marketplaceName")} · {Text(entry.Item, "version")}",
                 null, null, entry.Installed, entry.Installed && Flag(entry.Item, "enabled"),
-                !entry.Installed && Text(entry.Item, "installPolicy") == "AVAILABLE"))
-            .Where(item => item.Id.Length > 0)
-            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                !entry.Installed && Text(entry.Item, "installPolicy") == "AVAILABLE"),
+                entry.FromInstalledList))
+            .Where(item => item.Extension.Id.Length > 0)
+            // Preserve the authoritative installed list, then choose a stable entry
+            // if a malformed CLI response repeats an identifier within that list.
+            .OrderByDescending(item => item.FromInstalledList)
+            .ThenByDescending(item => item.Extension.Enabled)
+            .ThenBy(item => item.Extension.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Extension.Name, StringComparer.Ordinal)
+            .ThenBy(item => item.Extension.Description, StringComparer.Ordinal)
+            .DistinctBy(item => item.Extension.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(item => item.Extension)
             .OrderByDescending(item => item.Installed)
             .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.Name, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -98,10 +108,15 @@ internal static class CodexExtensionCatalog
             }
         }
         if (hiddenErrors > 0) errors.Add($"Не показано ещё {hiddenErrors} ошибок скиллов.");
-        return (skills.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+        return (skills.OrderByDescending(item => item.Enabled)
+            .ThenBy(item => item.Id, StringComparer.Ordinal)
+            .ThenBy(item => item.Name, StringComparer.Ordinal)
+            .ThenBy(item => item.Description, StringComparer.Ordinal)
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(item => item.Name.Contains("imagegen", StringComparison.OrdinalIgnoreCase)
                 || item.Name.Contains("computer-use", StringComparison.OrdinalIgnoreCase))
-            .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToArray(), errors);
+            .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.Name, StringComparer.Ordinal).ToArray(), errors);
     }
 
     private static string Text(JsonElement item, string name) =>

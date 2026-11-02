@@ -79,12 +79,38 @@ internal static class WorkspaceProjectMap
 
     private static string[] EnumerateFilesSafely(string directory, string pattern, int limit)
     {
-        try { return Directory.EnumerateFiles(directory, pattern).Take(limit).ToArray(); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return []; }
+        var files = new List<string>(limit);
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(directory, pattern))
+            {
+                files.Add(path);
+                if (files.Count >= limit) break;
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // An entry can disappear during enumeration. Keep files already discovered.
+        }
+        return files.ToArray();
     }
 
     internal static IReadOnlyList<WorkspaceMapNode> Read(string root, int mode)
     {
+        // A linked workspace root or parent can redirect the map outside the selected project.
+        // Child directory and file links are filtered separately during enumeration.
+        try
+        {
+            for (string? current = System.IO.Path.GetFullPath(root);
+                 current is not null; current = System.IO.Path.GetDirectoryName(current))
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return [];
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return [];
+        }
+
         // A workspace can be moved or a child folder can disappear during a refresh.
         // Keep the remaining map layers usable instead of failing the entire render.
         var directories = EnumerateDirectoriesSafely(root);
