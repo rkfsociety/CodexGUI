@@ -97,9 +97,12 @@ internal static class CodexCliService
 
             // A child process can keep redirected pipes open after the CLI exits.
             try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (TimeoutException) { }
+            catch (Exception error) when (error is TimeoutException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            // Closing the process may also fault its redirected readers. Preserve
+            // the original timeout instead of reporting an incidental pipe error.
             try { await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch (TimeoutException) { }
+            catch (Exception error) when (error is TimeoutException or IOException or ObjectDisposedException
+                or InvalidOperationException or OperationCanceledException) { }
             throw new TimeoutException("Менеджер плагинов Codex CLI не завершил операцию за две минуты.");
         }
         try { await Task.WhenAll(outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(5)); }

@@ -187,8 +187,21 @@ internal static class ChatMarkdownRenderer
     private static bool IsTableSeparator(string line)
     {
         if (!ContainsTablePipes(line)) return false;
-        var cells = SplitTableRow(line);
-        return cells.Count > 1 && cells.All(cell => TableSeparatorCell.IsMatch(cell));
+        // Inspect separators without allocating a string for every column of an
+        // untrusted, potentially extremely wide Markdown table.
+        var remaining = line.AsSpan().Trim();
+        if (remaining.StartsWith("|")) remaining = remaining[1..];
+        if (remaining.EndsWith("|")) remaining = remaining[..^1];
+        var columns = 0;
+        while (true)
+        {
+            var delimiter = remaining.IndexOf('|');
+            var cell = delimiter < 0 ? remaining : remaining[..delimiter];
+            if (!TableSeparatorCell.IsMatch(cell)) return false;
+            columns++;
+            if (delimiter < 0) return columns > 1;
+            remaining = remaining[(delimiter + 1)..];
+        }
     }
 
     private static IReadOnlyList<string> SplitTableRow(string line, int maximumColumns = int.MaxValue)

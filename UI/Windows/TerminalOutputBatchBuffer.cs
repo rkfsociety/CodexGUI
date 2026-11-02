@@ -46,7 +46,7 @@ internal sealed class TerminalOutputBatchBuffer
             if (output.Text.Length > 0)
             {
                 while (_pending.Count > 0 &&
-                       (_pendingCharacters + output.Text.Length > _maximumCharacters || _pending.Count >= _maximumChunks))
+                       (_pendingCharacters > _maximumCharacters - output.Text.Length || _pending.Count >= _maximumChunks))
                 {
                     var dropped = _pending.Dequeue();
                     _pendingCharacters -= dropped.Text.Length;
@@ -69,6 +69,7 @@ internal sealed class TerminalOutputBatchBuffer
         {
             var items = _pending.ToArray();
             var truncatedProcessIds = new List<string>(_truncatedProcessIds);
+            truncatedProcessIds.Sort(StringComparer.Ordinal);
             _pending.Clear();
             _pendingCharacters = 0;
             _truncatedProcessIds.Clear();

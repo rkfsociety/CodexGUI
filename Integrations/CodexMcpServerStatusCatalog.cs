@@ -92,7 +92,18 @@ internal static class CodexMcpServerStatusCatalog
                 ReadOptionalString(entry, "httpOrigin")));
         }
 
+        // Duplicate server records must not hide a healthy connection merely
+        // because the App Server returned it later in the response.
         return statuses
+            .OrderByDescending(status => status.RuntimeStatus == "connected")
+            .ThenBy(status => !string.IsNullOrWhiteSpace(status.ToolsError))
+            .ThenByDescending(status => status.ToolNames.Count)
+            .ThenBy(status => status.RuntimeStatus, StringComparer.Ordinal)
+            .ThenBy(status => status.AuthStatus, StringComparer.Ordinal)
+            .ThenBy(status => status.ServerTitle, StringComparer.Ordinal)
+            .ThenBy(status => status.ServerVersion, StringComparer.Ordinal)
+            .ThenBy(status => status.HttpOrigin, StringComparer.Ordinal)
+            .ThenBy(status => status.ToolsError, StringComparer.Ordinal)
             .DistinctBy(status => status.Name, StringComparer.Ordinal)
             .OrderBy(status => status.Name, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(status => status.Name, StringComparer.Ordinal)
