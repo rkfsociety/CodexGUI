@@ -49,6 +49,8 @@ internal sealed class CodexActionsWindow : Window
     private readonly Action<string, string> _runCommand;
     private readonly bool _projectActionsAvailable;
     private readonly TextBox _search = new();
+    private readonly Button _clearSearchButton = MakeButton("×");
+    private readonly TextBlock _resultCount = new();
     private readonly ListBox _list = new()
     {
         Background = Brush("#1D1F23"),
@@ -106,6 +108,32 @@ internal sealed class CodexActionsWindow : Window
             InvokeSelected();
         };
         _search.TextChanged += (_, _) => RefreshList();
+        _search.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+            }
+        };
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                _search.Focus();
+                _search.SelectAll();
+                e.Handled = true;
+            }
+        };
+        _list.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None && SelectedEntry() is not null)
+            {
+                InvokeSelected();
+                e.Handled = true;
+            }
+        };
+        AutomationProperties.SetName(_list, "Список сохранённых действий");
         RefreshList();
     }
 
@@ -137,6 +165,8 @@ internal sealed class CodexActionsWindow : Window
         var filter = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         filter.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         filter.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        filter.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        filter.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         filter.Children.Add(new TextBlock
         {
             Text = "Поиск",
@@ -155,6 +185,24 @@ internal sealed class CodexActionsWindow : Window
         AutomationProperties.SetName(_search, "Фильтр действий по названию, тексту и области");
         Grid.SetColumn(_search, 1);
         filter.Children.Add(_search);
+        _clearSearchButton.Padding = new Thickness(9, 4, 9, 4);
+        _clearSearchButton.Margin = new Thickness(7, 0, 0, 0);
+        _clearSearchButton.ToolTip = "Очистить поиск (Esc)";
+        AutomationProperties.SetName(_clearSearchButton, "Очистить поиск действий");
+        _clearSearchButton.Click += (_, _) =>
+        {
+            _search.Clear();
+            _search.Focus();
+        };
+        Grid.SetColumn(_clearSearchButton, 2);
+        filter.Children.Add(_clearSearchButton);
+        _resultCount.Foreground = Brush("#B0B5BE");
+        _resultCount.FontSize = 11;
+        _resultCount.VerticalAlignment = VerticalAlignment.Center;
+        _resultCount.Margin = new Thickness(12, 0, 0, 0);
+        AutomationProperties.SetName(_resultCount, "Количество найденных действий");
+        Grid.SetColumn(_resultCount, 3);
+        filter.Children.Add(_resultCount);
         Grid.SetRow(filter, 2);
         root.Children.Add(filter);
 
@@ -164,39 +212,55 @@ internal sealed class CodexActionsWindow : Window
         Grid.SetRow(listArea, 3);
         root.Children.Add(listArea);
 
-        var buttons = new DockPanel { Margin = new Thickness(0, 15, 0, 0), LastChildFill = false };
-        var close = MakeButton("Закрыть");
-        close.IsCancel = true;
-        DockPanel.SetDock(close, Dock.Right);
-        buttons.Children.Add(close);
-        _actionButton.Background = Brush("#204139");
-        _actionButton.Foreground = Brush("#92E5C7");
-        _actionButton.BorderBrush = Brush("#365C53");
-        _actionButton.BorderThickness = new Thickness(1);
-        _actionButton.Margin = new Thickness(0, 0, 8, 0);
-        _actionButton.Click += (_, _) => InvokeSelected();
-        DockPanel.SetDock(_actionButton, Dock.Right);
-        buttons.Children.Add(_actionButton);
-        _deleteButton.Margin = new Thickness(8, 0, 0, 0);
-        _deleteButton.Click += (_, _) => DeleteSelected();
-        buttons.Children.Add(_deleteButton);
-        _editButton.Margin = new Thickness(8, 0, 0, 0);
-        _editButton.Click += (_, _) => EditSelected();
-        buttons.Children.Add(_editButton);
-        _copyButton.Margin = new Thickness(8, 0, 0, 0);
-        _copyButton.Click += (_, _) => CopySelected();
-        buttons.Children.Add(_copyButton);
+        // Keep library management separate from the primary action so narrow windows
+        // can wrap secondary controls without hiding the action or Close button.
+        var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        footer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        footer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var management = new WrapPanel();
+        _addLocalButton.ToolTip = "Сохранить действие в личной библиотеке CodexGUI";
+        _addLocalButton.Click += (_, _) => AddAction(isProject: false);
+        _addLocalButton.Margin = new Thickness(0, 0, 8, 7);
+        management.Children.Add(_addLocalButton);
         _addProjectButton.IsEnabled = _projectActionsAvailable;
         _addProjectButton.ToolTip = _projectActionsAvailable
             ? "Сохранить действие в .codex/codexgui-actions.json выбранного проекта"
             : "Папка выбранного проекта недоступна";
         _addProjectButton.Click += (_, _) => AddAction(isProject: true);
-        buttons.Children.Add(_addProjectButton);
-        _addLocalButton.ToolTip = "Сохранить действие в личной библиотеке CodexGUI";
-        _addLocalButton.Click += (_, _) => AddAction(isProject: false);
-        buttons.Children.Add(_addLocalButton);
-        Grid.SetRow(buttons, 4);
-        root.Children.Add(buttons);
+        _addProjectButton.Margin = new Thickness(0, 0, 8, 7);
+        management.Children.Add(_addProjectButton);
+        _copyButton.Click += (_, _) => CopySelected();
+        _copyButton.Margin = new Thickness(0, 0, 8, 7);
+        management.Children.Add(_copyButton);
+        _editButton.Click += (_, _) => EditSelected();
+        _editButton.Margin = new Thickness(0, 0, 8, 7);
+        management.Children.Add(_editButton);
+        _deleteButton.Click += (_, _) => DeleteSelected();
+        _deleteButton.Margin = new Thickness(0, 0, 8, 7);
+        management.Children.Add(_deleteButton);
+        footer.Children.Add(management);
+
+        var primaryActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        _actionButton.Background = Brush("#204139");
+        _actionButton.Foreground = Brush("#92E5C7");
+        _actionButton.BorderBrush = Brush("#365C53");
+        _actionButton.BorderThickness = new Thickness(1);
+        _actionButton.Padding = new Thickness(11, 7, 11, 7);
+        _actionButton.Margin = new Thickness(0, 0, 8, 0);
+        _actionButton.Click += (_, _) => InvokeSelected();
+        primaryActions.Children.Add(_actionButton);
+        var close = MakeButton("Закрыть");
+        close.IsCancel = true;
+        primaryActions.Children.Add(close);
+        Grid.SetRow(primaryActions, 1);
+        footer.Children.Add(primaryActions);
+        Grid.SetRow(footer, 4);
+        root.Children.Add(footer);
         return root;
     }
 
@@ -260,6 +324,8 @@ internal sealed class CodexActionsWindow : Window
             ? "Пока нет сохранённых личных или проектных действий."
             : "Ничего не найдено. Измените запрос поиска.";
         _empty.Visibility = _list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _clearSearchButton.Visibility = query.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _resultCount.Text = $"{_list.Items.Count} из {_actions.Count + _projectActions.Count}";
         UpdateButtons();
     }
 
@@ -493,6 +559,8 @@ internal sealed class CodexActionEditorWindow : Window
     private readonly TextBox _prompt = new();
     private readonly TextBox _command = new();
     private readonly TextBlock _payloadHelp = new();
+    private readonly TextBlock _payloadCount = new();
+    private readonly Button _saveButton = CodexActionsWindowButton("Сохранить");
 
     public (string Name, string Prompt, string Command)? Result { get; private set; }
 
@@ -508,7 +576,19 @@ internal sealed class CodexActionEditorWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _type.SelectionChanged += (_, _) => UpdatePayloadEditor();
+        _name.TextChanged += (_, _) => UpdateEditorState();
+        _prompt.TextChanged += (_, _) => UpdateEditorState();
+        _command.TextChanged += (_, _) => UpdateEditorState();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control && _saveButton.IsEnabled)
+            {
+                Save();
+                e.Handled = true;
+            }
+        };
         LoadValues();
+        UpdateEditorState();
     }
 
     private UIElement BuildLayout()
@@ -524,13 +604,13 @@ internal sealed class CodexActionEditorWindow : Window
         var cancel = CodexActionsWindowButton("Отмена");
         cancel.IsCancel = true;
         cancel.Margin = new Thickness(0, 0, 8, 0);
-        var save = CodexActionsWindowButton("Сохранить");
-        save.IsDefault = true;
-        save.Background = Brush("#204139");
-        save.Foreground = Brush("#92E5C7");
-        save.Click += (_, _) => Save();
+        _saveButton.IsDefault = true;
+        _saveButton.Background = Brush("#204139");
+        _saveButton.Foreground = Brush("#92E5C7");
+        _saveButton.Click += (_, _) => Save();
+        _saveButton.ToolTip = "Сохранить действие (Ctrl+Enter)";
         buttons.Children.Add(cancel);
-        buttons.Children.Add(save);
+        buttons.Children.Add(_saveButton);
         root.Children.Add(buttons);
 
         var form = new StackPanel();
@@ -543,6 +623,7 @@ internal sealed class CodexActionEditorWindow : Window
         _name.Foreground = Brush("#F1F3F5");
         _name.BorderBrush = Brush("#34373E");
         _name.BorderThickness = new Thickness(1);
+        AutomationProperties.SetName(_name, "Название действия");
         form.Children.Add(_name);
         AddLabel(form, "Тип действия", new Thickness(0, 15, 0, 6));
         _type.Items.Add("Текст для композера");
@@ -588,6 +669,11 @@ internal sealed class CodexActionEditorWindow : Window
         _payloadHelp.TextWrapping = TextWrapping.Wrap;
         _payloadHelp.Margin = new Thickness(0, 8, 0, 0);
         form.Children.Add(_payloadHelp);
+        _payloadCount.Foreground = Brush("#B0B5BE");
+        _payloadCount.FontSize = 10;
+        _payloadCount.TextAlignment = TextAlignment.Right;
+        _payloadCount.Margin = new Thickness(0, 6, 0, 0);
+        form.Children.Add(_payloadCount);
         UpdatePayloadEditor();
         return root;
     }
@@ -633,6 +719,16 @@ internal sealed class CodexActionEditorWindow : Window
         _payloadHelp.Text = isCommand
             ? "Запуск возможен только по явному выбору действия. Терминал покажет вывод и запросит разрешение, если оно требуется режимом доступа проекта."
             : "Шаблон вставляется в черновик; перед отправкой его можно изменить.";
+        UpdateEditorState();
+    }
+
+    private void UpdateEditorState()
+    {
+        var payload = _type.SelectedIndex == 1 ? _command.Text : _prompt.Text;
+        _payloadCount.Text = $"{payload.Length:N0} / 12 000 символов";
+        _saveButton.IsEnabled = !string.IsNullOrWhiteSpace(_name.Text)
+            && !string.IsNullOrWhiteSpace(payload)
+            && payload.Length <= 12000;
     }
 
     private static void AddLabel(Panel parent, string text, Thickness? margin = null)
