@@ -308,8 +308,13 @@ internal sealed class CodexBrowserWindow : Window
                 // Reopen the most recently closed tab without persisting browsing history.
                 if (_recentlyClosedTabs.First is { } previous)
                 {
-                    _recentlyClosedTabs.RemoveFirst();
-                    _ = CreateTabAsync(previous.Value);
+                    if (_tabs.Items.Count >= MaximumOpenTabs)
+                        _status.Text = $"Открыто слишком много вкладок (не более {MaximumOpenTabs}). Закройте ненужную вкладку.";
+                    else
+                    {
+                        _recentlyClosedTabs.RemoveFirst();
+                        _ = CreateTabAsync(previous.Value);
+                    }
                 }
             }
             else _ = CreateTabAsync(HomeUrl);

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -104,6 +106,33 @@ internal static class CodexMessageDialog
             Margin = new Thickness(0, 20, 0, 0)
         };
         MessageBoxResult selectedResult = MessageBoxResult.None;
+        var copyButton = new Button
+        {
+            Content = "Копировать",
+            MinWidth = 92,
+            Margin = new Thickness(0, 0, 10, 0),
+            Padding = new Thickness(11, 7, 11, 7),
+            Background = Brush("#1D1F23"),
+            Foreground = Brush("#F1F3F5"),
+            BorderBrush = Brush("#34373E"),
+            BorderThickness = new Thickness(1),
+            ToolTip = "Скопировать заголовок и текст сообщения"
+        };
+        AutomationProperties.SetName(copyButton, "Копировать текст сообщения");
+        void CopyMessage()
+        {
+            try
+            {
+                Clipboard.SetText(caption + Environment.NewLine + Environment.NewLine + message);
+                copyButton.Content = "Скопировано";
+            }
+            catch (ExternalException)
+            {
+                copyButton.Content = "Не удалось скопировать";
+            }
+        }
+        copyButton.Click += (_, _) => CopyMessage();
+        actionPanel.Children.Add(copyButton);
         foreach (var action in options.AsEnumerable().Reverse())
         {
             var button = new Button
@@ -130,6 +159,12 @@ internal static class CodexMessageDialog
 
         window.PreviewKeyDown += (_, e) =>
         {
+            if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                CopyMessage();
+                e.Handled = true;
+                return;
+            }
             if (e.Key != Key.Escape) return;
             selectedResult = options.FirstOrDefault(action => action.IsCancel)?.Result ?? MessageBoxResult.None;
             window.DialogResult = true;

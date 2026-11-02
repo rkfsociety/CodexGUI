@@ -487,9 +487,18 @@ internal sealed class CodexAppServerRequestDialog : Window
 
     private void OpenRequestedUrl()
     {
-        if (!Uri.TryCreate(_openedUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http"))
+        if (string.IsNullOrWhiteSpace(_openedUrl)
+            || _openedUrl.Any(character => char.IsControl(character) || character == '\\')
+            || !Uri.TryCreate(_openedUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("https" or "http")
+            || string.IsNullOrWhiteSpace(uri.Host)
+            || uri.UserInfo.Length > 0
+            || (uri.Scheme == Uri.UriSchemeHttp
+                && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                && !(System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address)
+                     && System.Net.IPAddress.IsLoopback(address))))
         {
-            CodexMessageDialog.Show(this, "Ссылка MCP должна использовать HTTP или HTTPS.", "Недопустимая ссылка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            CodexMessageDialog.Show(this, "Ссылка MCP должна использовать HTTPS. HTTP допускается только для локального адреса; ссылки с учётными данными недопустимы.", "Недопустимая ссылка", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         try
@@ -499,7 +508,8 @@ internal sealed class CodexAppServerRequestDialog : Window
                 && actions.Children.OfType<Button>().LastOrDefault() is { } submit)
                 submit.IsEnabled = true;
         }
-        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception
+            or IOException or UnauthorizedAccessException)
         {
             CodexMessageDialog.Show(this, error.Message, "Не удалось открыть ссылку", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -511,9 +521,10 @@ internal sealed class CodexAppServerRequestDialog : Window
             return long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integral)
                 ? integral
                 : throw new FormatException("Введите целое число.");
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
-            ? number
-            : throw new FormatException("Введите число.");
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            || !double.IsFinite(number))
+            throw new FormatException("Введите конечное число.");
+        return number;
     }
 
     private void AddMuted(string text) => _body.Children.Add(new TextBlock
