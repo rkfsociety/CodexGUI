@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -12,6 +13,9 @@ internal sealed class CodexPullRequestWindow : Window
     private readonly TextBox _title = new();
     private readonly TextBox _body = new();
     private readonly CheckBox _draft = new() { Content = "Создать как черновик" };
+    private readonly TextBlock _titleCounter = new() { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, Foreground = Brush("#B0B5BE"), Margin = new Thickness(0, 5, 0, 0) };
+    private readonly TextBlock _bodyCounter = new() { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, Foreground = Brush("#B0B5BE"), Margin = new Thickness(0, 5, 0, 0) };
+    private Button _createButton = null!;
 
     public GitHubPullRequestDraft? Result { get; private set; }
 
@@ -52,7 +56,7 @@ internal sealed class CodexPullRequestWindow : Window
         titlePanel.Children.Add(new TextBlock
         {
             Text = $"Ветка: {branch}",
-            FontSize = 10,
+            FontSize = 12,
             Foreground = Brush("#B0B5BE"),
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = branch,
@@ -60,8 +64,8 @@ internal sealed class CodexPullRequestWindow : Window
         });
         titlePanel.Children.Add(new TextBlock
         {
-            Text = "ЗАГОЛОВОК",
-            FontSize = 9,
+            Text = "Заголовок",
+            FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brush("#8D95A2"),
             Margin = new Thickness(0, 0, 0, 5)
@@ -74,17 +78,20 @@ internal sealed class CodexPullRequestWindow : Window
         _title.BorderBrush = Brush("#314454");
         _title.BorderThickness = new Thickness(1);
         _title.Text = ToTitle(branch);
+        AutomationProperties.SetName(_title, "Заголовок Pull Request");
         titlePanel.Children.Add(_title);
+        titlePanel.Children.Add(_titleCounter);
         Grid.SetRow(titlePanel, 1);
         root.Children.Add(titlePanel);
 
         var bodyPanel = new Grid();
         bodyPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         bodyPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        bodyPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         bodyPanel.Children.Add(new TextBlock
         {
-            Text = "ОПИСАНИЕ",
-            FontSize = 9,
+            Text = "Описание",
+            FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brush("#8D95A2"),
             Margin = new Thickness(0, 0, 0, 5)
@@ -99,8 +106,11 @@ internal sealed class CodexPullRequestWindow : Window
         _body.BorderBrush = Brush("#314454");
         _body.BorderThickness = new Thickness(1);
         _body.Text = "## Summary\n\n## Testing\n";
+        AutomationProperties.SetName(_body, "Описание Pull Request");
         Grid.SetRow(_body, 1);
         bodyPanel.Children.Add(_body);
+        Grid.SetRow(_bodyCounter, 2);
+        bodyPanel.Children.Add(_bodyCounter);
         Grid.SetRow(bodyPanel, 2);
         root.Children.Add(bodyPanel);
 
@@ -118,16 +128,27 @@ internal sealed class CodexPullRequestWindow : Window
         var cancel = MakeButton("Отмена");
         cancel.IsCancel = true;
         cancel.Margin = new Thickness(0, 0, 8, 0);
-        var create = MakeButton("Создать PR");
-        create.IsDefault = true;
-        create.Background = Brush("#204139");
-        create.Foreground = Brush("#92E5C7");
-        create.Click += (_, _) => Create();
+        _createButton = MakeButton("Создать Pull Request");
+        _createButton.IsDefault = true;
+        _createButton.Background = Brush("#204139");
+        _createButton.Foreground = Brush("#92E5C7");
+        _createButton.Click += (_, _) => Create();
         buttons.Children.Add(cancel);
-        buttons.Children.Add(create);
+        buttons.Children.Add(_createButton);
         Grid.SetRow(buttons, 4);
         root.Children.Add(buttons);
+        _title.TextChanged += (_, _) => UpdateFormState();
+        _body.TextChanged += (_, _) => UpdateFormState();
+        UpdateFormState();
         return root;
+    }
+
+    private void UpdateFormState()
+    {
+        _titleCounter.Text = $"{_title.Text.Length} / {_title.MaxLength}";
+        _bodyCounter.Text = $"{_body.Text.Length:N0} / {_body.MaxLength:N0}";
+        _createButton.IsEnabled = !string.IsNullOrWhiteSpace(_title.Text);
+        _createButton.ToolTip = _createButton.IsEnabled ? null : "Укажите заголовок Pull Request";
     }
 
     private void Create()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -14,6 +15,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
     private readonly TextBox _source = new();
     private readonly TextBox _refName = new();
     private readonly TextBox _sparsePaths = new();
+    private Button _addButton = null!;
 
     public CodexMarketplaceAddRequest? Result { get; private set; }
 
@@ -27,6 +29,8 @@ internal sealed class CodexMarketplaceAddWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        _source.TextChanged += (_, _) => UpdateSourceState();
+        UpdateSourceState();
         Loaded += (_, _) => _source.Focus();
     }
 
@@ -44,17 +48,19 @@ internal sealed class CodexMarketplaceAddWindow : Window
         });
 
         var form = new StackPanel { Margin = new Thickness(0, 16, 0, 12) };
-        AddLabel(form, "ИСТОЧНИК (например, owner/repo или Git URL)");
+        AddLabel(form, "Источник (например, owner/repo или Git URL)");
         StyleTextBox(_source, 38);
         _source.MaxLength = 2048;
+        AutomationProperties.SetName(_source, "Источник маркетплейса");
         form.Children.Add(_source);
 
-        AddLabel(form, "ВЕТКА ИЛИ TAG (необязательно)", new Thickness(0, 14, 0, 5));
+        AddLabel(form, "Ветка или тег (необязательно)", new Thickness(0, 14, 0, 5));
         StyleTextBox(_refName, 36);
         _refName.MaxLength = 256;
+        AutomationProperties.SetName(_refName, "Ветка или тег маркетплейса");
         form.Children.Add(_refName);
 
-        AddLabel(form, "SPARSE PATHS (необязательно, по одному на строку)", new Thickness(0, 14, 0, 5));
+        AddLabel(form, "Пути внутри репозитория (необязательно, по одному на строку)", new Thickness(0, 14, 0, 5));
         _sparsePaths.AcceptsReturn = true;
         _sparsePaths.TextWrapping = TextWrapping.Wrap;
         _sparsePaths.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -65,17 +71,24 @@ internal sealed class CodexMarketplaceAddWindow : Window
         _sparsePaths.Foreground = Brush("#F1F3F5");
         _sparsePaths.BorderBrush = Brush("#314454");
         _sparsePaths.BorderThickness = new Thickness(1);
+        AutomationProperties.SetName(_sparsePaths, "Пути внутри репозитория");
         form.Children.Add(_sparsePaths);
         form.Children.Add(new TextBlock
         {
             Text = "Источник будет сохранён в общем профиле Codex. После добавления список доступных плагинов обновится.",
             Foreground = Brush("#B0B5BE"),
-            FontSize = 10,
+            FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         });
-        Grid.SetRow(form, 1);
-        root.Children.Add(form);
+        var formScroll = new ScrollViewer
+        {
+            Content = form,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        Grid.SetRow(formScroll, 1);
+        root.Children.Add(formScroll);
 
         var buttons = new StackPanel
         {
@@ -85,16 +98,22 @@ internal sealed class CodexMarketplaceAddWindow : Window
         var cancel = MakeButton("Отмена");
         cancel.IsCancel = true;
         cancel.Margin = new Thickness(0, 0, 8, 0);
-        var add = MakeButton("Добавить");
-        add.IsDefault = true;
-        add.Background = Brush("#204139");
-        add.Foreground = Brush("#92E5C7");
-        add.Click += (_, _) => Save();
+        _addButton = MakeButton("Добавить");
+        _addButton.IsDefault = true;
+        _addButton.Background = Brush("#204139");
+        _addButton.Foreground = Brush("#92E5C7");
+        _addButton.Click += (_, _) => Save();
         buttons.Children.Add(cancel);
-        buttons.Children.Add(add);
+        buttons.Children.Add(_addButton);
         Grid.SetRow(buttons, 2);
         root.Children.Add(buttons);
         return root;
+    }
+
+    private void UpdateSourceState()
+    {
+        _addButton.IsEnabled = !string.IsNullOrWhiteSpace(_source.Text);
+        _addButton.ToolTip = _addButton.IsEnabled ? null : "Укажите источник маркетплейса";
     }
 
     private void Save()
@@ -122,7 +141,7 @@ internal sealed class CodexMarketplaceAddWindow : Window
         => parent.Children.Add(new TextBlock
         {
             Text = text,
-            FontSize = 9,
+            FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brush("#8D95A2"),
             Margin = margin ?? new Thickness(0, 0, 0, 5)

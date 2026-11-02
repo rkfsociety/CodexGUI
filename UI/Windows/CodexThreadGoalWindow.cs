@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Windows.Automation;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,7 +18,10 @@ internal sealed class CodexThreadGoalWindow : Window
     private readonly TextBox _objective = new();
     private readonly ComboBox _status = new();
     private readonly TextBox _tokenBudget = new();
-    private readonly TextBlock _usage = new() { TextWrapping = TextWrapping.Wrap, FontSize = 10, Margin = new Thickness(1, 9, 1, 0) };
+    private readonly TextBlock _usage = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(1, 9, 1, 0) };
+    private readonly TextBlock _objectiveCounter = new() { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, Foreground = Brush("#A6B1BF"), Margin = new Thickness(0, 5, 0, 0) };
+    private readonly TextBlock _budgetError = new() { FontSize = 11, Foreground = Brush("#F4A6A6"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0), Visibility = Visibility.Collapsed };
+    private Button _saveButton = null!;
 
     public bool ClearRequested { get; private set; }
     public string? Objective { get; private set; }
@@ -38,6 +42,11 @@ internal sealed class CodexThreadGoalWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         LoadValues(initialObjective, initialStatus);
+        _objective.TextChanged += (_, _) => UpdateValidation();
+        _tokenBudget.TextChanged += (_, _) => UpdateValidation();
+        _status.SelectionChanged += (_, _) => UpdateValidation();
+        UpdateValidation();
+        Loaded += (_, _) => _objective.Focus();
     }
 
     private UIElement BuildLayout()
@@ -61,22 +70,22 @@ internal sealed class CodexThreadGoalWindow : Window
         cancel.Margin = new Thickness(0, 0, 8, 0);
         cancel.IsCancel = true;
         buttons.Children.Add(cancel);
-        var save = MakeButton("Сохранить", "#223B38");
-        save.Foreground = Brush("#92E5C7");
-        save.IsDefault = true;
-        save.Click += (_, _) => SaveGoal();
-        buttons.Children.Add(save);
+        _saveButton = MakeButton("Сохранить", "#223B38");
+        _saveButton.Foreground = Brush("#92E5C7");
+        _saveButton.IsDefault = true;
+        _saveButton.Click += (_, _) => SaveGoal();
+        buttons.Children.Add(_saveButton);
         root.Children.Add(buttons);
 
         var form = new StackPanel();
-        root.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = form });
+        root.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = form });
         form.Children.Add(new TextBlock
         {
             Text = _isPending
                 ? "Черновик пока хранится в CodexGUI на этом компьютере. Перед ближайшим ходом он будет отправлен в App Server и станет доступен другим клиентам Codex."
                 : "Цель сохраняется в истории App Server и доступна другим клиентам Codex для этого чата.",
             Foreground = Brush("#A6B1BF"),
-            FontSize = 11,
+            FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(1, 0, 1, 3)
         });
@@ -87,7 +96,10 @@ internal sealed class CodexThreadGoalWindow : Window
         _objective.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _objective.MinHeight = 125;
         _objective.MaxHeight = 210;
+        AutomationProperties.SetName(_objective, "Цель чата");
+        form.Children.Add(_objectiveCounter);
         AddField(form, "Статус", _status);
+        AutomationProperties.SetName(_status, "Статус цели");
         _status.ItemsSource = new[]
         {
             new GoalStatusChoice("active", "Активна"),
@@ -101,6 +113,8 @@ internal sealed class CodexThreadGoalWindow : Window
         AddField(form, "Лимит токенов (необязательно)", _tokenBudget);
         _tokenBudget.MaxLength = 20;
         _tokenBudget.ToolTip = "Оставьте пустым, чтобы не задавать лимит";
+        AutomationProperties.SetName(_tokenBudget, "Лимит токенов");
+        form.Children.Add(_budgetError);
         _usage.Foreground = Brush("#A6B1BF");
         form.Children.Add(_usage);
         return root;
@@ -118,6 +132,18 @@ internal sealed class CodexThreadGoalWindow : Window
             : _isPending
                 ? "Черновик ещё не отправлен в App Server."
             : $"Использовано: {_source.TokensUsed:N0} токенов · время: {FormatDuration(_source.TimeUsedSeconds)}";
+    }
+
+    private void UpdateValidation()
+    {
+        _objectiveCounter.Text = $"{_objective.Text.Length:N0} / {_objective.MaxLength:N0}";
+        var budget = _tokenBudget.Text.Trim();
+        var validBudget = budget.Length == 0 || ulong.TryParse(budget, NumberStyles.None, CultureInfo.InvariantCulture, out _);
+        _budgetError.Text = validBudget ? "" : "Введите целое неотрицательное число в допустимом диапазоне.";
+        _budgetError.Visibility = validBudget ? Visibility.Collapsed : Visibility.Visible;
+        var length = _objective.Text.Trim().Length;
+        _saveButton.IsEnabled = length > 0 && length <= _objective.MaxLength && validBudget && _status.SelectedItem is GoalStatusChoice;
+        _saveButton.ToolTip = _saveButton.IsEnabled ? null : "Укажите цель и корректный лимит токенов";
     }
 
     private void SaveGoal()
@@ -178,7 +204,7 @@ internal sealed class CodexThreadGoalWindow : Window
         var labelBlock = new TextBlock
         {
             Text = label,
-            FontSize = 10,
+            FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brush("#A6B1BF"),
             Margin = new Thickness(0, 12, 0, 5)
@@ -186,7 +212,7 @@ internal sealed class CodexThreadGoalWindow : Window
         panel.Children.Add(labelBlock);
         if (input is Control control)
         {
-            control.Padding = new Thickness(8, 6, 8, 6);
+            control.Padding = new Thickness(10, 8, 10, 8);
             control.Background = Brush("#1D1F23");
             control.Foreground = Brush("#F1F3F5");
             control.BorderBrush = Brush("#34373E");
