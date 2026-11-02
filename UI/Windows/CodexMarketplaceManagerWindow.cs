@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -26,6 +28,9 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         Margin = new Thickness(0, 10, 0, 0)
     };
     private readonly Button _remove = new() { Content = "Удалить маркетплейс", IsEnabled = false };
+    private readonly TextBox _search = new();
+    private readonly Button _clearSearch = new() { Content = "Очистить", IsEnabled = false };
+    private readonly TextBlock _count = new() { FontSize = 11, Foreground = Brush("#B0B5BE"), Margin = new Thickness(0, 0, 0, 8) };
     private bool _busy;
 
     public CodexMarketplaceManagerWindow(IReadOnlyList<CodexMarketplace> marketplaces,
@@ -43,12 +48,34 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateButtons();
         _remove.Click += async (_, _) => await RemoveSelectedAsync();
+        _search.TextChanged += (_, _) =>
+        {
+            _clearSearch.IsEnabled = _search.Text.Length > 0;
+            RefreshList();
+        };
+        _clearSearch.Click += (_, _) => _search.Clear();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                _search.Focus();
+                _search.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+            }
+        };
         RefreshList();
     }
 
     private UIElement BuildLayout()
     {
         var root = new Grid { Margin = new Thickness(20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -71,12 +98,35 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         Grid.SetRow(note, 1);
         root.Children.Add(note);
 
+        var searchRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _search.Height = 34;
+        _search.Padding = new Thickness(10, 6, 10, 6);
+        _search.Background = Brush("#181A1E");
+        _search.Foreground = Brush("#F1F3F5");
+        _search.BorderBrush = Brush("#34373E");
+        _search.ToolTip = "Поиск по названию или пути маркетплейса (Ctrl+F)";
+        AutomationProperties.SetName(_search, "Поиск маркетплейсов по названию или пути");
+        searchRow.Children.Add(_search);
+        _clearSearch.Margin = new Thickness(8, 0, 0, 0);
+        _clearSearch.Padding = new Thickness(12, 6, 12, 6);
+        _clearSearch.Background = Brush("#263344");
+        _clearSearch.Foreground = Brush("#D3DCE6");
+        _clearSearch.BorderBrush = Brush("#34373E");
+        Grid.SetColumn(_clearSearch, 1);
+        searchRow.Children.Add(_clearSearch);
+        Grid.SetRow(searchRow, 2);
+        root.Children.Add(searchRow);
+        Grid.SetRow(_count, 3);
+        root.Children.Add(_count);
+
         var listArea = new Grid();
         listArea.Children.Add(_list);
         listArea.Children.Add(_empty);
-        Grid.SetRow(listArea, 2);
+        Grid.SetRow(listArea, 4);
         root.Children.Add(listArea);
-        Grid.SetRow(_status, 3);
+        Grid.SetRow(_status, 5);
         root.Children.Add(_status);
 
         var buttons = new StackPanel
@@ -93,18 +143,25 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         _remove.Margin = new Thickness(0, 0, 8, 0);
         buttons.Children.Add(_remove);
         buttons.Children.Add(close);
-        Grid.SetRow(buttons, 4);
+        Grid.SetRow(buttons, 6);
         root.Children.Add(buttons);
         return root;
     }
 
     private void RefreshList()
     {
+        var selected = SelectedMarketplace();
+        var query = _search.Text.Trim();
         _list.Items.Clear();
+        var visibleCount = 0;
         foreach (var marketplace in _marketplaces
                      .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
                      .ThenBy(item => item.Root, StringComparer.OrdinalIgnoreCase))
         {
+            if (query.Length > 0
+                && !marketplace.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                && !marketplace.Root.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
+            visibleCount++;
             var labels = new StackPanel();
             labels.Children.Add(new TextBlock
             {
@@ -121,7 +178,7 @@ internal sealed class CodexMarketplaceManagerWindow : Window
                 ToolTip = marketplace.Root,
                 Margin = new Thickness(0, 3, 0, 0)
             });
-            _list.Items.Add(new ListBoxItem
+            var listItem = new ListBoxItem
             {
                 Tag = marketplace,
                 Content = labels,
@@ -130,9 +187,17 @@ internal sealed class CodexMarketplaceManagerWindow : Window
                 Background = Brush("#1D1F23"),
                 BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1)
-            });
+            };
+            _list.Items.Add(listItem);
+            if (ReferenceEquals(marketplace, selected)) _list.SelectedItem = listItem;
         }
-        _empty.Visibility = _marketplaces.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _count.Text = query.Length == 0
+            ? $"Маркетплейсов: {_marketplaces.Count}"
+            : $"Найдено: {visibleCount} из {_marketplaces.Count}";
+        _empty.Text = _marketplaces.Count == 0
+            ? "Настроенных маркетплейсов нет."
+            : "По вашему запросу ничего не найдено. Измените или очистите поиск.";
+        _empty.Visibility = visibleCount == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateButtons();
     }
 

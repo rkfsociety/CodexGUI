@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -28,6 +29,9 @@ internal sealed class CodexActivityWindow : Window
     private readonly TextBlock _summary = new();
     private readonly StackPanel _items = new();
     private readonly ScrollViewer _scroll = new();
+    private readonly TextBox _search = new();
+    private readonly Button _clearSearch = new() { Content = "Очистить", IsEnabled = false };
+    private IReadOnlyList<CodexActivityItem> _allItems = Array.Empty<CodexActivityItem>();
 
     public CodexActivityWindow(Action<string> openThread)
     {
@@ -40,17 +44,50 @@ internal sealed class CodexActivityWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        _search.TextChanged += (_, _) =>
+        {
+            _clearSearch.IsEnabled = _search.Text.Length > 0;
+            RenderItems(resetScroll: true);
+        };
+        _clearSearch.Click += (_, _) => _search.Clear();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                _search.Focus();
+                _search.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+            }
+        };
     }
 
     public void UpdateItems(IReadOnlyList<CodexActivityItem> items)
     {
-        var scrollOffset = _scroll.VerticalOffset;
-        _items.Children.Clear();
-        _summary.Text = items.Count == 0
-            ? "Сейчас нет активных чатов, запросов на решение или непрочитанных ответов."
-            : $"Чатов в списке активности: {items.Count}";
+        _allItems = new List<CodexActivityItem>(items);
+        RenderItems();
+    }
 
-        if (items.Count == 0)
+    private void RenderItems(bool resetScroll = false)
+    {
+        var scrollOffset = resetScroll ? 0 : _scroll.VerticalOffset;
+        _items.Children.Clear();
+        var query = _search.Text.Trim();
+        var filtered = new List<CodexActivityItem>();
+        foreach (var item in _allItems)
+            if (query.Length == 0 || Matches(item, query)) filtered.Add(item);
+
+        _summary.Text = _allItems.Count == 0
+            ? "Сейчас нет активных чатов, запросов на решение или непрочитанных ответов."
+            : query.Length == 0
+                ? $"Чатов в списке активности: {_allItems.Count}"
+                : $"Найдено: {filtered.Count} из {_allItems.Count}";
+
+        if (filtered.Count == 0)
         {
             _items.Children.Add(new Border
             {
@@ -61,17 +98,20 @@ internal sealed class CodexActivityWindow : Window
                 Padding = new Thickness(16),
                 Child = new TextBlock
                 {
-                    Text = "Когда Codex завершит фоновый ход или запросит решение, чат появится здесь.",
+                    Text = _allItems.Count == 0
+                        ? "Когда Codex завершит фоновый ход или запросит решение, чат появится здесь."
+                        : "По вашему запросу ничего не найдено. Измените или очистите поиск.",
                     Foreground = Brush("#B0B5BE"),
                     TextWrapping = TextWrapping.Wrap,
                     LineHeight = 20
                 }
             });
-            RestoreScrollOffset(scrollOffset);
+            if (resetScroll) _scroll.ScrollToTop();
+            else RestoreScrollOffset(scrollOffset);
             return;
         }
 
-        foreach (var item in items)
+        foreach (var item in filtered)
         {
             var button = new Button
             {
@@ -110,6 +150,8 @@ internal sealed class CodexActivityWindow : Window
                 FontSize = 10,
                 Foreground = Brush("#B0B5BE"),
                 TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight = 44,
                 Margin = new Thickness(0, 4, 0, 0)
             });
             if (item.RecentEvents.Count > 0)
@@ -189,7 +231,20 @@ internal sealed class CodexActivityWindow : Window
             };
             _items.Children.Add(button);
         }
-        RestoreScrollOffset(scrollOffset);
+        if (resetScroll) _scroll.ScrollToTop();
+        else RestoreScrollOffset(scrollOffset);
+    }
+
+    private static bool Matches(CodexActivityItem item, string query)
+    {
+        if (item.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.ProjectName.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.Status.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.Description.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var activity in item.RecentEvents)
+            if (activity.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || activity.Detail.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     private void RestoreScrollOffset(double offset)
@@ -201,6 +256,7 @@ internal sealed class CodexActivityWindow : Window
     private UIElement BuildLayout()
     {
         var root = new Grid { Margin = new Thickness(20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -215,10 +271,30 @@ internal sealed class CodexActivityWindow : Window
         _summary.Margin = new Thickness(0, 5, 0, 15);
         Grid.SetRow(_summary, 1);
         root.Children.Add(_summary);
+        var searchRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _search.Height = 34;
+        _search.Padding = new Thickness(10, 6, 10, 6);
+        _search.Background = Brush("#181A1E");
+        _search.Foreground = Brush("#F1F3F5");
+        _search.BorderBrush = Brush("#34373E");
+        _search.ToolTip = "Поиск по чатам, проектам, состояниям и событиям (Ctrl+F)";
+        AutomationProperties.SetName(_search, "Поиск по активности чатов");
+        searchRow.Children.Add(_search);
+        _clearSearch.Margin = new Thickness(8, 0, 0, 0);
+        _clearSearch.Padding = new Thickness(12, 6, 12, 6);
+        _clearSearch.Background = Brush("#263344");
+        _clearSearch.Foreground = Brush("#D3DCE6");
+        _clearSearch.BorderBrush = Brush("#34373E");
+        Grid.SetColumn(_clearSearch, 1);
+        searchRow.Children.Add(_clearSearch);
+        Grid.SetRow(searchRow, 2);
+        root.Children.Add(searchRow);
         _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         _scroll.Content = _items;
-        Grid.SetRow(_scroll, 2);
+        Grid.SetRow(_scroll, 3);
         root.Children.Add(_scroll);
         return root;
     }
