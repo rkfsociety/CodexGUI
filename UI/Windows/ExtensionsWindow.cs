@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 
@@ -18,7 +20,9 @@ internal sealed class ExtensionsWindow : Window
     private readonly CodexAppServerClient _client;
     private readonly string _projectPath;
     private readonly Action<CodexExtension> _useSkill;
-    private readonly TextBox _search = new() { Margin = new Thickness(0, 12, 0, 10), Padding = new Thickness(10, 8, 10, 8), Background = Color("#1D1F23") };
+    private readonly TextBox _search = new() { Padding = new Thickness(10, 8, 10, 8), Background = Color("#1D1F23"), MaxLength = 512 };
+    private readonly Button _clearSearch = new() { Content = "Очистить", Margin = new Thickness(8, 0, 0, 0), ToolTip = "Очистить поиск" };
+    private readonly TextBlock _resultCount = new() { Foreground = Color("#A6B1BF"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 0, 10) };
     private readonly TabControl _tabs = new() { Background = Color("#101114"), BorderThickness = new Thickness(0) };
     private readonly ListBox _plugins = CreateList();
     private readonly ListBox _skills = CreateList();
@@ -52,23 +56,36 @@ internal sealed class ExtensionsWindow : Window
         var layout = new Grid { Margin = new Thickness(20), Background = Background };
         foreach (var height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), new GridLength(140), GridLength.Auto, GridLength.Auto })
             layout.RowDefinitions.Add(new RowDefinition { Height = height });
-        var header = new DockPanel();
-        DockPanel.SetDock(_refresh, Dock.Right);
-        header.Children.Add(_refresh);
-        DockPanel.SetDock(_upgradeMarketplaces, Dock.Right);
-        _upgradeMarketplaces.ToolTip = "Обновить все настроенные Git-маркетплейсы через Codex App Server";
-        header.Children.Add(_upgradeMarketplaces);
-        DockPanel.SetDock(_manageMarketplaces, Dock.Right);
+        var header = new Grid();
+        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        header.Children.Add(new TextBlock { Text = "Плагины и скиллы", FontSize = 21, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) });
+        var headerActions = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        _refresh.Margin = new Thickness(0);
+        headerActions.Children.Add(_refresh);
         _manageMarketplaces.ToolTip = "Посмотреть и удалить источники маркетплейсов";
-        header.Children.Add(_manageMarketplaces);
-        DockPanel.SetDock(_addMarketplace, Dock.Right);
+        headerActions.Children.Add(_manageMarketplaces);
         _addMarketplace.ToolTip = "Добавить источник плагинов в общий профиль Codex";
-        header.Children.Add(_addMarketplace);
-        header.Children.Add(new TextBlock { Text = "Плагины и скиллы", FontSize = 21, FontWeight = FontWeights.SemiBold });
+        headerActions.Children.Add(_addMarketplace);
+        _upgradeMarketplaces.ToolTip = "Обновить все настроенные Git-маркетплейсы через Codex App Server";
+        headerActions.Children.Add(_upgradeMarketplaces);
+        Grid.SetRow(headerActions, 1);
+        header.Children.Add(headerActions);
         Add(layout, header, 0);
-        Add(layout, _search, 1);
-        Add(layout, _installedOnly, 2);
+        var searchRow = new DockPanel { Margin = new Thickness(0, 12, 0, 10), LastChildFill = true };
+        DockPanel.SetDock(_clearSearch, Dock.Right);
+        searchRow.Children.Add(_clearSearch);
+        searchRow.Children.Add(_search);
+        Add(layout, searchRow, 1);
+        var filterRow = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(_resultCount, Dock.Right);
+        filterRow.Children.Add(_resultCount);
+        filterRow.Children.Add(_installedOnly);
+        Add(layout, filterRow, 2);
         _search.ToolTip = "Поиск по названию, описанию и источнику";
+        AutomationProperties.SetName(_search, "Поиск по плагинам и скиллам");
+        AutomationProperties.SetName(_plugins, "Список плагинов");
+        AutomationProperties.SetName(_skills, "Список скиллов");
         _tabs.Items.Add(CreateTab("Плагины", _plugins));
         _tabs.Items.Add(CreateTab("Все скиллы", _skills));
         Add(layout, _tabs, 3);
@@ -81,6 +98,21 @@ internal sealed class ExtensionsWindow : Window
         Add(layout, new ScrollViewer { Content = _status, MaxHeight = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, 6);
         Content = layout;
         _search.TextChanged += (_, _) => Filter();
+        _clearSearch.Click += (_, _) => { _search.Clear(); _search.Focus(); };
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                _search.Focus();
+                _search.SelectAll();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _search.IsKeyboardFocusWithin && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+            }
+        };
         _installedOnly.Checked += (_, _) => Filter();
         _installedOnly.Unchecked += (_, _) => Filter();
         _tabs.SelectionChanged += (_, _) => UpdateSelection();
@@ -143,6 +175,7 @@ internal sealed class ExtensionsWindow : Window
         bool Matches(CodexExtension item) => $"{item.Name} {item.Id} {item.Description} {item.PluginId}".Contains(query, StringComparison.OrdinalIgnoreCase);
         var pluginId = (_plugins.SelectedItem as CodexExtension)?.Id;
         var skillId = (_skills.SelectedItem as CodexExtension)?.Id;
+        _clearSearch.IsEnabled = _search.Text.Length > 0;
         _plugins.ItemsSource = _pluginItems.Where(item => (_installedOnly.IsChecked != true || item.Installed) && Matches(item)).ToArray();
         _skills.ItemsSource = _skillItems.Where(Matches).ToArray();
         Select(_plugins, pluginId);
@@ -159,8 +192,11 @@ internal sealed class ExtensionsWindow : Window
         _manageMarketplaces.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
         _addMarketplace.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
         _upgradeMarketplaces.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
+        _resultCount.Text = ShowingSkills
+            ? $"Скиллы: {_skills.Items.Count} из {_skillItems.Count}"
+            : $"Плагины: {_plugins.Items.Count} из {_pluginItems.Count}";
         var item = Selected;
-        _details.Text = item is null ? "Ничего не найдено." :
+        _details.Text = item is null ? EmptyDetailsMessage() :
             $"{item.Name}\n{(item.Installed ? item.Enabled ? "Включён" : "Выключен" : "Не установлен")}\n{item.Description}"
             + (ShowingSkills ? (item.PluginId is { } pluginId ? $"\n{pluginId}" : "") + $"\n{item.Path}" : $"\n{item.Id}")
             + (item.Name.Contains("imagegen", StringComparison.OrdinalIgnoreCase)
@@ -170,9 +206,18 @@ internal sealed class ExtensionsWindow : Window
         _install.Visibility = ShowingSkills ? Visibility.Collapsed : Visibility.Visible;
         _install.IsEnabled = !_busy && item is { Installed: false, CanInstall: true };
         _toggle.Content = item?.Enabled == true ? "Отключить" : "Включить";
-        _toggle.IsEnabled = !_busy && item is { Installed: true };
+        _toggle.IsEnabled = !_busy && item is { Installed: true } && (!ShowingSkills || !string.IsNullOrWhiteSpace(item.Path));
         _use.Visibility = ShowingSkills ? Visibility.Visible : Visibility.Collapsed;
         _use.IsEnabled = !_busy && item is { Enabled: true };
+    }
+
+    private string EmptyDetailsMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(_search.Text))
+            return "По запросу ничего не найдено. Измените поиск или нажмите «Очистить».";
+        if (!ShowingSkills && _installedOnly.IsChecked == true && _pluginItems.Count > 0)
+            return "Установленные плагины не найдены. Снимите флажок «Только установленные», чтобы увидеть весь каталог.";
+        return ShowingSkills ? "Скиллы не найдены." : "Плагины не найдены.";
     }
 
     private async Task ChangeAsync(bool install)
@@ -362,10 +407,11 @@ internal sealed class ExtensionsWindow : Window
               <Setter Property="Foreground" Value="#B0B5BE"/>
               <Setter Property="Template"><Setter.Value>
                 <ControlTemplate TargetType="TabItem">
-                  <Border x:Name="TabBorder" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1F23" BorderBrush="#34373E" BorderThickness="1" Padding="14,8">
+                  <Border x:Name="TabBorder" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#1D1F23" BorderBrush="#34373E" BorderThickness="1" CornerRadius="7" Margin="0,0,4,0" Padding="14,8">
                     <ContentPresenter ContentSource="Header"/>
                   </Border>
                   <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#30353B"/></Trigger>
                     <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#282B30"/><Setter Property="Foreground" Value="#92E5C7"/></Trigger>
                   </ControlTemplate.Triggers>
                 </ControlTemplate>
