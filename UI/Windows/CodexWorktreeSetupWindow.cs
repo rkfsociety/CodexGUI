@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media;
 
 namespace CodexGUI;
@@ -19,6 +20,8 @@ internal sealed class CodexWorktreeSetupWindow : Window
     private readonly TextBlock _status = new();
     private readonly TextBox _output = new();
     private readonly Button _cancelButton = new() { Content = "Остановить" };
+    private readonly Button _copyOutputButton = new() { Content = "Скопировать вывод", IsEnabled = false };
+    private readonly CheckBox _followOutput = new() { Content = "Автопрокрутка", IsChecked = true };
     private Process? _process;
     private bool _cancelRequested;
 
@@ -40,6 +43,18 @@ internal sealed class CodexWorktreeSetupWindow : Window
         Content = BuildLayout();
         Loaded += async (_, _) => await RunSetupAsync();
         _cancelButton.Click += (_, _) => CancelOrClose();
+        _copyOutputButton.Click += (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(_output.Text);
+                _status.Text = "Вывод скопирован в буфер обмена.";
+            }
+            catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+            {
+                _status.Text = "Не удалось скопировать вывод: " + error.Message;
+            }
+        };
         Closing += (_, e) =>
         {
             if (_process is { HasExited: false })
@@ -62,6 +77,7 @@ internal sealed class CodexWorktreeSetupWindow : Window
     private UIElement BuildLayout()
     {
         var root = new Grid { Margin = new Thickness(18) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -102,6 +118,16 @@ internal sealed class CodexWorktreeSetupWindow : Window
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(10)
         };
+        var toolbar = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        _followOutput.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(_followOutput, Dock.Left);
+        toolbar.Children.Add(_followOutput);
+        _copyOutputButton.Padding = new Thickness(10, 5, 10, 5);
+        DockPanel.SetDock(_copyOutputButton, Dock.Right);
+        toolbar.Children.Add(_copyOutputButton);
+        Grid.SetRow(toolbar, 2);
+        root.Children.Add(toolbar);
+
         _output.IsReadOnly = true;
         _output.AcceptsReturn = true;
         _output.TextWrapping = TextWrapping.Wrap;
@@ -111,8 +137,9 @@ internal sealed class CodexWorktreeSetupWindow : Window
         _output.BorderThickness = new Thickness(0);
         _output.FontFamily = new FontFamily("Consolas");
         _output.FontSize = 11;
+        AutomationProperties.SetName(_output, "Вывод подготовки рабочей копии");
         outputBorder.Child = _output;
-        Grid.SetRow(outputBorder, 2);
+        Grid.SetRow(outputBorder, 3);
         root.Children.Add(outputBorder);
 
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0), LastChildFill = false };
@@ -132,7 +159,7 @@ internal sealed class CodexWorktreeSetupWindow : Window
         _cancelButton.MinWidth = 88;
         DockPanel.SetDock(_cancelButton, Dock.Right);
         footer.Children.Add(_cancelButton);
-        Grid.SetRow(footer, 3);
+        Grid.SetRow(footer, 4);
         root.Children.Add(footer);
         return root;
     }
@@ -212,8 +239,12 @@ internal sealed class CodexWorktreeSetupWindow : Window
                 _output.AppendText(prefix + line + Environment.NewLine);
                 if (_output.Text.Length > MaximumOutputCharacters)
                     _output.Text = _output.Text[^MaximumOutputCharacters..];
-                _output.CaretIndex = _output.Text.Length;
-                _output.ScrollToEnd();
+                _copyOutputButton.IsEnabled = _output.Text.Length > 0;
+                if (_followOutput.IsChecked == true)
+                {
+                    _output.CaretIndex = _output.Text.Length;
+                    _output.ScrollToEnd();
+                }
             });
         }
     }
