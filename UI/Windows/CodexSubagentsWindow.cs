@@ -23,6 +23,7 @@ internal sealed class CodexSubagentsWindow : Window
     private IReadOnlyList<CodexSubagentInfo> _subagents = Array.Empty<CodexSubagentInfo>();
     private bool _opening;
     private readonly Button _openButton = new() { Content = "Открыть историю субагента" };
+    private readonly Button _clearFilter = MakeButton("Очистить");
 
     public CodexSubagentsWindow(string parentTitle, Func<IReadOnlyList<CodexSubagentInfo>> readSubagents,
         Func<string, Task> openSubagent)
@@ -38,7 +39,7 @@ internal sealed class CodexSubagentsWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateDetails();
-        _filter.TextChanged += (_, _) => RenderList();
+        _filter.TextChanged += (_, _) => { _clearFilter.IsEnabled = _filter.Text.Length > 0; RenderList(); };
         _list.KeyDown += async (_, args) =>
         {
             if (args.Key != Key.Enter) return;
@@ -58,6 +59,18 @@ internal sealed class CodexSubagentsWindow : Window
             {
                 _filter.Focus();
                 _filter.SelectAll();
+                args.Handled = true;
+            }
+            else if (_filter.IsKeyboardFocusWithin && args.Key == Key.Down && _list.Items.Count > 0)
+            {
+                _list.Focus();
+                if (_list.SelectedItem is ListBoxItem selected) selected.Focus();
+                args.Handled = true;
+            }
+            else if (_filter.IsKeyboardFocusWithin && args.Key == Key.Enter && _list.Items.Count > 0)
+            {
+                _list.Focus();
+                if (_list.SelectedItem is ListBoxItem selected) selected.Focus();
                 args.Handled = true;
             }
             else if (args.Key == Key.Escape && _filter.Text.Length > 0)
@@ -90,11 +103,11 @@ internal sealed class CodexSubagentsWindow : Window
         root.Children.Add(note);
 
         var searchRow = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
-        var clearSearch = MakeButton("Очистить");
-        clearSearch.Margin = new Thickness(8, 0, 0, 0);
-        clearSearch.Click += (_, _) => { _filter.Clear(); _filter.Focus(); };
-        DockPanel.SetDock(clearSearch, Dock.Right);
-        searchRow.Children.Add(clearSearch);
+        _clearFilter.Margin = new Thickness(8, 0, 0, 0);
+        _clearFilter.IsEnabled = false;
+        _clearFilter.Click += (_, _) => { _filter.Clear(); _filter.Focus(); };
+        DockPanel.SetDock(_clearFilter, Dock.Right);
+        searchRow.Children.Add(_clearFilter);
         _count.VerticalAlignment = VerticalAlignment.Center;
         _count.Margin = new Thickness(0, 0, 12, 0);
         DockPanel.SetDock(_count, Dock.Right);
@@ -102,6 +115,9 @@ internal sealed class CodexSubagentsWindow : Window
         _filter.Padding = new Thickness(8, 5, 8, 5);
         AutomationProperties.SetName(_filter, "Поиск субагентов");
         AutomationProperties.SetName(_list, "Список субагентов");
+        AutomationProperties.SetName(_count, "Количество найденных субагентов");
+        AutomationProperties.SetName(_clearFilter, "Очистить поиск субагентов");
+        AutomationProperties.SetName(_details, "Сведения о выбранном субагенте");
         searchRow.Children.Add(_filter);
         Grid.SetRow(searchRow, 2);
         root.Children.Add(searchRow);
@@ -119,7 +135,9 @@ internal sealed class CodexSubagentsWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Stretch,
             Background = Brush("#34373E"),
-            ResizeBehavior = GridResizeBehavior.PreviousAndNext
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            ShowsPreview = true,
+            ToolTip = "Перетащите, чтобы изменить ширину списка и сведений"
         };
         Grid.SetColumn(splitter, 1);
         content.Children.Add(splitter);
@@ -215,6 +233,7 @@ internal sealed class CodexSubagentsWindow : Window
                 Margin = new Thickness(0, 4, 0, 0)
             });
             var item = new ListBoxItem { Tag = agent, Padding = new Thickness(10, 8, 10, 8), Content = card };
+            AutomationProperties.SetName(item, $"{StatusName(agent.Status)} · {ToolName(agent.Tool)} · {CompactText(agent.Prompt ?? agent.ThreadId, 120)}");
             _list.Items.Add(item);
             if (agent.ThreadId == selectedThreadId) _list.SelectedItem = item;
         }
