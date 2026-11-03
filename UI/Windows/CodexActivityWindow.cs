@@ -89,6 +89,9 @@ internal sealed class CodexActivityWindow : Window
     private void RenderItems(bool resetScroll = false)
     {
         var scrollOffset = resetScroll ? 0 : _scroll.VerticalOffset;
+        // Keep keyboard navigation on the same chat when live activity refreshes the list.
+        var focusedThreadId = _items.Children.OfType<Button>()
+            .FirstOrDefault(button => button.IsKeyboardFocusWithin)?.Tag as string;
         _items.Children.Clear();
         var query = _search.Text.Trim();
         var filtered = new List<CodexActivityItem>();
@@ -135,7 +138,8 @@ internal sealed class CodexActivityWindow : Window
                 Background = Brush("#1D1F23"),
                 BorderBrush = Brush("#34373E"),
                 BorderThickness = new Thickness(1),
-                ToolTip = $"{item.Status} · {item.ProjectName}"
+                ToolTip = $"{item.Status} · {item.ProjectName}",
+                Tag = item.ThreadId
             };
             AutomationProperties.SetName(button, $"{item.Title}, {item.Status}, {item.ProjectName}");
             var row = new Grid();
@@ -247,6 +251,13 @@ internal sealed class CodexActivityWindow : Window
         }
         if (resetScroll) _scroll.ScrollToTop();
         else RestoreScrollOffset(scrollOffset);
+        if (focusedThreadId is not null)
+        {
+            var previousSelection = _items.Children.OfType<Button>()
+                .FirstOrDefault(button => string.Equals(button.Tag as string, focusedThreadId, StringComparison.Ordinal));
+            if (previousSelection is not null)
+                Dispatcher.BeginInvoke(() => previousSelection.Focus(), DispatcherPriority.Loaded);
+        }
     }
 
     private static bool Matches(CodexActivityItem item, string query)
