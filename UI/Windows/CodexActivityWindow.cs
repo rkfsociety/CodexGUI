@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -44,12 +45,25 @@ internal sealed class CodexActivityWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
+        AutomationProperties.SetLiveSetting(_summary, AutomationLiveSetting.Polite);
+        AutomationProperties.SetName(_summary, "Количество чатов в списке активности");
         _search.TextChanged += (_, _) =>
         {
             _clearSearch.IsEnabled = _search.Text.Length > 0;
             RenderItems(resetScroll: true);
         };
         _clearSearch.Click += (_, _) => _search.Clear();
+        _search.PreviewKeyDown += (_, e) =>
+        {
+            if ((e.Key == Key.Enter || e.Key == Key.Down) && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (_items.Children.OfType<Button>().FirstOrDefault() is { } first)
+                {
+                    first.Focus();
+                    e.Handled = true;
+                }
+            }
+        };
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
@@ -275,6 +289,7 @@ internal sealed class CodexActivityWindow : Window
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _search.Height = 34;
+        _search.MaxLength = 512;
         _search.Padding = new Thickness(10, 6, 10, 6);
         _search.Background = Brush("#181A1E");
         _search.Foreground = Brush("#F1F3F5");
@@ -291,6 +306,7 @@ internal sealed class CodexActivityWindow : Window
         searchRow.Children.Add(_clearSearch);
         Grid.SetRow(searchRow, 2);
         root.Children.Add(searchRow);
+        AutomationProperties.SetName(_scroll, "Результаты поиска по активности");
         _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         _scroll.Content = _items;
