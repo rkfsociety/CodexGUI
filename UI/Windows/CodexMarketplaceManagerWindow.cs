@@ -47,6 +47,19 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout();
         _list.SelectionChanged += (_, _) => UpdateButtons();
+        AutomationProperties.SetName(_list, "Список маркетплейсов");
+        AutomationProperties.SetName(_count, "Количество маркетплейсов");
+        AutomationProperties.SetName(_status, "Результат удаления маркетплейса");
+        _search.MaxLength = 512;
+        _search.PreviewKeyDown += (_, e) =>
+        {
+            if ((e.Key == Key.Down || e.Key == Key.Enter) && _list.Items.Count > 0)
+            {
+                if (_list.SelectedIndex < 0) _list.SelectedIndex = 0;
+                (_list.SelectedItem as ListBoxItem)?.Focus();
+                e.Handled = true;
+            }
+        };
         _remove.Click += async (_, _) => await RemoveSelectedAsync();
         _search.TextChanged += (_, _) =>
         {
@@ -129,7 +142,7 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         Grid.SetRow(_status, 5);
         root.Children.Add(_status);
 
-        var buttons = new StackPanel
+        var buttons = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -209,6 +222,9 @@ internal sealed class CodexMarketplaceManagerWindow : Window
             "Удалить маркетплейс", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 
         _busy = true;
+        _search.IsEnabled = false;
+        _clearSearch.IsEnabled = false;
+        _list.IsEnabled = false;
         _status.Text = "Удаление маркетплейса…";
         UpdateButtons();
         try
@@ -225,6 +241,9 @@ internal sealed class CodexMarketplaceManagerWindow : Window
         finally
         {
             _busy = false;
+            _search.IsEnabled = true;
+            _clearSearch.IsEnabled = _search.Text.Length > 0;
+            _list.IsEnabled = true;
             UpdateButtons();
         }
     }
