@@ -104,7 +104,7 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}">
+            <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="2" SnapsToDevicePixels="True">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
@@ -114,9 +114,11 @@
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="Chrome" Property="Background" Value="#27434B" />
+                <Setter Property="Foreground" Value="{StaticResource TextMain}" />
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="Chrome" Property="Background" Value="#25443E" />
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
