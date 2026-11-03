@@ -94,6 +94,20 @@ internal sealed class CodexFilePickerWindow : Window
         CodexWindowTheme.Apply(this);
         Content = BuildLayout(title, fileName);
         _filter.TextChanged += (_, _) => RefreshFilteredEntries();
+        // Keep Enter in the search field from accepting the dialog's default button.
+        // Move to the results instead, so keyboard users can inspect the match first.
+        _filter.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter && e.Key != Key.Down) return;
+            if (_entries.Items.Count > 0)
+            {
+                if (_entries.SelectedIndex < 0) _entries.SelectedIndex = 0;
+                _entries.Focus();
+                if (_entries.ItemContainerGenerator.ContainerFromIndex(_entries.SelectedIndex) is ListBoxItem item)
+                    item.Focus();
+            }
+            e.Handled = true;
+        };
         _clearFilter.Click += (_, _) => { _filter.Clear(); _filter.Focus(); };
         PreviewKeyDown += (_, e) =>
         {
@@ -223,6 +237,8 @@ internal sealed class CodexFilePickerWindow : Window
         Grid.SetColumn(_clearFilter, 2);
         filterRow.Children.Add(_clearFilter);
         _filterSummary.Margin = new Thickness(10, 0, 0, 0);
+        AutomationProperties.SetName(_filterSummary, "Количество найденных файлов и папок");
+        AutomationProperties.SetLiveSetting(_filterSummary, AutomationLiveSetting.Polite);
         Grid.SetColumn(_filterSummary, 3);
         filterRow.Children.Add(_filterSummary);
         Grid.SetRow(filterRow, 2);
@@ -292,6 +308,8 @@ internal sealed class CodexFilePickerWindow : Window
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _status.Foreground = Brush("#8D95A2");
+        AutomationProperties.SetName(_status, "Состояние списка файлов и папок");
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         _status.FontSize = 10;
         _status.VerticalAlignment = VerticalAlignment.Center;
         _status.TextTrimming = TextTrimming.CharacterEllipsis;
